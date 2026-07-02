@@ -213,12 +213,12 @@ export default function App() {
               <CalendarX style={{ width: '12px', height: '12px' }} />
               <span>Diários Pendentes</span>
             </button>
-
+{/* COMENTADO TEMPORARIAMENTE PARA TRABALHAR MAIS PARA FRENTE
             <button onClick={() => setAbaAtiva('RESUMO_OBRAS')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'RESUMO_OBRAS' ? '#1e293b' : 'transparent', color: abaAtiva === 'RESUMO_OBRAS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
               <BarChart3 style={{ width: '12px', height: '12px' }} />
               <span>Indicadores da Obra</span>
             </button>
-
+*/}
             <button onClick={() => setAbaAtiva('HISTORICO_MATERIAIS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'HISTORICO_MATERIAIS' ? '#1e293b' : 'transparent', color: abaAtiva === 'HISTORICO_MATERIAIS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Histórico de Materiais</button>
             <button onClick={() => setAbaAtiva('PRESENCA')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'PRESENCA' ? '#1e293b' : 'transparent', color: abaAtiva === 'PRESENCA' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Controle de Presença</button>
           </>
@@ -259,13 +259,13 @@ export default function App() {
             <DiasPendentes id={usuarioLogado.id} cargo={usuarioLogado.cargo} />
           </div>
         )}
-
+{/* COMENTADO TEMPORARIAMENTE
         {abaAtiva === 'RESUMO_OBRAS' && (usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'GESTOR') && (
           <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '4px', width: '100%', boxSizing: 'border-box' }}>
             <ResumoStatusObra id={usuarioLogado.id} cargo={usuarioLogado.cargo} />
           </div>
         )}
-
+*/}
         {/* 🟢 ADICIONADO: Bloco condicional para renderizar a tela de Veículos */}
         {abaAtiva === 'CADASTRO_VEICULO' && (usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'RH') && (
           <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '4px', width: '100%', boxSizing: 'border-box' }}>
