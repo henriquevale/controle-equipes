@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+// === 1. LISTAR TODOS OS FUNCIONÁRIOS (Para preencher a tabela do RH) ===
+app.get('/api/rh/funcionarios', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM funcionarios ORDER BY nome ASC');
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Erro ao buscar funcionários.' });
+    }
+});
+
+// === 2. ATUALIZAR UM FUNCIONÁRIO DIRETO (Status, Cargo, Matrícula) ===
+app.put('/api/rh/funcionarios/:id', async (req, res) => {
+    const { id } = req.params;
+    const { matricula, nome, cargo, ativo } = req.body;
+    try {
+        await pool.query(
+            'UPDATE funcionarios SET matricula = ?, nome = ?, cargo = ?, ativo = ? WHERE id = ?',
+            [matricula, nome, cargo, ativo, id]
+        );
+        res.json({ success: true, message: 'Funcionário atualizado com sucesso!' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Erro ao atualizar funcionário.' });
+    }
+});
+
+// === 3. EXPORTAR ATUAIS FUNCIONÁRIOS PARA EXCEL (Download) ===
+app.get('/api/rh/exportar', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT matricula, nome, cargo, ativo FROM funcionarios');
+        
+        // Cria uma nova planilha usando a biblioteca 'xlsx' que já instalamos
+        const worksheet = xlsx.utils.json_to_sheet(rows);
+        const workbook = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(workbook, worksheet, 'Funcionarios');
+        
+        // Gera o buffer do arquivo
+        const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+        
+        // Define os headers para o navegador entender que é um download de arquivo
+        res.setHeader('Content-Disposition', 'attachment; filename=funcionarios_atualizados.xlsx');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Erro ao gerar planilha.' });
+    }
+});
