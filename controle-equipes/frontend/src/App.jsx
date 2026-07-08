@@ -17,7 +17,7 @@ import ResumoStatusObra from './assets/ResumoStatusObra.jsx';
 import CadastroVeiculo from './assets/CadastroVeiculo'; // 👈 NOVO: Importação do componente de veículos
 
 // Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://meu-projeto-api.onrender.com/api'; i
+const API_URL = 'https://controle-equipes.onrender.com'; //i
 
 export default function App() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
