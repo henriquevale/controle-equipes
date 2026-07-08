@@ -20,6 +20,13 @@ app.use('/api', rhRoutes);
 app.use('/api', masterRoutes);
 app.use('/api', gestorRoutes);
 
+// 🟢 ADICIONE ESTAS LINHAS AQUI PARA SUMIR O CANNOT GET:
+app.get('/', (req, res) => {
+  res.json({ 
+    status: "OK", 
+    mensagem: "O back-end do sistema está rodando com sucesso no Render!" 
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando com sucesso em http://localhost:${PORT}`);
