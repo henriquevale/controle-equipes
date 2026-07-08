@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Search, CalendarDays, AlertTriangle } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+// Em vez de: const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://meu-projeto-api.onrender.com/api'; i
 
 export default function DiasPendentes({ id, cargo }) {
     const [dataInicio, setDataInicio] = useState('');

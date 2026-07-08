@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UserPlus, Save, AlertCircle, RefreshCw, Users, CalendarDays } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+// Em vez de: const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://meu-projeto-api.onrender.com/api'; i
 
 export default function CadastroFuncionario({ usuarioLogado }) {
   const [formData, setFormData] = useState({

@@ -115,16 +115,26 @@ UNLOCK TABLES;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER tg_inserir_controle_equipe
-AFTER INSERT ON diario_efetivo
-FOR EACH ROW
-BEGIN
-    -- Se o funcionário entrou como alocado e tem equipe definida
-    IF NEW.status_presenca = 'ALOCADO' AND NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
-        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
-        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'PENDENTE')
-        ON DUPLICATE KEY UPDATE status_rdo = 'PENDENTE';
-    END IF;
+/*!50003 CREATE*/ /*!50017 */ /*!50003 TRIGGER tg_inserir_controle_equipe
+
+AFTER INSERT ON diario_efetivo
+
+FOR EACH ROW
+
+BEGIN
+
+    -- Se o funcionário entrou como alocado e tem equipe definida
+
+    IF NEW.status_presenca = 'ALOCADO' AND NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
+
+        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
+
+        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'PENDENTE')
+
+        ON DUPLICATE KEY UPDATE status_rdo = 'PENDENTE';
+
+    END IF;
+
 END */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -140,19 +150,32 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER tg_atualizar_controle_equipe
-AFTER INSERT ON diario_efetivo
-FOR EACH ROW
-BEGIN
-    -- Se entrou um status de presença definitivo (RDO preenchido)
-    IF NEW.status_presenca IN ('PRESENTE', 'FALTA', 'FALTOU', 'FOLGA', 'FÉRIAS', 'INTEGRAÇÃO') 
-       AND NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
-        
-        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
-        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'FINALIZADO')
-        ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO';
-        
-    END IF;
+/*!50003 CREATE*/ /*!50017 */ /*!50003 TRIGGER tg_atualizar_controle_equipe
+
+AFTER INSERT ON diario_efetivo
+
+FOR EACH ROW
+
+BEGIN
+
+    -- Se entrou um status de presença definitivo (RDO preenchido)
+
+    IF NEW.status_presenca IN ('PRESENTE', 'FALTA', 'FALTOU', 'FOLGA', 'FÉRIAS', 'INTEGRAÇÃO') 
+
+       AND NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
+
+        
+
+        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
+
+        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'FINALIZADO')
+
+        ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO';
+
+        
+
+    END IF;
+
 END */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -168,17 +191,28 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER tg_escala_criada_pendente
-AFTER INSERT ON diario_efetivo
-FOR EACH ROW
-BEGIN
-    IF NEW.status_presenca = 'ALOCADO' AND NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
-        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
-        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'PENDENTE')
-        ON DUPLICATE KEY UPDATE 
-            -- Só volta para PENDENTE se já não tiver sido FINALIZADO por um RDO técnico anterior
-            status_rdo = IF(status_rdo = 'FINALIZADO', 'FINALIZADO', 'PENDENTE');
-    END IF;
+/*!50003 CREATE*/ /*!50017 */ /*!50003 TRIGGER tg_escala_criada_pendente
+
+AFTER INSERT ON diario_efetivo
+
+FOR EACH ROW
+
+BEGIN
+
+    IF NEW.status_presenca = 'ALOCADO' AND NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
+
+        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
+
+        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'PENDENTE')
+
+        ON DUPLICATE KEY UPDATE 
+
+            -- Só volta para PENDENTE se já não tiver sido FINALIZADO por um RDO técnico anterior
+
+            status_rdo = IF(status_rdo = 'FINALIZADO', 'FINALIZADO', 'PENDENTE');
+
+    END IF;
+
 END */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -281,15 +315,24 @@ UNLOCK TABLES;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER tg_rdo_salvo_finalizado
-AFTER INSERT ON diario_obra
-FOR EACH ROW
-BEGIN
-    IF NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
-        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
-        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'FINALIZADO')
-        ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO';
-    END IF;
+/*!50003 CREATE*/ /*!50017 */ /*!50003 TRIGGER tg_rdo_salvo_finalizado
+
+AFTER INSERT ON diario_obra
+
+FOR EACH ROW
+
+BEGIN
+
+    IF NEW.equipe IS NOT NULL AND NEW.equipe <> '' THEN
+
+        INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo)
+
+        VALUES (NEW.data_diario, NEW.id_obra, UPPER(TRIM(NEW.equipe)), 'FINALIZADO')
+
+        ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO';
+
+    END IF;
+
 END */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;

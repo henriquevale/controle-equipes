@@ -14,7 +14,8 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-const API_URL = 'http://localhost:3001/api';
+// Em vez de: const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://meu-projeto-api.onrender.com/api'; i
 
 // Recebe 'id' (da coluna ID da tabela usuario_sistema) e 'cargo'
 export default function HistoricoDiarios({ id, cargo }) {
