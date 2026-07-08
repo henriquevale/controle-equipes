@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react from '@vitejs/react-refresh' // ou seu plugin do react
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  build: {
+    cssMinify: 'esbuild' // <-- Adicione esta linha dentro de build
+  }
 })
