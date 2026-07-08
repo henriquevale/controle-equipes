@@ -3,7 +3,7 @@ import axios from 'axios';
 import { HardHat, Plus, Edit2, X, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 
 // Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://meu-projeto-api.onrender.com/api'; i
+const API_URL = 'https://meu-projeto-api.onrender.com/api'; 
 
 export default function CadastroObras({ listaObrasGlobal, recarregarObrasGlobal }) {
   // Ajustado o estado inicial para incluir tipo_obra com valor padrão 'PRODUTIVA'
