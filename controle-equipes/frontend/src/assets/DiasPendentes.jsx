@@ -104,7 +104,6 @@ export default function DiasPendentes({ id, cargo }) {
 
             setDiasAuditados(resultadoFinal);
             setBuscaRealizada(true);
-            setLoading(false); // Certifique-se de desligar o loading aqui se houver
         } catch (err) {
             console.error("Erro ao auditar ausências:", err);
             alert("Erro ao processar auditoria.");
@@ -149,51 +148,50 @@ export default function DiasPendentes({ id, cargo }) {
                 <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '6px', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
                         {diasAuditados.map((item) => {
+                            // Agora a cor é aplicada para TODOS os dias baseado no tipoFiltro
                             let bgColor = '#f8fafc'; let borderColor = '#e2e8f0'; let textColor = '#64748b';
 
-                            if (!item.isFimDeSemana) {
-                                if (item.tipoFiltro === 'VERMELHO') {
-                                    bgColor = '#fef2f2'; borderColor = '#fecaca'; textColor = '#991b1b';
-                                } else if (item.tipoFiltro === 'AMARELO') {
-                                    bgColor = '#fefce8'; borderColor = '#fef08a'; textColor = '#854d0e';
-                                } else if (item.tipoFiltro === 'VERDE') {
-                                    bgColor = '#f0fdf4'; borderColor = '#bbf7d0'; textColor = '#166534';
-                                }
+                            if (item.tipoFiltro === 'VERMELHO') {
+                                bgColor = '#fef2f2'; borderColor = '#fecaca'; textColor = '#991b1b';
+                            } else if (item.tipoFiltro === 'AMARELO') {
+                                bgColor = '#fefce8'; borderColor = '#fef08a'; textColor = '#854d0e';
+                            } else if (item.tipoFiltro === 'VERDE') {
+                                bgColor = '#f0fdf4'; borderColor = '#bbf7d0'; textColor = '#166534';
                             }
 
                             return (
                                 <div key={item.dataStr} style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}`, padding: '12px', borderRadius: '4px', color: textColor, display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: 'bold', fontSize: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <span>📅 {formatarDataExibicao(item.dataStr)}</span>
-                                        {item.isFimDeSemana && <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#94a3b8' }}>(FDS)</span>}
+                                        {/* Mantém o texto discreto informando que é Fim de Semana */}
+                                        {item.isFimDeSemana && <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#94a3b8', backgroundColor: 'rgba(255,255,255,0.6)', padding: '2px 4px', borderRadius: '3px', border: '1px solid rgba(0,0,0,0.05)' }}>(FDS)</span>}
                                     </div>
 
-                                    {!item.isFimDeSemana && (
-                                        item.tipoFiltro === 'VERMELHO' ? (
-                                            <div style={{ fontSize: '11px', fontWeight: 'normal', opacity: 0.8, color: '#ef4444' }}>❌ Sem escala e sem RDO</div>
-                                        ) : item.tipoFiltro === 'AMARELO' ? (
-                                            <div style={{ fontSize: '11px', fontWeight: 'normal' }}>
-                                                <span style={{ color: '#d97706', fontWeight: 'bold' }}>⚠️ RDO Pendente nas Equipes:</span>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                                                    {item.equipesAlocadasSemRdo.map(eq => (
-                                                        <span key={eq} style={{ backgroundColor: '#fef9c3', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', border: '1px solid #fef08a', color: '#854d0e', fontWeight: 'bold' }}>
-                                                            {eq}
-                                                        </span>
-                                                    ))}
-                                                </div>
+                                    {/* O conteúdo interno agora renderiza normalmente para fds ou dias de semana */}
+                                    {item.tipoFiltro === 'VERMELHO' ? (
+                                        <div style={{ fontSize: '11px', fontWeight: 'normal', opacity: 0.8, color: '#ef4444' }}>❌ Sem escala e sem RDO</div>
+                                    ) : item.tipoFiltro === 'AMARELO' ? (
+                                        <div style={{ fontSize: '11px', fontWeight: 'normal' }}>
+                                            <span style={{ color: '#d97706', fontWeight: 'bold' }}>⚠️ RDO Pendente nas Equipes:</span>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                                {item.equipesAlocadasSemRdo.map(eq => (
+                                                    <span key={eq} style={{ backgroundColor: '#fef9c3', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', border: '1px solid #fef08a', color: '#854d0e', fontWeight: 'bold' }}>
+                                                        {eq}
+                                                    </span>
+                                                ))}
                                             </div>
-                                        ) : (
-                                            <div style={{ fontSize: '11px', fontWeight: 'normal' }}>
-                                                <span style={{ color: '#16a34a', fontWeight: 'bold' }}>✅ RDO Fechado (Presentes):</span>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                                                    {item.equipesFechadasComSucesso.map(eq => (
-                                                        <span key={eq} style={{ backgroundColor: '#dcfce7', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', border: '1px solid #bbf7d0', color: '#14532d', fontWeight: 'bold' }}>
-                                                            {eq}
-                                                        </span>
-                                                    ))}
-                                                </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '11px', fontWeight: 'normal' }}>
+                                            <span style={{ color: '#16a34a', fontWeight: 'bold' }}>✅ RDO Fechado (Presentes):</span>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                                {item.equipesFechadasComSucesso.map(eq => (
+                                                    <span key={eq} style={{ backgroundColor: '#dcfce7', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', border: '1px solid #bbf7d0', color: '#14532d', fontWeight: 'bold' }}>
+                                                        {eq}
+                                                    </span>
+                                                ))}
                                             </div>
-                                        )
+                                        </div>
                                     )}
                                 </div>
                             );
