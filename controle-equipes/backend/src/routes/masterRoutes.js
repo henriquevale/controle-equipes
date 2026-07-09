@@ -219,9 +219,10 @@ router.put('/master/usuarios/:id', async (req, res) => {
       }
     }
 
+    // 🌟 AQUI ESTÁ A ALTERAÇÃO: Forçando o id_obra como NULL para o banco aceitar
     await connection.execute('DELETE FROM gestor_funcionarios WHERE id_usuario = ?', [id]);
     if (cargo === 'GESTOR' && Array.isArray(ids_funcionarios)) {
-      const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario) VALUES (?, ?)';
+      const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
       for (const idFunc of ids_funcionarios) {
         await connection.execute(sqlVinculoFunc, [id, idFunc]);
       }
@@ -231,11 +232,10 @@ router.put('/master/usuarios/:id', async (req, res) => {
     res.json({ success: true, message: "Usuário updated com sucesso!" });
   } catch (err) {
     await connection.rollback();
-    console.error("ERRO REAL DO BANCO:", err); // <--- Isso vai fazer o erro aparecer no log do Render!
+    console.error("ERRO REAL DO BANCO:", err);
     if (err.errno === 1062 || err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: `O login '${usuario}' já está em uso.` });
     }
-    // Devolve o erro real para o seu F12 do navegador temporariamente:
     res.status(500).json({ error: err.message }); 
   } finally {
     connection.release();
