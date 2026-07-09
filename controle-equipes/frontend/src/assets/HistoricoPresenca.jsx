@@ -38,7 +38,8 @@ export default function HistoricoPresenca({ id, cargo }) {
   const searchConsolidatedDice = useCallback(async () => {
     setCarregando(true);
     try {
-      const response = await axios.get('http://localhost:3001/api/gestor/historico-presenca', {
+      //const response = await axios.get('http://localhost:3001/api/gestor/historico-presenca',
+      const response = await axios.get('https://controle-equipes.onrender.com/api/gestor/historico-presenca', {
         params: { 
           id: id,      // ID do Gestor logado obrigatoriamente
           cargo: cargo,                // Cargo para filtro se necessário

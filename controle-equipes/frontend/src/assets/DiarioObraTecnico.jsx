@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 // Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com'; //i
+const API_URL = 'https://controle-equipes.onrender.com/api'; //i
 
 const SERVICOS_PADRONIZADOS = [
   "REMOÇÃO DE TACHA (UN)",

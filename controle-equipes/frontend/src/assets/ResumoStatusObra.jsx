@@ -3,7 +3,7 @@ import axios from 'axios';
 import { FileText, CloudRain, AlertCircle, CheckCircle, BarChart3, HelpCircle } from 'lucide-react';
 
 // Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com'; //i
+const API_URL = 'https://controle-equipes.onrender.com/api'; //i
 
 export default function ResumoStatusObra({ id, cargo }) {
     const [obraSelecionada, setObraSelecionada] = useState('');
