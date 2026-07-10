@@ -134,7 +134,8 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         }
     };
 
-    const obtenerNomeFuncionario = (idFunc) => {
+    // Mude para:
+    const obterNomeFuncionario = (idFunc) => {
         if (!idFunc) return 'Nenhum (Pátio)';
         const funcionario = listaFuncionarios.find(f => f.id === idFunc);
         return funcionario ? funcionario.nome : `ID: #${idFunc}`;
