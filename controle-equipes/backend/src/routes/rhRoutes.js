@@ -319,13 +319,13 @@ router.get('/veiculos', async (req, res) => {
     }
 });
 
-// 2. ROTA POST: CADASTRAR NOVO VEÍCULO (COM LÓGICA DE STATUS AUTOMÁTICA)
+// 2. ROTA POST: CADASTRAR NOVO VEÍCULO (COM TITULARIDADE E STATUS AUTOMÁTICO)
 router.post('/veiculos', async (req, res) => {
-    const { placa, marca, modelo, ano, tipo, descricao, status, id_funcionario } = req.body;
+    const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_funcionario } = req.body;
 
-    // Validação estrita de presença dos campos obrigatórios
-    if (!placa || !marca || !modelo || !ano || !tipo) {
-        return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano e Tipo são obrigatórios.' });
+    // Validação estrita de presença dos campos obrigatórios (Incluída a titularidade)
+    if (!placa || !marca || !modelo || !ano || !tipo || !titularidade) {
+        return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano, Tipo e Titularidade são obrigatórios.' });
     }
 
     // Tratamento e formatação rígida dos dados para evitar valores 'undefined'
@@ -334,6 +334,7 @@ router.post('/veiculos', async (req, res) => {
     const modeloFormatada = String(modelo).trim();
     const anoFormatado = parseInt(ano, 10);
     const tipoFormatado = String(tipo).trim();
+    const titularidadeFormatada = String(titularidade).trim().toUpperCase(); // Formatado
     const descricaoFormatada = descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null;
     const funcionarioId = id_funcionario && String(id_funcionario).trim() !== '' ? parseInt(id_funcionario, 10) : null;
 
@@ -346,8 +347,8 @@ router.post('/veiculos', async (req, res) => {
     }
 
     const sql = `
-        INSERT INTO veiculos (placa, marca, modelo, ano, tipo, descricao, status, id_funcionario) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO veiculos (placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_funcionario) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     try {
@@ -357,6 +358,7 @@ router.post('/veiculos', async (req, res) => {
             modeloFormatada || '',
             isNaN(anoFormatado) ? null : anoFormatado,
             tipoFormatado || '',
+            titularidadeFormatada || '', // Passado no parâmetro
             descricaoFormatada, 
             statusFinal || 'DISPONÍVEL',
             isNaN(funcionarioId) ? null : funcionarioId 
@@ -372,7 +374,6 @@ router.post('/veiculos', async (req, res) => {
     } catch (err) {
         console.error('Erro interno detectado ao inserir veículo:', err.message);
         
-        // Captura e tratamento específico para placas duplicadas (Chave UNIQUE do banco)
         if (err.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ error: 'Já existe um veículo cadastrado com esta placa!' });
         }
@@ -384,11 +385,11 @@ router.post('/veiculos', async (req, res) => {
 // 3. ROTA PUT: ATUALIZAR UM VEÍCULO EXISTENTE
 router.put('/veiculos/:id', async (req, res) => {
     const { id } = req.params;
-    const { placa, marca, modelo, ano, tipo, descricao, status, id_funcionario } = req.body;
+    const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_funcionario } = req.body;
 
-    // Validação estrita dos campos obrigatórios
-    if (!placa || !marca || !modelo || !ano || !tipo) {
-        return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano e Tipo são obrigatórios.' });
+    // Validação estrita dos campos obrigatórios (Incluída a titularidade)
+    if (!placa || !marca || !modelo || !ano || !tipo || !titularidade) {
+        return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano, Tipo e Titularidade são obrigatórios.' });
     }
 
     const placaFormatada = String(placa).trim().toUpperCase();
@@ -396,10 +397,10 @@ router.put('/veiculos/:id', async (req, res) => {
     const modeloFormatada = String(modelo).trim();
     const anoFormatado = parseInt(ano, 10);
     const tipoFormatado = String(tipo).trim();
+    const titularidadeFormatada = String(titularidade).trim().toUpperCase(); // Formatado
     const descricaoFormatada = descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null;
     const funcionarioId = id_funcionario && String(id_funcionario).trim() !== '' ? parseInt(id_funcionario, 10) : null;
 
-    // Mesma regra de negócio para a definição do Status
     let statusFinal = 'DISPONÍVEL';
     if (status === 'EM MANUTENÇÃO') {
         statusFinal = 'EM MANUTENÇÃO';
@@ -409,7 +410,7 @@ router.put('/veiculos/:id', async (req, res) => {
 
     const sql = `
         UPDATE veiculos 
-        SET placa = ?, marca = ?, modelo = ?, ano = ?, tipo = ?, descricao = ?, status = ?, id_funcionario = ? 
+        SET placa = ?, marca = ?, modelo = ?, ano = ?, tipo = ?, titularidade = ?, descricao = ?, status = ?, id_funcionario = ? 
         WHERE id = ?
     `;
 
@@ -420,6 +421,7 @@ router.put('/veiculos/:id', async (req, res) => {
             modeloFormatada, 
             isNaN(anoFormatado) ? null : anoFormatado,
             tipoFormatado, 
+            titularidadeFormatada, // Adicionado aqui
             descricaoFormatada, 
             statusFinal, 
             isNaN(funcionarioId) ? null : funcionarioId,
@@ -460,4 +462,5 @@ router.delete('/veiculos/:id', async (req, res) => {
         return res.status(500).json({ error: 'Erro interno ao tentar excluir o veículo do sistema.' });
     }
 });
+
 export default router;
