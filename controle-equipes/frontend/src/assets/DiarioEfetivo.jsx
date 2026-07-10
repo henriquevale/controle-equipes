@@ -59,7 +59,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const carregarVeiculosDoSistema = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/veiculos');
+      const res = await axios.get('https://controle-equipes.onrender.com/api/veiculos');
       setListaVeiculos(res.data || []);
     } catch (e) {
       console.error("Erro ao carregar veículos para o diário:", e);
@@ -68,7 +68,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const carregarAlocacoesDaObra = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/gestor/diario-efetivo', {
+      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       setFuncionariosAlocados(res.data || []);
@@ -79,7 +79,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const carregarTodosOsAgendamentosDoDia = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/gestor/diario-efetivo', {
+      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         params: { data_diario: dataSelecionada }
       });
       setTodosOsAgendamentosDoDia(res.data || []);
@@ -92,7 +92,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     try {
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
       const params = { id: usuario?.id, cargo: usuario?.cargo, data_diario: dataSelecionada };
-      const res = await axios.get('http://localhost:3001/api/gestor/funcionarios-disponiveis', { params });
+      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/funcionarios-disponiveis', { params });
       setListaFuncionariosDisponiveis(res.data && res.data.funcionarios ? res.data.funcionarios : []);
     } catch (e) {
       console.error("Erro ao carregar funcionários do gestor:", e);
@@ -101,7 +101,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const carregarGestoresParaModal = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/gestor/lista-remanejamento-gestores');
+      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/lista-remanejamento-gestores');
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
       const idLogado = usuario?.id;
       const gestoresFiltrados = (res.data || []).filter(g => Number(g.id) !== Number(idLogado));
@@ -148,7 +148,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         id_usuario_alteracao: idUsuarioAlteracao 
       };
 
-      await axios.post('http://localhost:3001/api/gestor/remanezar-funcionario-vincular', dadosPayload);
+      await axios.post('https://controle-equipes.onrender.com/api/gestor/remanezar-funcionario-vincular', dadosPayload);
 
       alert(
         `📢 NOTIFICAÇÃO ENVIADA COM SUCESSO!\n\n` +
@@ -168,7 +168,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const ejecutarInclusaoFolga = async (funcionario, turnoAlvo, observacaoTexto, equipeTexto) => {
     try {
-      const resAtual = await axios.get('http://localhost:3001/api/gestor/diario-efetivo', {
+      const resAtual = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       let listaEfetivoAtualizada = resAtual.data || [];
@@ -198,7 +198,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         });
       });
 
-      return await axios.post('http://localhost:3001/api/gestor/diario-efetivo', {
+      return await axios.post('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         efetivo: listaEfetivoAtualizada
@@ -279,7 +279,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     }
 
     try {
-      const resAtual = await axios.get('http://localhost:3001/api/gestor/diario-efetivo', {
+      const resAtual = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       const todosOsTurnosEEquipesDessaObra = resAtual.data || [];
@@ -313,7 +313,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         }
       ];
 
-      await axios.post('http://localhost:3001/api/gestor/diario-efetivo', {
+      await axios.post('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         efetivo: listaEfetivoAtualizada
@@ -334,7 +334,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   const handleDeletarAlocacao = async (idFuncionario, turnoAloc, equipeAloc) => {
     if (!window.confirm("Remover este funcionário da escala?")) return;
     try {
-      const resAtual = await axios.get('http://localhost:3001/api/gestor/diario-efetivo', {
+      const resAtual = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       const todosOsTurnosDessaObra = resAtual.data || [];
@@ -365,7 +365,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           equipe: a.equipe.trim()
         }));
 
-      await axios.post('http://localhost:3001/api/gestor/diario-efetivo', {
+      await axios.post('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         efetivo: listaEfetivoAtualizada
