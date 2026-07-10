@@ -17,7 +17,7 @@ export default function HistoricoPresenca({ id, cargo }) {
     const carregarObrasFiltro = async () => {
       try {
         // 🔍 CORRIGIDO: Removida a rota fantasma e usando a rota unificada /gestor/obras-ativas
-        const res = await axios.get(`http://localhost:3001/api/gestor/obras-ativas`, {
+        const res = await axios.get(`https://controle-equipes.onrender.com/api/gestor/obras-ativas`, {
           // 🔍 CORRIGIDO: Passando 'id' (que veio da prop) para bater com o seu novo Back-end
           params: { 
             id: id, 
