@@ -3,7 +3,7 @@ import axios from 'axios';
 import { UserPlus, Save, AlertCircle, RefreshCw, Users, CalendarDays } from 'lucide-react';
 
 // Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com'; //i
+const API_URL = 'https://controle-equipes.onrender.com/api'; //i
 
 export default function CadastroFuncionario({ usuarioLogado }) {
   const [formData, setFormData] = useState({
