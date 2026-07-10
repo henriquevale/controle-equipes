@@ -5,7 +5,15 @@ const router = express.Router();
 import db from '../../db.js';
 
 // Função utilitária para tratar datas vindas do frontend
-const formatarData = (d) => (d === '' || d === undefined || d === null) ? null : d;
+// Função utilitária para tratar datas vindas do frontend removendo o formato ISO (T00:00:00...)
+const formatarData = (d) => {
+  if (d === '' || d === undefined || d === null) return null;
+  // Se a data vier com o formato ISO completo, extrai apenas a data 'YYYY-MM-DD'
+  if (typeof d === 'string' && d.includes('T')) {
+    return d.split('T')[0];
+  }
+  return d;
+};
 
 // ========================================================
 // A. GET: LISTAR TODOS OS FUNCIONÁRIOS (TABELA RH GERAL)

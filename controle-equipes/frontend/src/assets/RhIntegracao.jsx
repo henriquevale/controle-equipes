@@ -55,7 +55,8 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       return;
     }
 
-    const novaData = new Date(valor);
+    // Compara puramente o texto 'YYYY-MM-DD' para evitar problemas com fuso horário
+    const novaDataStr = valor; 
     const ordemEtapas = [
       'data_documentos_sst',
       'data_enviados',
@@ -72,9 +73,10 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       const campoAnterior = ordemEtapas[indexAtual - 1];
       const dataAnteriorRaw = dadosEdicao[campoAnterior];
       if (dataAnteriorRaw) {
-        const dataAnterior = new Date(formatarParaInput(dataAnteriorRaw));
-        if (novaData < dataAnterior) {
-          alert(`Aviso: Esta data não pode ser inferior ao passo anterior (${formatarParaInput(dataAnteriorRaw)}).`);
+        const dataAnteriorStr = formatarParaInput(dataAnteriorRaw);
+        // Permite datas iguais! Só barra se a nova data for estritamente menor que a anterior
+        if (novaDataStr < dataAnteriorStr) {
+          alert(`Aviso: Esta data não pode ser inferior ao passo anterior (${dataAnteriorStr}).`);
           return;
         }
       }
@@ -84,9 +86,10 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       const campoProximo = ordemEtapas[indexAtual + 1];
       const dataProximaRaw = dadosEdicao[campoProximo];
       if (dataProximaRaw) {
-        const dataProxima = new Date(formatarParaInput(dataProximaRaw));
-        if (novaData > dataProxima) {
-          alert(`Aviso: Esta data não pode ser superior ao próximo passo já preenchido (${formatarParaInput(dataProximaRaw)}).`);
+        const dataProximaStr = formatarParaInput(dataProximaRaw);
+        // Permite datas iguais! Só barra se a nova data for estritamente maior que a próxima
+        if (novaDataStr > dataProximaStr) {
+          alert(`Aviso: Esta data não pode ser superior ao próximo passo já preenchido (${dataProximaStr}).`);
           return;
         }
       }
