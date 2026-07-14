@@ -3,8 +3,8 @@ import axios from 'axios';
 import { Trash2, Edit3, UserPlus, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search } from 'lucide-react';
 
 
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL, mostrarMensagemGlobal }) {
   const [funcionarioEmEdicao, setFuncionarioEmEdicao] = useState(null);

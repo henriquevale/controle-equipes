@@ -2,8 +2,8 @@ import React from 'react';
 import axios from 'axios';
 import { Trash2, Shield, Edit3 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 export default function ListaVinculos({ listaUsuarios, recarregarUsuariosGlobal, API_URL, mostrarMensagemGlobal, dispararEdicaoGlobal }) {
   

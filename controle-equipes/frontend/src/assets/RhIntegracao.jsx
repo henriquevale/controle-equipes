@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Save, Calendar, Edit2, X, Check, FileText, Send, Inbox, Database, BarChart3, Clock, Milestone, Layers3 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);

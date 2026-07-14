@@ -3,8 +3,8 @@ import axios from 'axios';
 import { Users, Trash2, MoveHorizontal, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle } from 'lucide-react';
 
 export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
-  const API_URL = 'http://localhost:3001/api';
-  //const API_URL = 'https://controle-equipes.onrender.com/api';
+  //const API_URL = 'http://localhost:3001/api';
+  const API_URL = 'https://controle-equipes.onrender.com/api';
 
   const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
   const [obraFiltro, setObraFiltro] = useState('');

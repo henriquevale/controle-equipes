@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { HardHat, Plus, Edit2, X, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 export default function CadastroObras({ listaObrasGlobal, recarregarObrasGlobal }) {
   // Ajustado o estado inicial para incluir tipo_obra com valor padrão 'PRODUTIVA'
