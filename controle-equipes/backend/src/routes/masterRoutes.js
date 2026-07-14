@@ -273,7 +273,7 @@ router.get('/master/funcionarios-disponiveis', async (req, res) => {
     // 💡 Regra cirúrgica: Esconde quem já está com outro gestor, 
     // mas mantém os do próprio gestor caso seja uma edição.
     const sql = `
-      SELECT id, matricula, nome, cargo, ativo 
+      SELECT id, matricula, nome, cargo, ativo, observacoes
       FROM funcionarios 
       WHERE id NOT IN (
         SELECT id_funcionario 
