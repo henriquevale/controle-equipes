@@ -249,7 +249,7 @@ router.get(['/master/funcionarios-todos', '/funcionarios'], async (req, res) => 
   try {
     // 💡 Traz absolutamente TODO MUNDO. Não importa se tem gestor, se não tem, status, etc.
     const sql = `
-      SELECT id, matricula, nome, cargo, ativo 
+      SELECT id, matricula, nome, cargo, ativo, observacoes
       FROM funcionarios 
       ORDER BY nome ASC
     `;
