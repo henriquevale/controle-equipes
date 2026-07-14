@@ -250,7 +250,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 });
 
 // ========================================================
-// 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO (CORRIGIDO PARA MANTER VEÍCULOS E ALTERAR STATUS)
+// 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO (PRODUÇÃO + MATERIAIS) ✅ ALINHADO E SEGURO
 // ========================================================
 router.post('/gestor/salvar-diario-completo', async (req, res) => {
   const { 
@@ -265,10 +265,12 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     status 
   } = req.body;
 
+  // Validação inicial rigorosa para impedir que valores nulos quebrem o banco
   if (!data_diario || !id_obra || !id_gestor || !equipe) {
     return res.status(400).json({ error: "Dados obrigatórios ausentes para salvar o diário." });
   }
 
+  // Tratamentos de segurança contra valores inválidos
   const gestorIdValido = parseInt(id_gestor) || null;
   const obraIdValida = parseInt(id_obra) || null;
   const equipeMaiuscula = String(equipe).trim().toUpperCase();
@@ -283,7 +285,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     await connection.beginTransaction();
     await connection.execute('SET FOREIGN_KEY_CHECKS = 0');
 
-    // 1. Busca se já existe um cabeçalho técnico mestre
+    // 1. Busca se já existe um cabeçalho técnico mestre para esta Obra, Data e Equipe[cite: 1]
     const [existenteMestre] = await connection.execute(
       'SELECT id FROM diario_obra WHERE id_obra = ? AND data_diario = ? AND equipe = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
@@ -311,14 +313,14 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       diarioId = resultadoInsereMestre.insertId;
     }
 
-    // 🌟 RECUPERA OS VEÍCULOS ANTES DA LIMPEZA (Garante que o veículo não suma da tela de Frotas/Escala)
+    // 🌟 SEGURO DE VEÍCULOS: Recupera os veículos antes da limpeza para evitar remoções indesejadas[cite: 1]
     const [veiculosAtuais] = await connection.execute(
       'SELECT id_funcionario, id_veiculo FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND equipe = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
     );
     const mapaVeiculos = new Map(veiculosAtuais.map(v => [v.id_funcionario, v.id_veiculo]));
 
-    // 2. Limpa e reinsere o Efetivo Confirmado
+    // 2. Limpa e reinsere o Efetivo Confirmado[cite: 1]
     await connection.execute('DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?', [diarioId]);
     await connection.execute(
       'DELETE FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND equipe = ?', 
@@ -332,6 +334,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
       
+      // Reinserido a coluna id_veiculo para manter a integridade com o banco original[cite: 1]
       const sqlDiarioEfetivo = `
         INSERT INTO diario_efetivo 
         (nome, data_diario, id_obra, id_funcionario, cargo, matricula, turno, status_presenca, observacao, equipe, id_gestor, id_veiculo) 
@@ -342,16 +345,11 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         if (!f.id_funcionario) continue;
         const fid = parseInt(f.id_funcionario);
         
-        let statusTratado = f.status_presenca ? String(f.status_presenca).trim().toUpperCase() : 'PRESENTE';
-        
-        // 🌟 TRANSFORMAÇÃO: Se vier da escala padrão (ALOCADO), grava como presença definitiva (PRESENTE)
-        if (statusTratado === 'ALOCADO') {
-          statusTratado = 'PRESENTE';
-        }
+        let statusTratado = f.status_presenca ? String(f.status_presenca).trim().toUpperCase() : 'ALOCADO';
         if (statusTratado === 'FERIAS') statusTratado = 'FÉRIAS';
         if (statusTratado === 'INTEGRACAO') statusTratado = 'INTEGRAÇÃO';
 
-        // Mantém o veículo que já estava configurado na primeira etapa
+        // Preserva o veículo recuperado no mapa[cite: 1]
         const idVeiculoPreservado = f.id_veiculo ? parseInt(f.id_veiculo) : (mapaVeiculos.get(fid) || null);
 
         await connection.execute(sqlConfirmado, [
@@ -381,10 +379,10 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 3. Limpa e reinsere as Atividades
+    // 3. Limpa e reinsere as Atividades[cite: 1]
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
-      const sqlAtividade = `INSERT INTO diario_atividades (id_diario, tipo_servico, quantity) VALUES (?, ?, ?)` || `INSERT INTO diario_atividades (id_diario, tipo_servico, quantidade) VALUES (?, ?, ?)`;
+      const sqlAtividade = `INSERT INTO diario_atividades (id_diario, tipo_servico, quantidade) VALUES (?, ?, ?)`;
       for (const l of atividades_tachas) {
         const nomeServico = l.tipo_servico || l.tipoServico || l.servico || l.atividade;
         if (!nomeServico) continue;
@@ -397,10 +395,11 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 4. Limpa e reinsere os Materiais
+    // 4. Limpa e reinsere os Materiais Apontados[cite: 1]
     await connection.execute('DELETE FROM diario_materiais_apontados WHERE id_diario = ?', [diarioId]);
     if (materials_apontados && materials_apontados.length > 0) {
       const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, material_nome, quantidade) VALUES (?, ?, ?)`;
+      
       for (const m of materials_apontados) {
         const materialNome = m.material || m.nome;
         if (!materialNome) continue; 
@@ -410,6 +409,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           String(materialNome).trim(), 
           parseFloat(m.quantidade) || 0.00
         ]);
+        console.log(`[Sucesso] Material Salvo no BD: ${materialNome}`);
       }
     }
 
@@ -420,8 +420,14 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
   } catch (err) {
     try { await connection.execute('SET FOREIGN_KEY_CHECKS = 1'); } catch(e){}
     await connection.rollback();
-    console.error("ERRO CRÍTICO NO BANCO DE DADOS:", err.message);
-    res.status(500).json({ error: "Erro interno no banco de dados ao salvar o RDO completo." });
+    
+    // Log estendido de erro no console para expor qualquer quebra de sintaxe ou coluna ausente[cite: 1]
+    console.error("❌ ERRO DETALHADO NO BACKEND:", err);
+    
+    res.status(500).json({ 
+      error: "Erro interno no banco de dados ao salvar o RDO completo.",
+      detalhes: err.message 
+    });
   } finally {
     connection.release();
   }
