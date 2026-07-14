@@ -1,34 +1,38 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
-import fs from 'fs'; // Importante para ler o certificado SSL
+import fs from 'fs';
 
 dotenv.config();
 
-// Define o caminho do certificado: se estiver no Render, usa a variável, se não, usa o caminho padrão
-const sslCaPath = process.env.DB_SSL_CA || './ca.pem';
+// Verifica se estamos rodando localmente ou no Render
+const isLocal = process.env.NODE_ENV !== 'production';
 
-const db = mysql.createPool({
-  host: process.env.DB_HOST || 'mysql-145fd207-controle-equipes-backend01-a849.c.aivencloud.com',
-  user: process.env.DB_USER || 'avnadmin',
-  // ATENÇÃO: No seu código estava process.env.DB_PASSWORD, mas no seu print do Render a chave está como DB_PASS. Ajustei para aceitar ambos abaixo:
-  password: process.env.DB_PASS || process.env.DB_PASSWORD || 'AVNS_43U010-O_-8MYzRpope', 
-  database: process.env.DB_NAME || 'defaultdb',
-  // Adiciona a porta da Aiven (se não achar a variável, usa a 27362 como padrão)
-  port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 27362, 
+const dbConfig = {
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  // Adiciona o SSL obrigatório da Aiven
-  ssl: {
+};
+
+if (isLocal && !process.env.DB_HOST) {
+  // CONFIGURAÇÃO LOCAL: Se você não tiver variáveis do Aiven no seu .env local
+  dbConfig.host = 'localhost';
+  dbConfig.user = 'root';
+  dbConfig.password = ''; 
+  dbConfig.database = 'controle_equipes';
+} else {
+  // CONFIGURAÇÃO ONLINE (AIVEN): Usada no Render ou se você colocar os dados do Aiven no .env local
+  const sslCaPath = process.env.DB_SSL_CA || './ca.pem';
+  
+  dbConfig.host = process.env.DB_HOST || 'mysql-145fd207-controle-equipes-backend01-a849.c.aivencloud.com';
+  dbConfig.user = process.env.DB_USER || 'avnadmin';
+  dbConfig.password = process.env.DB_PASS || process.env.DB_PASSWORD || 'AVNS_43U010-O_-8MYzRpope';
+  dbConfig.database = process.env.DB_NAME || 'defaultdb';
+  dbConfig.port = process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 27362;
+  dbConfig.ssl = {
     ca: fs.readFileSync(sslCaPath)
-  }
-});
+  };
+}
+
+const db = mysql.createPool(dbConfig);
 
 export default db;
-// host: process.env.DB_HOST || 'localhost',
-  //user: process.env.DB_USER || 'root',
- // password: process.env.DB_PASSWORD || '', 
-//  database: process.env.DB_NAME || 'controle_equipes', 
-  //waitForConnections: true,
-  //connectionLimit: 10,
-  //queueLimit: 0

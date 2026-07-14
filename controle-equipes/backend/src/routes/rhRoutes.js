@@ -14,7 +14,25 @@ const formatarData = (d) => {
   }
   return d;
 };
-
+// Criando o endpoint /api/gestores que redireciona para a mesma lógica
+router.get('/gestores', async (req, res) => {
+  try {
+    const sql = `
+      SELECT id AS id_usuario, nome AS nome_gestor
+      FROM usuarios_sistema
+      WHERE cargo = 'GESTOR'
+      ORDER BY nome ASC
+    `;
+    const [rows] = await db.execute(sql);
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar gestores:", err);
+    res.status(500).json({ error: "Erro ao carregar lista de gestores." });
+  }
+});
+// ========================================================
+// A. GET: LISTAR TODOS OS FUNCIONÁRIOS (TABELA RH GERAL)
+// ========================================================
 // ========================================================
 // A. GET: LISTAR TODOS OS FUNCIONÁRIOS (TABELA RH GERAL)
 // ========================================================
@@ -24,11 +42,13 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
       SELECT 
         id, matricula, nome, cargo, ativo, cpf, telefone, 
         tam_calca, tam_camisa, tam_calcado, atualizado_em,
-        data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos
+        data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
+        observacoes
       FROM funcionarios 
       WHERE ativo = 'ATIVO' 
       ORDER BY nome ASC
     `;
+// ...
     const [rows] = await db.execute(sql);
     res.json(rows);
   } catch (err) {
@@ -45,7 +65,8 @@ router.post('/rh/funcionarios', async (req, res) => {
     nome, matricula, cargo, 
     cpf, telefone, tam_calca, tam_camisa, tam_calcado,
     id_usuario_gestor, id_usuario_cadastro,
-    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos
+    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
+    observacoes 
   } = req.body;
 
   if (!nome || !matricula || !cargo) {
@@ -55,11 +76,12 @@ router.post('/rh/funcionarios', async (req, res) => {
   try {
     let idNovoFuncionario = null;
 
+    // CORRIGIDO: Removido o "-" (hífen) que quebrava a sintaxe do SQL
     const sqlFuncionario = `
       INSERT INTO funcionarios 
         (nome, matricula, cargo, ativo, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
-         data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos) 
-      VALUES (?, ?, ?, 'INTEGRAÇÃO PENDENTE', ?, ?, ?, ?, ?, ?, ?, ?)
+         data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos, observacoes)
+      VALUES (?, ?, ?, 'INTEGRAÇÃO PENDENTE', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
     const calcadoFinal = (tam_calcado === '' || tam_calcado === undefined || tam_calcado === null) 
@@ -77,7 +99,8 @@ router.post('/rh/funcionarios', async (req, res) => {
       calcadoFinal,
       formatarData(data_admissao),
       formatarData(data_postagem_aso_pasta),
-      formatarData(data_documentos_rh_completos)
+      formatarData(data_documentos_rh_completos),
+      observacoes && observacoes.trim() !== '' ? observacoes.trim() : null 
     ]);
 
     idNovoFuncionario = resultadoFunc.insertId;
@@ -111,23 +134,59 @@ router.post('/rh/funcionarios', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("🚨 ERRO DETALHADO NO BANCO:", error);
+    // ... manter tratamento de erro original
+  }
+});
 
-    if (error.errno === 1062 || error.code === 'ER_DUP_ENTRY') {
-      const mensagemErro = error.message || '';
-      if (mensagemErro.includes('matricula')) {
-        return res.status(400).json({ error: 'Esta matrícula já está cadastrada.' });
-      }
-      if (mensagemErro.includes('cpf')) {
-        return res.status(400).json({ error: 'Este CPF já está cadastrado.' });
-      }
-    }
+// ========================================================
+// E. PUT: ATUALIZAR FUNCIONÁRIO (EDIÇÃO DIRETA NO CADASTRO DO RH)
+// ========================================================
+router.put('/rh/funcionarios/:id', async (req, res) => {
+  const { id } = req.params;
+  const { 
+    nome, matricula, cargo, ativo, 
+    cpf, telefone, tam_calca, tam_camisa, tam_calcado,
+    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
+    observacoes 
+  } = req.body;
 
-    return res.status(500).json({ 
-      error: `Erro no Banco de Dados: ${error.message || 'Erro desconhecido.'}`,
-      sqlMessage: error.sqlMessage,
-      code: error.code
-    });
+  if (!nome || !matricula || !cargo || !ativo) {
+    return res.status(400).json({ error: "Campos obrigatórios ausentes." });
+  }
+
+  try {
+    const sql = `
+      UPDATE funcionarios 
+      SET 
+        nome = ?, matricula = ?, cargo = ?, ativo = ?, 
+        cpf = ?, telefone = ?, tam_calca = ?, tam_camisa = ?, tam_calcado = ?,
+        data_admissao = ?, data_postagem_aso_pasta = ?, data_documentos_rh_completos = ?,
+        observacoes = ?, atualizado_em = NOW() 
+      WHERE id = ?
+    `;
+    
+    await db.execute(sql, [
+      nome.trim(), 
+      matricula.trim(), 
+      cargo.trim(), 
+      ativo, 
+      cpf ? cpf.trim() : null,
+      telefone ? telefone.trim() : null,
+      tam_calca ? tam_calca.trim() : null,
+      tam_camisa ? tam_camisa.trim() : null,
+      tam_calcado ? tam_calcado.trim() : null,
+      formatarData(data_admissao),
+      formatarData(data_postagem_aso_pasta),
+      formatarData(data_documentos_rh_completos),
+      // Ajustado para aceitar strings vazias sem quebrar a edição posterior
+      observacoes !== undefined && observacoes !== null ? observacoes.trim() : null,
+      parseInt(id)
+    ]);
+    
+    res.json({ success: true, message: "Dados atualizados com sucesso!" });
+  } catch (err) {
+    console.error("Erro no banco ao atualizar funcionário:", err);
+    res.status(500).json({ error: "Erro ao atualizar dados do funcionário no banco." });
   }
 });
 
@@ -200,7 +259,6 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
     return res.status(500).json({ error: "Erro interno ao atualizar os dados de integração." });
   }
 });
-
 // ========================================================
 // E. PUT: ATUALIZAR FUNCIONÁRIO (EDIÇÃO DIRETA NO CADASTRO DO RH)
 // ========================================================
@@ -209,7 +267,8 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
   const { 
     nome, matricula, cargo, ativo, 
     cpf, telefone, tam_calca, tam_camisa, tam_calcado,
-    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos
+    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
+    observacoes // Adicionado aqui
   } = req.body;
 
   if (!nome || !matricula || !cargo || !ativo) {
@@ -232,6 +291,7 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
         data_admissao = ?,
         data_postagem_aso_pasta = ?,
         data_documentos_rh_completos = ?,
+        observacoes = ?,
         atualizado_em = NOW() 
       WHERE id = ?
     `;
@@ -249,6 +309,7 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
       formatarData(data_admissao),
       formatarData(data_postagem_aso_pasta),
       formatarData(data_documentos_rh_completos),
+      observacoes ? observacoes.trim() : null,
       parseInt(id)
     ]);
     
@@ -258,17 +319,14 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
     res.status(500).json({ error: "Erro ao atualizar dados do funcionário no banco." });
   }
 });
-
 // ========================================================
 // F. GET: LISTAR FUNCIONÁRIOS EM PROCESSO DE INTEGRAÇÃO (CORRIGIDO)
 // ========================================================
 router.get('/rh/integracoes-pendentes', async (req, res) => {
   try {
-    // 💡 MODIFICADO: Alterado de INNER JOIN para LEFT JOIN 
-    // Garante que mesmo os funcionários modificados para pendente apareçam aqui!
     const sql = `
       SELECT 
-        f.id, f.nome, f.matricula, f.cargo, f.ativo,
+        f.id, f.nome, f.matricula, f.cargo, f.ativo, f.observacoes,
         f.data_admissao, f.data_postagem_aso_pasta, f.data_documentos_rh_completos,
         i.data_documentos_sst, i.data_enviados, i.data_recebidos,
         i.data_postado_bex, i.data_analise, i.data_integracao_agendada, i.data_integracao
@@ -307,61 +365,65 @@ router.get('/rh/gestores-disponiveis', async (req, res) => {
 // ROTAS DE GESTÃO DE VEÍCULOS E FROTA INTELIGENTE
 // =========================================================================
 
-// 1. ROTA GET: LISTAR TODOS OS VEÍCULOS DA FROTA
+// 1. ROTA GET: LISTAR TODOS OS VEÍCULOS (Trazendo ambos os IDs)
 router.get('/veiculos', async (req, res) => {
+    // Garantir que ambas as colunas sejam selecionadas para não quebrar nenhuma tela
+    const sql = `
+        SELECT id, placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor, id_funcionario 
+        FROM veiculos 
+        ORDER BY id DESC
+    `;
     try {
-        // Busca todos os veículos ordenando pelo ID decrescente (mais recentes primeiro)
-        const [rows] = await db.query('SELECT * FROM veiculos ORDER BY id DESC');
+        const [rows] = await db.query(sql);
         return res.json(rows);
     } catch (err) {
-        console.error('Erro ao buscar veículos no banco:', err.message);
-        return res.status(500).json({ error: 'Erro interno ao listar a frota de veículos.' });
+        console.error('Erro ao listar veículos:', err.message);
+        return res.status(500).json({ error: `Erro no banco de dados: ${err.message}` });
     }
 });
 
-// 2. ROTA POST: CADASTRAR NOVO VEÍCULO (COM TITULARIDADE E STATUS AUTOMÁTICO)
+// 2. ROTA POST: CADASTRAR NOVE VEÍCULO (Gravando no id_gestor)
 router.post('/veiculos', async (req, res) => {
-    const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_funcionario } = req.body;
+    const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor } = req.body;
 
-    // Validação estrita de presença dos campos obrigatórios (Incluída a titularidade)
     if (!placa || !marca || !modelo || !ano || !tipo || !titularidade) {
         return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano, Tipo e Titularidade são obrigatórios.' });
     }
 
-    // Tratamento e formatação rígida dos dados para evitar valores 'undefined'
     const placaFormatada = String(placa).trim().toUpperCase();
     const marcaFormatada = String(marca).trim();
     const modeloFormatada = String(modelo).trim();
     const anoFormatado = parseInt(ano, 10);
     const tipoFormatado = String(tipo).trim();
-    const titularidadeFormatada = String(titularidade).trim().toUpperCase(); // Formatado
+    const titularidadeFormatada = String(titularidade).trim().toUpperCase(); 
     const descricaoFormatada = descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null;
-    const funcionarioId = id_funcionario && String(id_funcionario).trim() !== '' ? parseInt(id_funcionario, 10) : null;
+    const gestorId = id_gestor && String(id_gestor).trim() !== '' ? parseInt(id_gestor, 10) : null;
 
-    // Regra de negócio automatizada: Manutenção define o status, mas não descarta o ID do funcionário
+    // Regra de negócio baseada no id_gestor
     let statusFinal = 'DISPONÍVEL';
     if (status === 'EM MANUTENÇÃO') {
         statusFinal = 'EM MANUTENÇÃO';
-    } else if (funcionarioId) {
+    } else if (gestorId) {
         statusFinal = 'EM USO';
     }
 
+    // Inserimos explicitamente no id_gestor. id_funcionario inicia como null aqui e fica livre para suas outras telas.
     const sql = `
-        INSERT INTO veiculos (placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_funcionario) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO veiculos (placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor, id_funcionario) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     `;
 
     try {
         const parametros = [
-            placaFormatada || '',
-            marcaFormatada || '',
-            modeloFormatada || '',
+            placaFormatada,
+            marcaFormatada,
+            modeloFormatada,
             isNaN(anoFormatado) ? null : anoFormatado,
-            tipoFormatado || '',
-            titularidadeFormatada || '', // Passado no parâmetro
+            tipoFormatado,
+            titularidadeFormatada, 
             descricaoFormatada, 
-            statusFinal || 'DISPONÍVEL',
-            isNaN(funcionarioId) ? null : funcionarioId 
+            statusFinal,
+            isNaN(gestorId) ? null : gestorId 
         ];
 
         const [result] = await db.query(sql, parametros);
@@ -372,60 +434,51 @@ router.post('/veiculos', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Erro interno detectado ao inserir veículo:', err.message);
-        
+        console.error('Erro ao inserir veículo:', err.message);
         if (err.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ error: 'Já existe um veículo cadastrado com esta placa!' });
         }
-        
         return res.status(500).json({ error: `Erro no banco de dados: ${err.message}` });
     }
 });
 
-// 3. ROTA PUT: ATUALIZAR UM VEÍCULO EXISTENTE
+// 3. ROTA PUT: ATUALIZAR VEÍCULO EXISTENTE (Atualiza id_gestor e preserva id_funcionario)
 router.put('/veiculos/:id', async (req, res) => {
     const { id } = req.params;
-    const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_funcionario } = req.body;
+    const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor } = req.body;
 
-    // Validação estrita dos campos obrigatórios (Incluída a titularidade)
     if (!placa || !marca || !modelo || !ano || !tipo || !titularidade) {
         return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano, Tipo e Titularidade são obrigatórios.' });
     }
 
-    const placaFormatada = String(placa).trim().toUpperCase();
-    const marcaFormatada = String(marca).trim();
-    const modeloFormatada = String(modelo).trim();
-    const anoFormatado = parseInt(ano, 10);
-    const tipoFormatado = String(tipo).trim();
-    const titularidadeFormatada = String(titularidade).trim().toUpperCase(); // Formatado
-    const descricaoFormatada = descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null;
-    const funcionarioId = id_funcionario && String(id_funcionario).trim() !== '' ? parseInt(id_funcionario, 10) : null;
+    const gestorId = id_gestor && String(id_gestor).trim() !== '' ? parseInt(id_gestor, 10) : null;
 
     let statusFinal = 'DISPONÍVEL';
     if (status === 'EM MANUTENÇÃO') {
         statusFinal = 'EM MANUTENÇÃO';
-    } else if (funcionarioId) {
+    } else if (gestorId) {
         statusFinal = 'EM USO';
     }
 
+    // O UPDATE altera apenas o id_gestor nesta tela, deixando o id_funcionario intocado
     const sql = `
         UPDATE veiculos 
-        SET placa = ?, marca = ?, modelo = ?, ano = ?, tipo = ?, titularidade = ?, descricao = ?, status = ?, id_funcionario = ? 
+        SET placa = ?, marca = ?, modelo = ?, ano = ?, tipo = ?, titularidade = ?, descricao = ?, status = ?, id_gestor = ?
         WHERE id = ?
     `;
 
     try {
         const parametros = [
-            placaFormatada, 
-            marcaFormatada, 
-            modeloFormatada, 
-            isNaN(anoFormatado) ? null : anoFormatado,
-            tipoFormatado, 
-            titularidadeFormatada, // Adicionado aqui
-            descricaoFormatada, 
-            statusFinal, 
-            isNaN(funcionarioId) ? null : funcionarioId,
-            parseInt(id, 10)
+            String(placa).trim().toUpperCase(),
+            String(marca).trim(),
+            String(modelo).trim(),
+            parseInt(ano, 10),
+            String(tipo).trim(),
+            String(titularidade).trim().toUpperCase(),
+            descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null,
+            statusFinal,
+            isNaN(gestorId) ? null : gestorId,
+            id
         ];
 
         const [result] = await db.query(sql, parametros);
@@ -434,33 +487,31 @@ router.put('/veiculos/:id', async (req, res) => {
             return res.status(404).json({ error: 'Veículo não encontrado para atualização.' });
         }
 
-        return res.json({ message: 'Veículo atualizado com sucesso na frota!' });
+        return res.json({ message: 'Veículo atualizado com sucesso!' });
     } catch (err) {
         console.error('Erro ao atualizar veículo:', err.message);
-        if (err.code === 'ER_DUP_ENTRY') {
-            return res.status(400).json({ error: 'Já existe outro veículo cadastrado com esta placa!' });
-        }
         return res.status(500).json({ error: `Erro no banco de dados: ${err.message}` });
     }
 });
 
-// 4. ROTA DELETE: REMOVER UM VEÍCULO DA FROTA
+// 4. ROTA DELETE: REMOVER VEÍCULO DA FROTA
 router.delete('/veiculos/:id', async (req, res) => {
     const { id } = req.params;
-    const sql = 'DELETE FROM veiculos WHERE id = ?';
+    const sql = `DELETE FROM veiculos WHERE id = ?`;
 
     try {
         const [result] = await db.query(sql, [id]);
-        
+
         if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Veículo não encontrado ou já removido.' });
+            return res.status(404).json({ error: 'Veículo não encontrado para exclusão.' });
         }
-        
-        return res.json({ message: 'Veículo removido da frota com sucesso.' });
+
+        return res.json({ message: 'Veículo removido com sucesso da frota!' });
     } catch (err) {
-        console.error('Erro ao deletar veículo no banco:', err.message);
-        return res.status(500).json({ error: 'Erro interno ao tentar excluir o veículo do sistema.' });
+        console.error('Erro ao deletar veículo:', err.message);
+        return res.status(500).json({ error: `Erro no banco de dados: ${err.message}` });
     }
 });
+
 
 export default router;

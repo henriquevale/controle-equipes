@@ -3,6 +3,8 @@ import axios from 'axios';
 import { Users, Trash2, MoveHorizontal, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle } from 'lucide-react';
 
 export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
+  const API_URL = 'http://localhost:3001/api';
+  //const API_URL = 'https://controle-equipes.onrender.com/api';
 
   const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
   const [obraFiltro, setObraFiltro] = useState('');
@@ -14,9 +16,11 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   // Estados para a gestão e visibilidade dos veículos vinculados
   const [listaVeiculos, setListaVeiculos] = useState([]);
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
+  const [mostrarResumoVeiculos, setMostrarResumoVeiculos] = useState(false);
 
   const [novaAlocacao, setNovaAlocacao] = useState({
     id_funcionario: '',
+    id_veiculo: '', // Novo campo para alocação conjunta
     turno: 'DIURNO',
     equipe: '', 
     observacao: ''
@@ -27,9 +31,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     observacao: 'Folga Programada'
   });
 
-  const [equipeSelecionadaFiltro, setEquipeSelecionadaFiltro] = useState('ALL');
-  
-  // Estados para controlar a visibilidade das tabelas
+  // Estados de controle de visibilidade das tabelas
   const [mostrarResumoOcupacao, setMostrarResumoOcupacao] = useState(false);
   const [mostrarRemanejamento, setMostrarRemanejamento] = useState(false);
 
@@ -54,21 +56,32 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     }
     carregarTodosOsAgendamentosDoDia();
     carregarFuncionariosDoGestor();
-    carregarVeiculosDoSistema(); 
+    carregarVeiculosDoGestor(); 
   }, [dataSelecionada, obraFiltro, novaAlocacao.turno]);
 
-  const carregarVeiculosDoSistema = async () => {
-    try {
-      const res = await axios.get('https://controle-equipes.onrender.com/api/veiculos');
-      setListaVeiculos(res.data || []);
-    } catch (e) {
-      console.error("Erro ao carregar veículos para o diário:", e);
-    }
-  };
+  // Filtra os veículos trazendo apenas os vinculados ao ID do Gestor logado
+const carregarVeiculosDoGestor = async () => {
+  try {
+    const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
+    
+    // Mesmos parâmetros exatos da rota de funcionários
+    const params = { 
+      id: usuario?.id, 
+      cargo: usuario?.cargo 
+    };
+
+    // Ajustado o caminho para incluir /gestor/veiculos
+    const res = await axios.get(`${API_URL}/gestor/veiculos`, { params });
+    
+    setListaVeiculos(res.data || []);
+  } catch (e) {
+    console.error("Erro ao carregar veículos do gestor:", e);
+  }
+};
 
   const carregarAlocacoesDaObra = async () => {
     try {
-      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       setFuncionariosAlocados(res.data || []);
@@ -79,7 +92,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const carregarTodosOsAgendamentosDoDia = async () => {
     try {
-      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada }
       });
       setTodosOsAgendamentosDoDia(res.data || []);
@@ -92,7 +105,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     try {
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
       const params = { id: usuario?.id, cargo: usuario?.cargo, data_diario: dataSelecionada };
-      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/funcionarios-disponiveis', { params });
+      const res = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { params });
       setListaFuncionariosDisponiveis(res.data && res.data.funcionarios ? res.data.funcionarios : []);
     } catch (e) {
       console.error("Erro ao carregar funcionários do gestor:", e);
@@ -101,7 +114,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const carregarGestoresParaModal = async () => {
     try {
-      const res = await axios.get('https://controle-equipes.onrender.com/api/gestor/lista-remanejamento-gestores');
+      const res = await axios.get(`${API_URL}/gestor/lista-remanejamento-gestores`);
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
       const idLogado = usuario?.id;
       const gestoresFiltrados = (res.data || []).filter(g => Number(g.id) !== Number(idLogado));
@@ -148,7 +161,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         id_usuario_alteracao: idUsuarioAlteracao 
       };
 
-      await axios.post('https://controle-equipes.onrender.com/api/gestor/remanezar-funcionario-vincular', dadosPayload);
+      await axios.post(`${API_URL}/gestor/remanezar-funcionario-vincular`, dadosPayload);
 
       alert(
         `📢 NOTIFICAÇÃO ENVIADA COM SUCESSO!\n\n` +
@@ -168,7 +181,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const ejecutarInclusaoFolga = async (funcionario, turnoAlvo, observacaoTexto, equipeTexto) => {
     try {
-      const resAtual = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      const resAtual = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       let listaEfetivoAtualizada = resAtual.data || [];
@@ -194,11 +207,12 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           turno: turno,
           status_presenca: 'Folga', 
           observacao: observacaoTexto || 'Folga Programada',
-          equipe: nomeEquipeTratado
+          equipe: nomeEquipeTratado,
+          id_veiculo: null
         });
       });
 
-      return await axios.post('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      return await axios.post(`${API_URL}/gestor/diario-efetivo`, {
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         efetivo: listaEfetivoAtualizada
@@ -217,7 +231,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       return;
     }
 
-    const funcionarioCompleto = listaFuncionariosDisponiveis.find(
+    const funcionarioCompleto = listaFuncionavisDisponiveis.find(
       f => String(f.id) === String(novaFolga.id_funcionario)
     );
 
@@ -278,8 +292,20 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       return;
     }
 
+    // Validação se o veículo já está ocupado no mesmo turno em qualquer outra alocação do dia
+    if (novaAlocacao.id_veiculo) {
+      const veiculoOcupado = todosOsAgendamentosDoDia.find(
+        a => String(a.id_veiculo) === String(novaAlocacao.id_veiculo) &&
+             String(a.turno).toUpperCase() === String(novaAlocacao.turno).toUpperCase()
+      );
+      if (veiculoOcupado) {
+        alert(`⚠️ O veículo selecionado já está alocado neste turno (${novaAlocacao.turno}) em outra equipe.`);
+        return;
+      }
+    }
+
     try {
-      const resAtual = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      const resAtual = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       const todosOsTurnosEEquipesDessaObra = resAtual.data || [];
@@ -297,7 +323,8 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           turno: a.turno,
           status_presenca: a.status_presenca || 'ALOCADO',
           observacao: a.observacao || '',
-          equipe: a.equipe.trim()
+          equipe: a.equipe.trim(),
+          id_veiculo: a.id_veiculo || null
         })),
         {
           id_funcionario: funcionarioCompleto.id,
@@ -309,22 +336,24 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           turno: novaAlocacao.turno,
           status_presenca: 'ALOCADO', 
           observacao: novaAlocacao.observacao || '',
-          equipe: nomeEquipeTratado
+          equipe: nomeEquipeTratado,
+          id_veiculo: novaAlocacao.id_veiculo ? Number(novaAlocacao.id_veiculo) : null
         }
       ];
 
-      await axios.post('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         efetivo: listaEfetivoAtualizada
       });
       
       setFiltroEquipe(nomeEquipeTratado.toUpperCase());
-      setNovaAlocacao({ ...novaAlocacao, id_funcionario: '', equipe: '', observacao: '' });
+      setNovaAlocacao({ ...novaAlocacao, id_funcionario: '', id_veiculo: '', equipe: '', observacao: '' });
       
       carregarAlocacoesDaObra();
       carregarTodosOsAgendamentosDoDia();
       carregarFuncionariosDoGestor(); 
+      carregarVeiculosDoGestor();
     } catch (err) {
       console.error("❌ Erro ao salvar alocação:", err);
       alert(`Erro crítico ao salvar alocação no banco de dados.`);
@@ -334,7 +363,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   const handleDeletarAlocacao = async (idFuncionario, turnoAloc, equipeAloc) => {
     if (!window.confirm("Remover este funcionário da escala?")) return;
     try {
-      const resAtual = await axios.get('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      const resAtual = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
       const todosOsTurnosDessaObra = resAtual.data || [];
@@ -362,10 +391,11 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           turno: a.turno,
           status_presenca: a.status_presenca || 'ALOCADO',
           observacao: a.observacao || '',
-          equipe: a.equipe.trim()
+          equipe: a.equipe.trim(),
+          id_veiculo: a.id_veiculo || null
         }));
 
-      await axios.post('https://controle-equipes.onrender.com/api/gestor/diario-efetivo', {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         efetivo: listaEfetivoAtualizada
@@ -374,6 +404,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       carregarAlocacoesDaObra();
       carregarTodosOsAgendamentosDoDia();
       carregarFuncionariosDoGestor(); 
+      carregarVeiculosDoGestor();
     } catch (err) {
       console.error("❌ Erro ao remover agendamento:", err);
       alert("Erro ao remover agendamento.");
@@ -396,38 +427,44 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
   };
 
-  const renderBadgeStatusVeiculo = (statusTxt) => {
-    const st = statusTxt ? statusTxt.toUpperCase() : '';
-    let bg = '#dcfce7', text = '#166534', icone = <CheckCircle style={{ width: '11px', height: '11px' }} />;
+  // Nova lógica de status por turno exclusiva de veículos
+  const obterStatusVeiculoPorTurno = (idVeiculo, turnoAlvo) => {
+    const alocacaoVeiculo = todosOsAgendamentosDoDia.find(
+      a => Number(a.id_veiculo) === Number(idVeiculo) && String(a.turno).toUpperCase() === turnoAlvo
+    );
+
+    if (alocacaoVeiculo) {
+      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(alocacaoVeiculo.id_obra));
+      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${alocacaoVeiculo.id_obra}`;
+      return { texto: `EM USO - ${nomeObra} [${alocacaoVeiculo.equipe}]`, corBg: '#fef9c3', corTxt: '#713f12' };
+    }
+    return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
+  };
+
+  const renderBadgeStatusVeiculo = (statusTxt, idVeiculo) => {
+    const jaAlocadoHoje = todosOsAgendamentosDoDia.some(a => Number(a.id_veiculo) === Number(idVeiculo));
+    const st = jaAlocadoHoje ? 'EM USO' : (statusTxt ? statusTxt.toUpperCase() : '');
     
+    let bg = '#dcfce7', text = '#166534', icone = <CheckCircle style={{ width: '11px', height: '11px' }} />;
+    let label = statusTxt || 'DISPONÍVEL';
+
     if (st === 'EM MANUTENÇÃO') { 
-        bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '11px', height: '11px' }} />; 
+        bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '11px', height: '11px' }} />;
     } else if (st === 'EM USO') { 
         bg = '#fef9c3'; text = '#713f12'; icone = <AlertTriangle style={{ width: '11px', height: '11px' }} />; 
+        label = 'EM USO NA ESCALA';
     }
 
     return (
         <span style={{ backgroundColor: bg, color: text, padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            {icone} {statusTxt}
+            {icone} {label}
         </span>
     );
   };
 
-  const funcionariosNaoAlocadosNoDia = listaFuncionariosDisponiveis.filter(func => {
+  const funcionariosDisponiveisParaRemanejamento = listaFuncionariosDisponiveis.filter(func => {
     return !todosOsAgendamentosDoDia.some(agend => String(agend.id_funcionario) === String(func.id));
   });
-
-  // --- NOVO FILTRO GLOBAL CORRIGIDO: Se tiver QUALQUER agendamento no dia, ele some da transferência ---
-  const funcionariosDisponiveisParaRemanejamento = listaFuncionariosDisponiveis.filter(func => {
-    const possuiQualquerAgendamentoNoDia = todosOsAgendamentosDoDia.some(agend => {
-      return String(agend.id_funcionario) === String(func.id);
-    });
-    return !possuiQualquerAgendamentoNoDia;
-  });
-
-  const veiculosDoQuadroAtivo = listaVeiculos.filter(v => 
-    v.id_funcionario && listaFuncionariosDisponiveis.some(f => Number(f.id) === Number(v.id_funcionario))
-  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box', position: 'relative' }}>
@@ -468,6 +505,17 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                 <option value="">-- Escolha o Funcionário --</option>
                 {listaFuncionariosDisponiveis.map(f => (
                   <option key={f.id} value={f.id}>{f.nome} ({f.cargo})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* VINCULAR VEÍCULO DO GESTOR JUNTO AO COLABORADOR */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#2563eb' }}>Vincular Veículo Frota</label>
+              <select style={{ height: '32px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={novaAlocacao.id_veiculo} onChange={e => setNovaAlocacao({...novaAlocacao, id_veiculo: e.target.value})}>
+                <option value="">-- Sem Veículo Alocado --</option>
+                {listaVeiculos.map(v => (
+                  <option key={v.id} value={v.id}>[{v.placa}] {v.marca} {v.modelo}</option>
                 ))}
               </select>
             </div>
@@ -552,9 +600,9 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         </form>
       </div>
 
-      {/* SEÇÃO STATUS DE VEÍCULOS VINCULADOS */}
+      {/* SEÇÃO STATUS DE VEÍCULOS DA FROTA (IGUAL AO EFETIVO ESCALADO GERAL) */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarTabelaVeiculos ? '12px' : '0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Car style={{ width: '16px', height: '16px', color: '#2563eb' }} />
             Status dos Veículos da Frota (Atrelados aos seus Colaboradores)
@@ -583,37 +631,37 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         </div>
 
         {mostrarTabelaVeiculos && (
-          <div style={{ overflowX: 'auto', marginTop: '8px' }}>
+          <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
               <thead>
-                <tr style={{ backgroundColor: '#1e293b', color: '#fff', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 12px' }}>Placa</th>
+                <tr style={{ backgroundColor: '#0f172a', color: '#fff', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 12px' }}>Placa / Identificação</th>
                   <th style={{ padding: '10px 12px' }}>Veículo / Modelo</th>
                   <th style={{ padding: '10px 12px' }}>Tipo</th>
-                  <th style={{ padding: '10px 12px' }}>Colaborador Vinculado</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '140px' }}>Status do Veículo</th>
+                  <th style={{ padding: '10px 12px' }}>Condutor na Escala Atual</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '140px' }}>Status Operacional</th>
                 </tr>
               </thead>
               <tbody>
-                {veiculosDoQuadroAtivo.length === 0 ? (
+                {listaVeiculos.length === 0 ? (
                   <tr>
-                    <td colSpan="5" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum veículo da frota está atualmente vinculado a seus colaboradores diretos.
+                    <td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                      Nenhum veículo disponível cadastrado para este gestor.
                     </td>
                   </tr>
                 ) : (
-                  veiculosDoQuadroAtivo.map((veiculo, index) => {
-                    const motorista = listaFuncionariosDisponiveis.find(f => Number(f.id) === Number(veiculo.id_funcionario));
+                  listaVeiculos.map((veiculo, index) => {
+                    const alocacaoAtiva = todosOsAgendamentosDoDia.find(a => Number(a.id_veiculo) === Number(veiculo.id));
                     return (
-                      <tr key={`veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <tr key={`veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: alocacaoAtiva ? '#fef9c3' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') }}>
                         <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</td>
-                        <td style={{ padding: '10px 12px', color: '#334155' }}>{veiculo.marca} {veiculo.modelo} ({veiculo.ano})</td>
-                        <td style={{ padding: '10px 12px', color: '#64748b' }}>{veiculo.tipo}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: '500', color: '#1e293b' }}>
-                          {motorista ? `${motorista.nome} (${motorista.cargo})` : `ID Funcionário: #${veiculo.id_funcionario}`}
+                        <td style={{ padding: '10px 12px', color: '#334155' }}>{veiculo.marca} {veiculo.modelo} ({veiculo.ano || '—'})</td>
+                        <td style={{ padding: '10px 12px', color: '#64748b' }}>{veiculo.tipo || 'Geral'}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: '500', color: '#1e3a8a' }}>
+                          {alocacaoAtiva ? `${alocacaoAtiva.nome} [${alocacaoAtiva.equipe}]` : 'Disponível na Garagem'}
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          {renderBadgeStatusVeiculo(veiculo.status)}
+                          {renderBadgeStatusVeiculo(veiculo.status, veiculo.id)}
                         </td>
                       </tr>
                     );
@@ -625,7 +673,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         )}
       </div>
 
-      {/* 3. LISTAGEM DO EFETIVO ALOCADO NO DIA COM FILTRO INTEGRAÇÃO */}
+      {/* 3. LISTAGEM DO EFETIVO ALOCADO NO DIA */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -656,6 +704,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                 <th style={{ padding: '10px 12px' }}>Cargo</th>
                 <th style={{ padding: '10px 12px', textAlign: 'center' }}>Turno</th>
                 <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
+                <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
                 <th style={{ padding: '10px 12px' }}>Obs</th>
                 <th style={{ padding: '10px 12px' }}>Obra Destino</th>
                 <th style={{ padding: '10px 12px', textAlign: 'center', width: '80px' }}>Ação</th>
@@ -671,7 +720,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                 if (alocacoesFiltradas.length === 0) {
                   return (
                     <tr>
-                      <td colSpan="7" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                      <td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
                         Nenhum colaborador alocado para os critérios selecionados.
                       </td>
                     </tr>
@@ -681,6 +730,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                 return alocacoesFiltradas.map((aloc, index) => {
                   const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
                                       String(aloc.status_presenca).toUpperCase() === 'FOLGA';
+                  const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
 
                   return (
                     <tr 
@@ -692,43 +742,23 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                     >
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ 
-                            fontWeight: 'bold', 
-                            color: ehFolguista ? '#dc2626' : '#0f172a' 
-                          }}>
+                          <span style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
                             {aloc.nome}
                           </span>
-                          {ehFolguista && (
-                            <span style={{ 
-                              backgroundColor: '#fee2e2', 
-                              color: '#b91c1c', 
-                              fontSize: '9px', 
-                              fontWeight: 'bold', 
-                              padding: '2px 6px', 
-                              borderRadius: '4px',
-                              textTransform: 'uppercase'
-                            }}>
-                              🔄 Folguista
-                            </span>
-                          )}
                         </div>
                         <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
                       </td>
                       <td style={{ padding: '10px 12px', color: '#334155' }}>{aloc.cargo || '—'}</td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span style={{ 
-                          backgroundColor: ehFolguista ? '#fee2e2' : '#e2e8f0', 
-                          color: ehFolguista ? '#991b1b' : '#1e293b', 
-                          padding: '2px 6px', 
-                          borderRadius: '4px', 
-                          fontWeight: 'bold', 
-                          fontSize: '9px' 
-                        }}>
+                        <span style={{ backgroundColor: ehFolguista ? '#fee2e2' : '#e2e8f0', color: ehFolguista ? '#991b1b' : '#1e293b', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px' }}>
                           {aloc.turno || '—'}
                         </span>
                       </td>
                       <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : '#1e3a8a' }}>
                         {aloc.equipe || 'Geral'}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontWeight: '500', color: '#16a34a' }}>
+                        {veiculoUtilizado ? `🚗 ${veiculoUtilizado.placa} (${veiculoUtilizado.modelo})` : '—'}
                       </td>
                       <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
                         {aloc.observacao || '—'}
@@ -739,7 +769,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <button 
                           type="button" 
-                          title="Remover esta alocação"
                           onClick={() => handleDeletarAlocacao(aloc.id_funcionario, aloc.turno, aloc.equipe)} 
                           style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
                         >
@@ -755,7 +784,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         </div>
       </div>
 
-      {/* SEÇÃO RESUMO DE OCUPAÇÃO (CONECTADA E INTEGRADA) */}
+      {/* SEÇÃO RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoOcupacao ? '12px' : '0' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '13px' }}>
@@ -782,22 +811,78 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                 </tr>
               </thead>
               <tbody>
-                {listaFuncionariosDisponiveis.length === 0 ? (
+                {listaFuncionariosDisponiveis.map((func, index) => {
+                  const statusDiurno = obterStatusPorTurno(func.id, 'DIURNO');
+                  const statusNoturno = obterStatusPorTurno(func.id, 'NOTURNO');
+                  return (
+                    <tr key={`resumo-${func.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{func.nome}</div>
+                        <div style={{ fontSize: '9px', color: '#64748b' }}>{func.cargo} | MAT: {func.matricula || '—'}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <span style={{ backgroundColor: statusDiurno.corBg, color: statusDiurno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                          {statusDiurno.texto}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <span style={{ backgroundColor: statusNoturno.corBg, color: statusNoturno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                          {statusNoturno.texto}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* NOVA PARTE: RESUMO GERAL DA OCUPAÇÃO DOS VEÍCULOS NO DIA (POR TURNO) */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoVeiculos ? '12px' : '0' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e3a8a', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Car style={{ width: '16px', height: '16px' }} />
+            Resumo Geral da Ocupação dos Veículos no Dia (Por Turno)
+          </div>
+          <button 
+            type="button"
+            onClick={() => setMostrarResumoVeiculos(!mostrarResumoVeiculos)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e293b' }}
+          >
+            {mostrarResumoVeiculos ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
+            {mostrarResumoVeiculos ? 'Ocultar Tabela' : 'Ver Tabela'}
+          </button>
+        </div>
+
+        {mostrarResumoVeiculos && (
+          <div style={{ overflowX: 'auto', maxHeight: '350px', marginTop: '8px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#1e3a8a', color: '#fff', textTransform: 'uppercase', position: 'sticky', top: 0, zIndex: 10 }}>
+                  <th style={{ padding: '10px 12px' }}>Veículo / Identificação</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40%' }}>Status Turno DIURNO</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40%' }}>Status Turno NOTURNO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listaVeiculos.length === 0 ? (
                   <tr>
                     <td colSpan="3" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum colaborador vinculado a sua gerência técnica.
+                      Nenhum veículo cadastrado sob sua responsabilidade técnica.
                     </td>
                   </tr>
                 ) : (
-                  listaFuncionariosDisponiveis.map((func, index) => {
-                    const statusDiurno = obterStatusPorTurno(func.id, 'DIURNO');
-                    const statusNoturno = obterStatusPorTurno(func.id, 'NOTURNO');
+                  listaVeiculos.map((veiculo, index) => {
+                    const statusDiurno = obterStatusVeiculoPorTurno(veiculo.id, 'DIURNO');
+                    const statusNoturno = obterStatusVeiculoPorTurno(veiculo.id, 'NOTURNO');
 
                     return (
-                      <tr key={`resumo-${func.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <tr key={`resumo-veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                         <td style={{ padding: '10px 12px' }}>
-                          <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{func.nome}</div>
-                          <div style={{ fontSize: '9px', color: '#64748b' }}>{func.cargo} | MAT: {func.matricula || '—'}</div>
+                          <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</div>
+                          <div style={{ fontSize: '9px', color: '#64748b' }}>{veiculo.marca} {veiculo.modelo}</div>
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                           <span style={{ backgroundColor: statusDiurno.corBg, color: statusDiurno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
@@ -819,7 +904,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         )}
       </div>
 
-      {/* 4. SEÇÃO REMANEJAMENTO E TRANSFERÊNCIA INTERNA */}
+      {/* 4. SEÇÃO REMANEJAMENTO */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarRemanejamento ? '12px' : '0' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -838,14 +923,11 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
         {mostrarRemanejamento && (
           <div style={{ overflowX: 'auto', marginTop: '8px' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#64748b', fontStyle: 'italic' }}>
-              Utilize esta tabela para transferir a gerência técnica do colaborador de forma definitiva para outro Engenheiro responsável.
-            </p>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
               <thead>
                 <tr style={{ backgroundColor: '#65a30d', color: '#fff', textTransform: 'uppercase' }}>
                   <th style={{ padding: '10px 12px' }}>Colaborador</th>
-                  <th style={{ padding: '10px 12px' }}>Cargo Atual</th>
+                  <th style={{ padding: '10px 12px' }}>Cargo</th>
                   <th style={{ padding: '10px 12px' }}>Matrícula</th>
                   <th style={{ padding: '10px 12px', textAlign: 'center', width: '180px' }}>Ação de Remanejamento</th>
                 </tr>

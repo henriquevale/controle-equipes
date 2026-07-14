@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { UserPlus, Save, AlertCircle, RefreshCw, Users, CalendarDays } from 'lucide-react';
+import { UserPlus, Save, AlertCircle, RefreshCw, Users, CalendarDays, FileText } from 'lucide-react';
 
-// Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; //i
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; //i
 
 export default function CadastroFuncionario({ usuarioLogado }) {
   const [formData, setFormData] = useState({
@@ -18,7 +18,8 @@ export default function CadastroFuncionario({ usuarioLogado }) {
     id_usuario_gestor: '', // Controla apenas o ID do gestor selecionado
     data_admissao: '',
     data_postagem_aso_pasta: '',
-    data_documentos_rh_completos: ''
+    data_documentos_rh_completos: '',
+    observacoes: '' // 📝 ADICIONADO: Estado inicial do campo observações
   });
 
   const [gestores, setGestores] = useState([]); 
@@ -103,7 +104,8 @@ export default function CadastroFuncionario({ usuarioLogado }) {
         id_usuario_gestor: formData.id_usuario_gestor || null,
         data_admissao: formData.data_admissao || null,
         data_postagem_aso_pasta: formData.data_postagem_aso_pasta || null,
-        data_documentos_rh_completos: formData.data_documentos_rh_completos || null
+        data_documentos_rh_completos: formData.data_documentos_rh_completos || null,
+        observacoes: formData.observacoes // 📝 ADICIONADO: Campo mapeado para o payload da API
       };
 
       await axios.post(`${API_URL}/rh/funcionarios`, payload);
@@ -122,7 +124,8 @@ export default function CadastroFuncionario({ usuarioLogado }) {
         id_usuario_gestor: '',
         data_admissao: '',
         data_postagem_aso_pasta: '',
-        data_documentos_rh_completos: ''
+        data_documentos_rh_completos: '',
+        observacoes: '' // 📝 ADICIONADO: Reset do campo após cadastro bem-sucedido
       });
 
       setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 4000);
@@ -195,7 +198,7 @@ export default function CadastroFuncionario({ usuarioLogado }) {
             </div>
           </div>
 
-          {/* BOX: Datas de Controle de Admissão e Documentações (Novas Colunas) */}
+          {/* BOX: Datas de Controle de Admissão e Documentações */}
           <div style={{ backgroundColor: '#fff8e1', padding: '12px', border: '1px solid #ffe082', borderRadius: '4px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', color: '#b78103', marginBottom: '10px' }}>
               <CalendarDays style={{ width: '14px', height: '14px' }} />
@@ -257,6 +260,31 @@ export default function CadastroFuncionario({ usuarioLogado }) {
                 <input type="number" name="tam_calcado" value={formData.tam_calcado} onChange={handleChange} placeholder="Ex: 40" min="30" max="50" style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box' }} />
               </div>
             </div>
+          </div>
+
+          {/* 📝 BOX NOVO: Observações e Anotações médicas/restrições */}
+          <div style={{ backgroundColor: '#f8fafc', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', color: '#475569', marginBottom: '6px' }}>
+              <FileText style={{ width: '14px', height: '14px', color: '#64748b' }} />
+              OBSERVAÇÕES ADICIONAIS / ANOTAÇÕES GERAIS
+            </label>
+            <textarea
+              name="observacoes"
+              value={formData.observacoes}
+              onChange={handleChange}
+              placeholder="Insira observações importantes como restrições médicas, observações sobre contratação, histórico ou outras anotações do RH..."
+              style={{ 
+                width: '100%', 
+                minHeight: '70px', 
+                padding: '8px', 
+                border: '1px solid #cbd5e1', 
+                borderRadius: '4px', 
+                fontFamily: 'inherit', 
+                fontSize: '11px', 
+                boxSizing: 'border-box',
+                resize: 'vertical'
+              }}
+            />
           </div>
 
         </div>

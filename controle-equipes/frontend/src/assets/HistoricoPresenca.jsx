@@ -12,12 +12,15 @@ export default function HistoricoPresenca({ id, cargo }) {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
 
+  const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+
   // 1. Carrega as obras vinculadas ao gestor para alimentar o select do filtro
   useEffect(() => {
     const carregarObrasFiltro = async () => {
       try {
         // 🔍 CORRIGIDO: Removida a rota fantasma e usando a rota unificada /gestor/obras-ativas
-        const res = await axios.get(`https://controle-equipes.onrender.com/api/gestor/obras-ativas`, {
+        const res = await axios.get(`${API_URL}/gestor/obras-ativas`, {
           // 🔍 CORRIGIDO: Passando 'id' (que veio da prop) para bater com o seu novo Back-end
           params: { 
             id: id, 
@@ -39,7 +42,7 @@ export default function HistoricoPresenca({ id, cargo }) {
     setCarregando(true);
     try {
       //const response = await axios.get('http://localhost:3001/api/gestor/historico-presenca',
-      const response = await axios.get('https://controle-equipes.onrender.com/api/gestor/historico-presenca', {
+      const response = await axios.get(`${API_URL}/gestor/historico-presenca`, {
         params: { 
           id: id,      // ID do Gestor logado obrigatoriamente
           cargo: cargo,                // Cargo para filtro se necessário

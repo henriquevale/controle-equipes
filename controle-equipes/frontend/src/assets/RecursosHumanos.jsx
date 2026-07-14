@@ -1,24 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Trash2, Edit3, UserPlus, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Trash2, Edit3, UserPlus, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search } from 'lucide-react';
+
+
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL, mostrarMensagemGlobal }) {
   const [funcionarioEmEdicao, setFuncionarioEmEdicao] = useState(null);
-  const [formData, setFormData] = useState({ nome: '', matricula: '', cargo: '', ativo: 'ATIVO' });
+  
+  // Referência para rolar até o formulário de edição
+  const scrollFormRef = useRef(null);
+  
+  // 1. AJUSTADO: Adicionado 'observacoes' ao estado inicial do formulário
+  const [formData, setFormData] = useState({ nome: '', matricula: '', cargo: '', ativo: 'ATIVO', observacoes: '' });
   
   // Estado para controlar o filtro selecionado ('TODOS', 'ATIVO', 'INATIVO', 'INTEGRAÇÃO PENDENTE')
   const [filtroStatus, setFiltroStatus] = useState('TODOS');
 
+  // 2. NOVO: Estado para armazenar o termo de busca por nome
+  const [termoPesquisa, setTermoPesquisa] = useState('');
+
+  // 3. AJUSTADO: Sincronização do formulário ao entrar ou sair do modo de edição
   useEffect(() => {
     if (funcionarioEmEdicao) {
       setFormData({
         nome: funcionarioEmEdicao.nome || '',
         matricula: funcionarioEmEdicao.matricula || '',
         cargo: funcionarioEmEdicao.cargo || '',
-        ativo: funcionarioEmEdicao.ativo || 'ATIVO'
+        ativo: funcionarioEmEdicao.ativo || 'ATIVO',
+        observacoes: funcionarioEmEdicao.observacoes || '' // Incluído na edição
       });
+
+      // Rola a página suavemente até o formulário de edição
+      setTimeout(() => {
+        scrollFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } else {
-      setFormData({ nome: '', matricula: '', cargo: '', ativo: 'ATIVO' });
+      setFormData({ nome: '', matricula: '', cargo: '', ativo: 'ATIVO', observacoes: '' });
     }
   }, [funcionarioEmEdicao]);
 
@@ -29,28 +48,33 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   const totalInativos = safeLista.filter(f => f.ativo === 'INATIVO').length;
   const totalPendentes = safeLista.filter(f => f.ativo === 'INTEGRAÇÃO PENDENTE').length;
 
-  // BLINDAGEM: Filtra os funcionários garantindo comparações limpas de string
+  // 4. AJUSTADO: Filtro combinado (Status + Pesquisa de Nome Dinâmica)
   const funcionariosFiltrados = safeLista.filter(func => {
-    if (filtroStatus === 'TODOS') return true;
-    return String(func.ativo).trim().toUpperCase() === String(filtroStatus).trim().toUpperCase();
+    // Validação por Status
+    const atendeStatus = filtroStatus === 'TODOS' || 
+      String(func.ativo).trim().toUpperCase() === String(filtroStatus).trim().toUpperCase();
+    
+    // Validação por Termo de Busca (Nome)
+    const atendeNome = String(func.nome || '').toLowerCase().includes(termoPesquisa.toLowerCase());
+
+    return atendeStatus && atendeNome;
   });
 
   const lidarComEnvio = async (e) => {
     e.preventDefault();
     if (!formData.nome || !formData.matricula || !formData.cargo || !formData.ativo) {
-      mostrarMensagemGlobal('Por favor, preencha todos os campos!', 'erro');
+      mostrarMensagemGlobal('Por favor, preencha todos os campos obrigatórios!', 'erro');
       return;
     }
 
     try {
       if (funcionarioEmEdicao) {
-        // CORRIGIDO: Alterado de axiosOriginal para axios
         await axios.put(`${API_URL}/rh/funcionarios/${funcionarioEmEdicao.id}`, formData);
         mostrarMensagemGlobal('Funcionário atualizado com sucesso!', 'sucesso');
         setFuncionarioEmEdicao(null);
       }
       
-      setFormData({ nome: '', matricula: '', cargo: '', ativo: 'ATIVO' });
+      setFormData({ nome: '', matricula: '', cargo: '', ativo: 'ATIVO', observacoes: '' });
       recarregarFuncionariosGlobal();
     } catch (err) {
       console.group("❌ DETALHES DO ERRO NA API (RH)");
@@ -68,7 +92,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     if (!window.confirm("Tem certeza que deseja excluir permanentemente este funcionário? Isso pode afetar os vínculos ativos.")) return;
     
     try {
-      // CORRIGIDO: Alterado de axiosOriginal para axios
       await axios.delete(`${API_URL}/rh/funcionarios/${id}`);
       mostrarMensagemGlobal('Funcionário removido com sucesso!', 'sucesso');
       if (funcionarioEmEdicao?.id === id) setFuncionarioEmEdicao(null);
@@ -153,7 +176,10 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
 
       {/* 1. FORMULÁRIO EXIBIDO APENAS EM MODO DE EDIÇÃO */}
       {funcionarioEmEdicao && (
-        <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', width: '100%', boxSizing: 'border-box' }}>
+        <div 
+          ref={scrollFormRef} 
+          style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', width: '100%', boxSizing: 'border-box' }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px', fontWeight: 'bold', textTransform: 'uppercase' }}>
             <RefreshCw style={{ width: '16px', height: '16px', color: '#d97706' }} />
             <span>Alterar Dados de: {funcionarioEmEdicao.nome}</span>
@@ -187,6 +213,17 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </div>
             </div>
 
+            {/* 5. NOVO: Campo de Observações adicionado ao Formulário */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+              <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Observações</label>
+              <textarea 
+                style={{ minHeight: '60px', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontFamily: 'inherit', fontSize: '11px', resize: 'vertical' }} 
+                value={formData.observacoes} 
+                onChange={e => setFormData({...formData, observacoes: e.target.value})}
+                placeholder="Insira anotações sobre histórico, restrições ou observações médicas do colaborador..."
+              />
+            </div>
+
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
               <button type="button" onClick={() => setFuncionarioEmEdicao(null)} style={{ height: '32px', padding: '0 16px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
                 Cancelar Edição
@@ -201,20 +238,44 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
 
       {/* 2. TABELA DE FUNCIONÁRIOS */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', width: '100%', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '12px' }}>
+        
+        {/* 6. AJUSTADO: Seção de cabeçalho da tabela com Barra de Pesquisa de Nome Integrada */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '12px', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', textTransform: 'uppercase' }}>
             <Users style={{ width: '16px', height: '16px', color: '#1e293b' }} />
             <span>Funcionários ({filtroStatus === 'TODOS' ? 'Todos' : filtroStatus})</span>
           </div>
-          
-          {filtroStatus !== 'TODOS' && (
-            <button 
-              onClick={() => setFiltroStatus('TODOS')}
-              style={{ fontSize: '10px', padding: '2px 8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', color: '#475569', fontWeight: 'bold' }}
-            >
-              Limpar Filtro [X]
-            </button>
-          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+            {/* Campo de Pesquisa */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search style={{ width: '14px', height: '14px', color: '#94a3b8', position: 'absolute', left: '8px' }} />
+              <input 
+                type="text" 
+                placeholder="Pesquisar por nome..." 
+                value={termoPesquisa}
+                onChange={e => setTermoPesquisa(e.target.value)}
+                style={{ height: '28px', padding: '0 8px 0 28px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', width: '180px' }}
+              />
+              {termoPesquisa && (
+                <button 
+                  onClick={() => setTermoPesquisa('')} 
+                  style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            
+            {filtroStatus !== 'TODOS' && (
+              <button 
+                onClick={() => setFiltroStatus('TODOS')}
+                style={{ fontSize: '10px', height: '28px', padding: '0 8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', color: '#475569', fontWeight: 'bold' }}
+              >
+                Limpar Filtro [X]
+              </button>
+            )}
+          </div>
         </div>
         
         <div style={{ overflowX: 'auto', width: '100%' }}>
@@ -225,14 +286,16 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 <th style={{ padding: '10px 12px' }}>Matrícula</th>
                 <th style={{ padding: '10px 12px' }}>Cargo / Função</th>
                 <th style={{ padding: '10px 12px' }}>Status</th>
+                {/* 7. NOVO: Cabeçalho da Coluna Observações */}
+                <th style={{ padding: '10px 12px' }}>Observações</th>
                 <th style={{ padding: '10px 12px', textAlign: 'center', borderRadius: '0 4px 0 0', width: '100px' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {funcionariosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                    Nenhum funcionário com o status "{filtroStatus}" localizado.
+                  <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                    Nenhum funcionário localizado com os critérios informados.
                   </td>
                 </tr>
               ) : (
@@ -263,6 +326,23 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                         <span style={{ backgroundColor: statusBg, color: statusColor, padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold', fontSize: '10px', display: 'inline-block' }}>
                           {func.ativo || 'ATIVO'}
                         </span>
+                      </td>
+                      {/* 8. AJUSTADO: Exibe a observação de forma legível (e o texto completo ao passar o mouse por cima) */}
+                      <td 
+                        style={{ 
+                          padding: '10px 12px', 
+                          color: '#475569', 
+                          maxWidth: '250px', 
+                          whiteSpace: 'normal', // Ajustado para quebrar a linha se a observação for longa
+                          wordBreak: 'break-word' 
+                        }} 
+                        title={func.observacoes || ''}
+                      >
+                        {func.observacoes ? (
+                          <strong>{func.observacoes}</strong>
+                        ) : (
+                          <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>Nenhuma</span>
+                        )}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>

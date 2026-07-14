@@ -4,8 +4,8 @@ import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDa
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; //i
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 const SERVICOS_PADRONIZADOS = [
   "REMOÇÃO DE TACHA (UN)",
@@ -57,18 +57,28 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [observacoesContratada, setObservacoesContratada] = useState('');
   const [statusDiario, setStatusDiario] = useState('Normal');
 
-  // NOVOS ESTADOS PARA INTEGRAR A TABELA DE VEÍCULOS IDÊNTICA AO SEU OUTRO CÓDIGO
   const [listaVeiculos, setListaVeiculos] = useState([]);
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
 
   const ehEquipeFolguista = equipeSelecionadaFiltro === 'FOLGUISTAS';
   const rdoInterrompido = ['Choveu', 'Sem Material', 'Outros'].includes(statusDiario);
 
-  useEffect(() => {
-    carregarObrasIniciais();
-    carregarVeiculosDoSistema();
-  }, []);
+  const listaDeEquipesDisponiveis = Array.from(
+    new Set(efetivoAgendado.map(f => String(f.equipe || 'GERAL').trim().toUpperCase()))
+  ).filter(Boolean);
 
+// 1. Carrega as obras apenas uma vez ao iniciar a tela
+useEffect(() => {
+  carregarObrasIniciais();
+}, []);
+
+// 2. EXCLUSIVO PARA VEÍCULOS: Dispara de forma independente
+useEffect(() => {
+  // Chamamos a função diretamente. A validação de segurança fica dentro dela.
+  carregarVeiculosDoSistema(); 
+}, [dataDiario]); 
+
+  // 3. Mantém o que já busca o efetivo dos agendamentos (Sem alterações)
   useEffect(() => {
     if (idObraSelecionada && dataDiario) {
       buscarEfetivoVindoDoAgendamento();
@@ -94,12 +104,52 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }
   }, [statusDiario]);
 
-  const carregarVeiculosDoSistema = async () => {
+  useEffect(() => {
+    if (listaDeEquipesDisponiveis.length > 0 && !equipeConfirmada) {
+      if (!listaDeEquipesDisponiveis.includes(equipeSelecionadaFiltro)) {
+        setEquipeSelecionadaFiltro(listaDeEquipesDisponiveis[0]);
+      }
+    } else if (listaDeEquipesDisponiveis.length === 0 && !equipeConfirmada) {
+      setEquipeSelecionadaFiltro('GERAL');
+    }
+  }, [efetivoAgendado]);
+
+const carregarVeiculosDoSistema = async () => {
+  try {
+    // Busca o ID do usuário de forma segura. Se não achar, usa 0 temporariamente para evitar o erro 400
+    const gestorId = usuarioLogado?.id || 0; 
+    const gestorCargo = usuarioLogado?.cargo || 'GESTOR';
+
+    const res = await axios.get(`${API_URL}/gestor/veiculos`, {
+      params: {
+        id: gestorId,
+        cargo: gestorCargo,
+        data_diario: dataDiario // Passa a data atual do diário
+      }
+    });
+    
+    setListaVeiculos(res.data || []);
+  } catch (e) {
+    console.error("Erro ao carregar veículos para o diário técnico:", e);
+  }
+};
+
+  const handleMudarStatusVeiculo = async (idVeiculo, novoStatus) => {
     try {
-      const res = await axios.get(`${API_URL}/veiculos`);
-      setListaVeiculos(res.data || []);
-    } catch (e) {
-      console.error("Erro ao carregar veículos para o diário técnico:", e);
+      setLoading(true);
+      await axios.put(`${API_URL}/gestor/veiculos/status/${idVeiculo}`, { status: novoStatus });
+      
+      setListaVeiculos(prev => 
+        prev.map(v => v.id === idVeiculo ? { ...v, status: novoStatus } : v)
+      );
+      
+      setStatusEnvio({ texto: "✓ Status do veículo atualizado com sucesso!", tipo: "sucesso" });
+      setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 3000);
+    } catch (err) {
+      console.error("Erro ao atualizar status do veículo:", err);
+      setErroPainel("Não foi possível atualizar o status do veículo.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -159,6 +209,9 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
           if (!idsVistos.has(chaveUnica)) {
             idsVistos.add(chaveUnica);
+            
+            const equipeFormatada = item.equipe ? String(item.equipe).trim().toUpperCase() : 'GERAL';
+
             listaSemDuplicados.push({
               id_funcionario: item.id_funcionario,
               name: item.nome,
@@ -167,7 +220,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               statusPresenca: isFolguista ? 'Folga' : 'Presente', 
               statusCustomizado: '',
               turno: isFolguista ? 'DIURNO e NOTURNO' : (item.turno || 'DIURNO'), 
-              equipe: item.equipe || 'Geral',
+              equipe: equipeFormatada,
               id_veiculo: item.id_veiculo || ''
             });
           }
@@ -204,13 +257,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const handleMudarTextoCustomizado = (indexInEfetivo, valor) => {
     const listaNova = [...efetivoAgendado];
     listaNova[indexInEfetivo].statusCustomizado = valor;
-    setEfetivoAgendado(listaNova);
-    setSalvoComSucesso(false);
-  };
-
-  const handleMudarVeiculoFuncionario = (indexInEfetivo, valor) => {
-    const listaNova = [...efetivoAgendado];
-    listaNova[indexInEfetivo].id_veiculo = valor;
     setEfetivoAgendado(listaNova);
     setSalvoComSucesso(false);
   };
@@ -255,24 +301,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
-  // FUNÇÃO DE RENDERIZAÇÃO DE BADGE DO SEU SEGUNDO CÓDIGO
-  const renderBadgeStatusVeiculo = (statusTxt) => {
-    const st = statusTxt ? statusTxt.toUpperCase() : '';
-    let bg = '#dcfce7', text = '#166534', icone = <CheckCircle style={{ width: '11px', height: '11px' }} />;
-    
-    if (st === 'EM MANUTENÇÃO') { 
-        bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '11px', height: '11px' }} />; 
-    } else if (st === 'EM USO') { 
-        bg = '#fef9c3'; text = '#713f12'; icone = <AlertTriangle style={{ width: '11px', height: '11px' }} />; 
-    }
-
-    return (
-        <span style={{ backgroundColor: bg, color: text, padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            {icone} {statusTxt}
-        </span>
-    );
-  };
-
   const salvarDiarioCompleto = async () => {
     if (!idObraSelecionada) {
       setErroPainel("Por favor, selecione uma obra antes de salvar.");
@@ -296,15 +324,15 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
       const idsVistos = new Set();
       const nomesDuplicados = [];
+     // CÓDIGO CORRIGIDO:
       efetivoFiltradoPorEquipe.forEach(f => {
         if (f.id_funcionario) {
           if (idsVistos.has(f.id_funcionario)) {
             if (!nomesDuplicados.includes(f.name)) {
               nomesDuplicados.push(f.name);
             }
-          } else {
-            idsVistos.add(f.id_funcionario);
           }
+          idsVistos.add(f.id_funcionario);
         }
       });
       if (nomesDuplicados.length > 0) {
@@ -322,7 +350,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               tipoServico: act.tipoServico,
               quantidade: parseFloat(act.quantidade) || 0.00
             }));
-      const materiaisFiltrados = (ehEquipeFolguista || obraDadosCompletos?.tipo_obra === 'ADMINISTRATIVA' || rdoInterrompido)
+      const materiaisFiltradas = (ehEquipeFolguista || obraDadosCompletos?.tipo_obra === 'ADMINISTRATIVA' || rdoInterrompido)
         ? []
         : materiaisLancados
             .filter(mat => mat.material && mat.material.trim() !== '')
@@ -330,33 +358,36 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               material: mat.material,
               quantidade: parseFloat(mat.quantidade) || 0.00
             }));
+
       const efetivoMapeado = [];
       efetivoFiltradoPorEquipe.forEach(f => {
         const statusOriginal = f.statusPresenca === 'Outros' ? f.statusCustomizado : f.statusPresenca;
         
+        const veiculoDados = listaVeiculos.find(v => v.id_funcionario && String(v.id_funcionario) === String(f.id_funcionario));
+
+        const baseFuncionario = {
+          id_funcionario: f.id_funcionario || null, 
+          nome: f.name, 
+          cargo: f.cargo, 
+          matricula: f.matricula,
+          status_presenca: statusOriginal.toUpperCase(), 
+          observacao: f.statusPresenca === 'Outros' ? f.statusCustomizado : null, 
+          equipe: f.equipe || 'Geral',
+          
+          id_veiculo: veiculoDados ? veiculoDados.id : null,
+          placa_veiculo: veiculoDados ? veiculoDados.placa : null,
+          marca_veiculo: veiculoDados ? veiculoDados.marca : null,
+          modelo_veiculo: veiculoDados ? veiculoDados.modelo : null,
+          ano_veiculo: veiculoDados ? veiculoDados.ano : null,
+          tipo_veiculo: veiculoDados ? veiculoDados.tipo : null,
+          status_veiculo: veiculoDados ? veiculoDados.status : null
+        };
+
         if (f.turno === 'DIURNO e NOTURNO') {
-          efetivoMapeado.push({
-            id_funcionario: f.id_funcionario || null, 
-            nome: f.name, cargo: f.cargo, matricula: f.matricula,
-            turno: 'DIURNO', status_presenca: statusOriginal.toUpperCase(), 
-            observacao: f.statusPresenca === 'Outros' ? f.statusCustomizado : null, equipe: f.equipe || 'Geral',
-            id_veiculo: f.id_veiculo || null
-          });
-          efetivoMapeado.push({
-            id_funcionario: f.id_funcionario || null, 
-            nome: f.name, cargo: f.cargo, matricula: f.matricula,
-            turno: 'NOTURNO', status_presenca: statusOriginal.toUpperCase(), 
-            observacao: f.statusPresenca === 'Outros' ? f.statusCustomizado : null, equipe: f.equipe || 'Geral',
-            id_veiculo: f.id_veiculo || null
-          });
+          efetivoMapeado.push({ ...baseFuncionario, turno: 'DIURNO' });
+          efetivoMapeado.push({ ...baseFuncionario, turno: 'NOTURNO' });
         } else {
-          efetivoMapeado.push({
-            id_funcionario: f.id_funcionario || null, 
-            nome: f.name, cargo: f.cargo, matricula: f.matricula,
-            turno: f.turno || 'DIURNO', status_presenca: statusOriginal.toUpperCase(), 
-            observacao: f.statusPresenca === 'Outros' ? f.statusCustomizado : null, equipe: f.equipe || 'Geral',
-            id_veiculo: f.id_veiculo || null
-          });
+          efetivoMapeado.push({ ...baseFuncionario, turno: f.turno || 'DIURNO' });
         }
       });
 
@@ -368,7 +399,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         status: statusDiario, 
         efetivo_confirmado: efetivoMapeado,
         atividades_tachas: atividadesFiltradas, 
-        materials_apontados: materiaisFiltrados, 
+        materials_apontados: materiaisFiltradas, 
         observacoes: observacoesContratada
       };
       
@@ -418,16 +449,23 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
       doc.setFont("helvetica", "bold"); doc.setFontSize(10);
       doc.text(`1. Efetivo e Presença (Equipe: ${equipeSelecionadaFiltro})`, 10, currentY);
-      const colunasEfetivo = ["Colaborador / Nome", "Função", "Turno", "Status de Presença", "Veículo"];
+      const colunasEfetivo = ["Colaborador / Nome", "Função", "Turno", "Status de Presença", "Veículo / Placa"];
+      
       const linhasEfetivo = (efetivoAgendado || [])
         .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase())
-        .map(f => [
-          String(f?.name || '---'), 
-          String(f?.cargo || '---'), 
-          String(f?.turno || 'DIURNO'), 
-          f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase(),
-          String(f?.id_veiculo || 'Nenhum')
-        ]);
+        .map(f => {
+          const v = listaVeiculos.find(ve => ve.id_funcionario && String(ve.id_funcionario) === String(f.id_funcionario));
+          const veiculoText = v ? `${v.placa} (${v.modelo})` : 'Nenhum';
+
+          return [
+            String(f?.name || '---'), 
+            String(f?.cargo || '---'), 
+            String(f?.turno || 'DIURNO'), 
+            f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase(),
+            veiculoText
+          ];
+        });
+
       autoTable(doc, {
         startY: currentY + 2,
         head: [colunasEfetivo],
@@ -503,28 +541,19 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }
   };
 
-  const listaDeEquipesDisponiveis = Array.from(
-    new Set(efetivoAgendado.map(f => String(f.equipe || 'Geral').toUpperCase()))
-  );
-
-  useEffect(() => {
-    if (listaDeEquipesDisponiveis.length > 0 && !listaDeEquipesDisponiveis.includes(equipeSelecionadaFiltro) && !equipeConfirmada) {
-      setEquipeSelecionadaFiltro(listaDeEquipesDisponiveis[0]);
-    } else if (listaDeEquipesDisponiveis.length === 0 && !equipeConfirmada) {
-      setEquipeSelecionadaFiltro('GERAL');
-    }
-  }, [efetivoAgendado]);
-
-  const funcionariosDaEquipe = efetivoAgendado.filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro);
+  const funcionariosDaEquipe = efetivoAgendado.filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase());
   const totalPresentes = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Presente' || f.statusPresenca === 'Integração').length;
   const totalFolgas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Folga').length;
   const totalFaltas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Faltou').length;
 
-  // FILTRA VEÍCULOS ADAPTADOS A SUA NOVA ESTRUTURA DE FILTRO
-  const veiculosDoQuadroAtivo = listaVeiculos.filter(v => 
-    v.id_funcionario && funcionariosDaEquipe.some(f => Number(f.id_funcionario) === Number(v.id_funcionario))
-  );
-
+      // CORREÇÃO FILTRO: Permite mostrar veículos da equipe ou veículos sem motorista definido
+    const veiculosDoQuadroAtivo = listaVeiculos.filter(v => {
+      // Se o veículo não tem funcionário associado, exibe para o gestor poder gerenciar
+      if (!v.id_funcionario) return true; 
+      
+      // Se tiver, checa se o funcionário faz parte da equipe carregada na tela
+      return funcionariosDaEquipe.some(f => String(f.id_funcionario) === String(v.id_funcionario));
+    });
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', fontFamily: 'sans-serif', fontSize: '12px' }}>
       
@@ -595,10 +624,12 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               <select
                 disabled={equipeConfirmada}
                 value={equipeSelecionadaFiltro}
-                onChange={e => setEquipeSelecionadaFiltro(e.target.value.toUpperCase())}
+                onChange={e => setEquipeSelecionadaFiltro(e.target.value)}
                 style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: equipeConfirmada ? '#e2e8f0' : '#fff', fontWeight: 'bold', color: '#334155' }}
               >
-                <option value="GERAL">-- SELECIONE UMA EQUIPE DISPONÍVEL --</option>
+                {listaDeEquipesDisponiveis.length === 0 && (
+                  <option value="GERAL">-- NENHUMA EQUIPE ENCONTRADA NESTA DATA --</option>
+                )}
                 {listaDeEquipesDisponiveis.map(eq => (
                   <option key={eq} value={eq}>{eq}</option>
                 ))}
@@ -608,9 +639,9 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             {!equipeConfirmada ? (
               <button
                 type="button"
-                disabled={equipeSelecionadaFiltro === 'GERAL'}
+                disabled={listaDeEquipesDisponiveis.length === 0}
                 onClick={() => setEquipeConfirmada(true)}
-                style={{ height: '32px', padding: '0 16px', backgroundColor: equipeSelecionadaFiltro === 'GERAL' ? '#cbd5e1' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: equipeSelecionadaFiltro === 'GERAL' ? 'not-allowed' : 'pointer' }}
+                style={{ height: '32px', padding: '0 16px', backgroundColor: listaDeEquipesDisponiveis.length === 0 ? '#cbd5e1' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: listaDeEquipesDisponiveis.length === 0 ? 'not-allowed' : 'pointer' }}
               >
                 Confirmar Equipe
               </button>
@@ -619,8 +650,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 type="button"
                 onClick={() => {
                   setEquipeConfirmada(false);
-                  setAtividadesLancadas([{ tipoServico: '', quantity: '' }]);
-                  setMateriaisLancados([{ material: '', quantity: '' }]);
+                  setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
+                  setMateriaisLancados([{ material: '', quantidade: '' }]);
                   setSalvoComSucesso(false);
                 }}
                 style={{ height: '32px', padding: '0 16px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
@@ -662,12 +693,12 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             </select>
           </div>
 
-          {/* NOVA SEÇÃO DE STATUS DE VEÍCULOS VINCULADOS IDÊNTICA AO SEU SEGUNDO CÓDIGO */}
+          {/* STATUS DE VEÍCULOS VINCULADOS À EQUIPE ATIVA */}
           <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarTabelaVeiculos ? '12px' : '0' }}>
               <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Car style={{ width: '16px', height: '16px', color: '#2563eb' }} />
-                Status dos Veículos da Frota (Atrelados aos seus Colaboradores)
+                Status dos Veículos da Frota (Atrelados aos seus Colaboradores e Equipe)
               </div>
               
               <button 
@@ -701,19 +732,19 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                       <th style={{ padding: '10px 12px' }}>Veículo / Modelo</th>
                       <th style={{ padding: '10px 12px' }}>Tipo</th>
                       <th style={{ padding: '10px 12px' }}>Colaborador Vinculado</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center', width: '140px' }}>Status do Veículo</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', width: '180px' }}>Status do Veículo</th>
                     </tr>
                   </thead>
                   <tbody>
                     {veiculosDoQuadroAtivo.length === 0 ? (
                       <tr>
                         <td colSpan="5" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                          Nenhum veículo da frota está atualmente vinculado a seus colaboradores nesta equipe.
+                          Nenhum veículo da frota está atualmente vinculado a colaboradores desta equipe selecionada.
                         </td>
                       </tr>
                     ) : (
                       veiculosDoQuadroAtivo.map((veiculo, index) => {
-                        const motorista = funcionariosDaEquipe.find(f => Number(f.id_funcionario) === Number(veiculo.id_funcionario));
+                        const motorista = funcionariosDaEquipe.find(f => String(f.id_funcionario) === String(veiculo.id_funcionario));
                         return (
                           <tr key={`veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                             <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</td>
@@ -723,7 +754,28 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                               {motorista ? `${motorista.name} (${motorista.cargo})` : `ID Funcionário: #${veiculo.id_funcionario}`}
                             </td>
                             <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                              {renderBadgeStatusVeiculo(veiculo.status)}
+                              <select
+                                value={veiculo.status || 'DISPONÍVEL'}
+                                onChange={(e) => handleMudarStatusVeiculo(veiculo.id, e.target.value)}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 'bold',
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor: 
+                                    veiculo.status === 'EM MANUTENÇÃO' ? '#fef2f2' : 
+                                    veiculo.status === 'EM USO' ? '#fef9c3' : '#f0fdf4',
+                                  color: 
+                                    veiculo.status === 'EM MANUTENÇÃO' ? '#991b1b' : 
+                                    veiculo.status === 'EM USO' ? '#713f12' : '#166534',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <option value="DISPONÍVEL">🟢 DISPONÍVEL</option>
+                                <option value="EM USO">🟡 EM USO</option>
+                                <option value="EM MANUTENÇÃO">🔴 EM MANUTENÇÃO</option>
+                              </select>
                             </td>
                           </tr>
                         );
@@ -757,7 +809,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                   {efetivoAgendado
-                    .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro)
+                    .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase())
                     .map((func, index) => {
                       const indexGlobal = efetivoAgendado.findIndex(original => original.id_funcionario === func.id_funcionario && original.turno === func.turno);
                       return (
@@ -778,14 +830,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                                 <option value="Integração">Integração</option>
                                 <option value="Outros">Outros</option>
                               </select>
-
-                              <input 
-                                type="text" 
-                                placeholder="Placa / Prefixo" 
-                                value={func.id_veiculo || ''} 
-                                onChange={e => handleMudarVeiculoFuncionario(indexGlobal, e.target.value)}
-                                style={{ width: '100px', height: '24px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px' }}
-                              />
                             </div>
 
                             {func.statusPresenca === 'Outros' && (

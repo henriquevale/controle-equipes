@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { HardHat, Plus, Edit2, X, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 
-// Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; 
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; 
 
 export default function CadastroObras({ listaObrasGlobal, recarregarObrasGlobal }) {
   // Ajustado o estado inicial para incluir tipo_obra com valor padrão 'PRODUTIVA'
@@ -87,84 +87,7 @@ export default function CadastroObras({ listaObrasGlobal, recarregarObrasGlobal 
         </div>
       )}
 
-      {/* PAINEL SUPERIOR: LISTA DE OBRAS CADASTRADAS */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
-        <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px', marginBottom: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <HardHat style={{ width: '16px', height: '16px' }} /> <span>Obras no Sistema</span>
-        </div>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto' }}>
-          {listaObrasGlobal && listaObrasGlobal.map(obra => (
-            <div key={obra.id} style={{ border: '1px solid #e2e8f0', borderRadius: '4px', padding: '8px 10px', backgroundColor: obra.status === 'INATIVA' ? '#f1f5f9' : '#fafafa' }}>
-              
-              {obraEmEdicao === obra.id ? (
-                /* MODO DE EDIÇÃO DA OBRA */
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <input type="text" style={{ height: '26px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px', flex: 2 }} value={dadosEdicao.nome_obra} onChange={e => setDadosEdicao({...dadosEdicao, nome_obra: e.target.value})} placeholder="Nome da Obra" />
-                  <input type="text" style={{ height: '26px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px', flex: 1 }} value={dadosEdicao.codigo_obra} onChange={e => setDadosEdicao({...dadosEdicao, codigo_obra: e.target.value})} placeholder="Código" />
-                  
-                  {/* Select do tipo na Edição */}
-                  <select style={{ height: '26px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', fontSize: '12px', padding: '0 2px' }} value={dadosEdicao.tipo_obra} onChange={e => setDadosEdicao({...dadosEdicao, tipo_obra: e.target.value})}>
-                    <option value="PRODUTIVA">PRODUTIVA</option>
-                    <option value="ADMINISTRATIVA">ADMINISTRATIVA</option>
-                    <option value="MISTA">ADMINISTRATIVA/PRODUTIVA</option>
-                  </select>
-
-                  <select style={{ height: '26px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', fontSize: '12px', padding: '0 2px' }} value={dadosEdicao.status} onChange={e => setDadosEdicao({...dadosEdicao, status: e.target.value})}>
-                    <option value="ATIVA">ATIVA</option>
-                    <option value="INATIVA">INATIVA</option>
-                  </select>
-                  
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button onClick={() => salvarEdicao(obra.id)} style={{ height: '26px', width: '70px', backgroundColor: '#166534', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', fontSize: '10px', fontWeight: 'bold' }}><Check size={12}/> SALVAR</button>
-                    <button onClick={() => setObraEmEdicao(null)} style={{ height: '26px', width: '30px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={12}/></button>
-                  </div>
-                </div>
-              ) : (
-                /* MODO DE VISUALIZAÇÃO DA OBRA */
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '13px', color: obra.status === 'INATIVA' ? '#94a3b8' : '#1e293b' }}>
-                      {obra.nome_obra} {obra.status === 'INATIVA' && '(INATIVA)'}
-                      {/* Tag visual contendo a classificação atual da obra */}
-                      <span style={{ 
-                        marginLeft: '8px', 
-                        fontSize: '10px', 
-                        padding: '2px 6px', 
-                        borderRadius: '3px', 
-                        backgroundColor: obra.tipo_obra === 'ADMINISTRATIVA' ? '#e0f2fe' : obra.tipo_obra === 'MISTA' ? '#fef3c7' : '#dcfce7',
-                        color: obra.tipo_obra === 'ADMINISTRATIVA' ? '#0369a1' : obra.tipo_obra === 'MISTA' ? '#b45309' : '#15803d',
-                        fontWeight: 'bold'
-                      }}>
-                        {obra.tipo_obra === 'MISTA' ? 'ADMINISTRATIVA/PRODUTIVA' : obra.tipo_obra || 'PRODUTIVA'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                      CÓDIGO IDENTIFICADOR: <span style={{ fontWeight: 'bold', color: '#334155' }}>{obra.codigo_obra}</span>
-                    </div>
-                  </div>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {/* Botão de Alterar Status Rápido */}
-                    <button onClick={() => alternarStatusObra(obra)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: obra.status === 'ATIVA' ? '#166534' : '#64748b' }} title="Clique para alternar o status">
-                      {obra.status === 'ATIVA' ? <ToggleRight size={20} color="#22c55e" /> : <ToggleLeft size={20} color="#94a3b8" />}
-                      <span>{obra.status || 'ATIVA'}</span>
-                    </button>
-
-                    {/* Ação de Editar dados textuais */}
-                    <button onClick={() => iniciarEdicao(obra)} style={{ backgroundColor: 'transparent', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                      <Edit2 size={11}/>EDITAR
-                    </button>
-                  </div>
-                </div>
-              )}
-
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* PAINEL INFERIOR: FORMULÁRIO DE CADASTRO */}
+      {/* PAINEL SUPERIOR (MOVIDO PARA CIMA): FORMULÁRIO DE CADASTRO */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
         <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px', marginBottom: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Plus style={{ width: '16px', height: '16px' }} /> <span>Cadastrar Nova Obra</span>
@@ -184,6 +107,97 @@ export default function CadastroObras({ listaObrasGlobal, recarregarObrasGlobal 
             Adicionar Obra
           </button>
         </form>
+      </div>
+
+      {/* PAINEL INFERIOR (MOVIDO PARA BAIXO): LISTA DE OBRAS CADASTRADAS */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
+        <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '6px', marginBottom: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <HardHat style={{ width: '16px', height: '16px' }} /> <span>Obras no Sistema</span>
+        </div>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto' }}>
+          {listaObrasGlobal && listaObrasGlobal.map(obra => {
+            const ehInativa = obra.status === 'INATIVA';
+            return (
+              <div 
+                key={obra.id} 
+                style={{ 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '4px', 
+                  padding: '8px 10px', 
+                  backgroundColor: ehInativa ? '#f8fafc' : '#fafafa',
+                  // 🌟 Efeito meio apagado se a obra estiver inativa (reduz opacidade)
+                  opacity: ehInativa ? 0.55 : 1,
+                  transition: 'opacity 0.2s ease, background-color 0.2s ease'
+                }}
+              >
+                
+                {obraEmEdicao === obra.id ? (
+                  /* MODO DE EDIÇÃO DA OBRA */
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input type="text" style={{ height: '26px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px', flex: 2 }} value={dadosEdicao.nome_obra} onChange={e => setDadosEdicao({...dadosEdicao, nome_obra: e.target.value})} placeholder="Nome da Obra" />
+                    <input type="text" style={{ height: '26px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px', flex: 1 }} value={dadosEdicao.codigo_obra} onChange={e => setDadosEdicao({...dadosEdicao, codigo_obra: e.target.value})} placeholder="Código" />
+                    
+                    {/* Select do tipo na Edição */}
+                    <select style={{ height: '26px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', fontSize: '12px', padding: '0 2px' }} value={dadosEdicao.tipo_obra} onChange={e => setDadosEdicao({...dadosEdicao, tipo_obra: e.target.value})}>
+                      <option value="PRODUTIVA">PRODUTIVA</option>
+                      <option value="ADMINISTRATIVA">ADMINISTRATIVA</option>
+                      <option value="MISTA">ADMINISTRATIVA/PRODUTIVA</option>
+                    </select>
+
+                    <select style={{ height: '26px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', fontSize: '12px', padding: '0 2px' }} value={dadosEdicao.status} onChange={e => setDadosEdicao({...dadosEdicao, status: e.target.value})}>
+                      <option value="ATIVA">ATIVA</option>
+                      <option value="INATIVA">INATIVA</option>
+                    </select>
+                    
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button onClick={() => salvarEdicao(obra.id)} style={{ height: '26px', width: '70px', backgroundColor: '#166534', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', fontSize: '10px', fontWeight: 'bold' }}><Check size={12}/> SALVAR</button>
+                      <button onClick={() => setObraEmEdicao(null)} style={{ height: '26px', width: '30px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={12}/></button>
+                    </div>
+                  </div>
+                ) : (
+                  /* MODO DE VISUALIZAÇÃO DA OBRA */
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '13px', color: ehInativa ? '#64748b' : '#1e293b' }}>
+                        {obra.nome_obra} {ehInativa && ' (DESATIVADA)'}
+                        {/* Tag visual contendo a classificação atual da obra */}
+                        <span style={{ 
+                          marginLeft: '8px', 
+                          fontSize: '10px', 
+                          padding: '2px 6px', 
+                          borderRadius: '3px', 
+                          backgroundColor: ehInativa ? '#e2e8f0' : (obra.tipo_obra === 'ADMINISTRATIVA' ? '#e0f2fe' : obra.tipo_obra === 'MISTA' ? '#fef3c7' : '#dcfce7'),
+                          color: ehInativa ? '#64748b' : (obra.tipo_obra === 'ADMINISTRATIVA' ? '#0369a1' : obra.tipo_obra === 'MISTA' ? '#b45309' : '#15803d'),
+                          fontWeight: 'bold'
+                        }}>
+                          {obra.tipo_obra === 'MISTA' ? 'ADMINISTRATIVA/PRODUTIVA' : obra.tipo_obra || 'PRODUTIVA'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                        CÓDIGO IDENTIFICADOR: <span style={{ fontWeight: 'bold', color: '#334155' }}>{obra.codigo_obra}</span>
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      {/* Botão de Alterar Status Rápido (Permite reativar com 1 clique) */}
+                      <button onClick={() => alternarStatusObra(obra)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: obra.status === 'ATIVA' ? '#166534' : '#64748b' }} title="Clique para alternar o status">
+                        {obra.status === 'ATIVA' ? <ToggleRight size={20} color="#22c55e" /> : <ToggleLeft size={20} color="#94a3b8" />}
+                        <span style={{ fontWeight: '600' }}>{obra.status || 'ATIVA'}</span>
+                      </button>
+
+                      {/* Ação de Editar dados textuais */}
+                      <button onClick={() => iniciarEdicao(obra)} style={{ backgroundColor: 'transparent', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <Edit2 size={11}/>EDITAR
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

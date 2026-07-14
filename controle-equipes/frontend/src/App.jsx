@@ -16,8 +16,9 @@ import DiasPendentes from './assets/DiasPendentes.jsx';
 import ResumoStatusObra from './assets/ResumoStatusObra.jsx';
 import CadastroVeiculo from './assets/CadastroVeiculo'; // 👈 NOVO: Importação do componente de veículos
 
-// Em vez de: const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; //i
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api';
+
 
 export default function App() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
