@@ -300,6 +300,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 </tr>
               ) : (
                 funcionariosFiltrados.map((func, index) => {
+                  console.log("Funcionário:", func);
                   let statusBg = '#dcfce7'; 
                   let statusColor = '#15803d';
                   
