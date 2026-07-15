@@ -202,7 +202,8 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
     data_postado_bex,
     data_analise,
     data_integracao_agendada,
-    data_integracao
+    data_integracao,
+    obs // 💡 ADICIONADO: Capturando a observação enviada pelo frontend
   } = req.body;
 
   try {
@@ -215,6 +216,7 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
       await db.execute(sqlCriarEspaco, [id_funcionario]);
     }
 
+    // 💡 ATUALIZADO: Incluído o campo "obs" na query de UPDATE
     const sqlUpdateIntegracao = `
       UPDATE integracoes_funcionarios SET
         data_documentos_sst = ?,
@@ -223,10 +225,12 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
         data_postado_bex = ?,
         data_analise = ?,
         data_integracao_agendada = ?,
-        data_integracao = ?
+        data_integracao = ?,
+        obs = ?
       WHERE id_funcionario = ?
     `;
 
+    // 💡 ATUALIZADO: Passando o valor de 'obs' tratado no array de parâmetros
     await db.execute(sqlUpdateIntegracao, [
       formatarData(data_documentos_sst),
       formatarData(data_enviados),
@@ -235,6 +239,7 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
       formatarData(data_analise),
       formatarData(data_integracao_agendada),
       formatarData(data_integracao),
+      obs && obs.trim() !== '' ? obs.trim() : null, // Se tiver texto salva limpo, se não grava NULL
       id_funcionario
     ]);
 
@@ -248,11 +253,11 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
       
       return res.json({ 
         success: true, 
-        message: 'Cronologia salva! Como a integração foi concluída, o funcionário agora está ATIVO.' 
+        message: 'Cronologia e observação salvas! Como a integração foi concluída, o funcionário agora está ATIVO.' 
       });
     }
 
-    return res.json({ success: true, message: 'Cronologia de integração updated com sucesso!' });
+    return res.json({ success: true, message: 'Cronologia de integração e observação atualizadas com sucesso!' });
 
   } catch (error) {
     console.error("Erro ao atualizar integração:", error);
@@ -320,25 +325,36 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
   }
 });
 // ========================================================
-// F. GET: LISTAR FUNCIONÁRIOS EM PROCESSO DE INTEGRAÇÃO (CORRIGIDO)
+// F. GET: LISTAR FUNCIONÁRIOS EM PROCESSO DE INTEGRAÇÃO (HISTÓRICO COMPLETO)
 // ========================================================
 router.get('/rh/integracoes-pendentes', async (req, res) => {
   try {
+    // Busca os registros diretamente da tabela integracoes_funcionarios
+    // Trazendo nome, matricula e cargo da tabela funcionarios apenas para identificação
     const sql = `
       SELECT 
-        f.id, f.nome, f.matricula, f.cargo, f.ativo, f.observacoes,
-        f.data_admissao, f.data_postagem_aso_pasta, f.data_documentos_rh_completos,
-        i.data_documentos_sst, i.data_enviados, i.data_recebidos,
-        i.data_postado_bex, i.data_analise, i.data_integracao_agendada, i.data_integracao
-      FROM funcionarios f
-      LEFT JOIN integracoes_funcionarios i ON f.id = i.id_funcionario
-      WHERE f.ativo = 'INTEGRAÇÃO PENDENTE'
+        i.id_funcionario AS id,
+        f.nome, 
+        f.matricula, 
+        f.cargo, 
+        f.ativo,
+        i.data_documentos_sst, 
+        i.data_enviados, 
+        i.data_recebidos,
+        i.data_postado_bex, 
+        i.data_analise, 
+        i.data_integracao_agendada, 
+        i.data_integracao,
+        i.obs
+      FROM integracoes_funcionarios i
+      INNER JOIN funcionarios f ON i.id_funcionario = f.id
       ORDER BY f.nome ASC
     `;
+    
     const [rows] = await db.execute(sql);
     res.json(rows);
   } catch (err) {
-    console.error("Erro ao buscar integrações pendentes:", err);
+    console.error("Erro ao buscar integrações para histórico:", err);
     res.status(500).json({ error: "Erro ao carregar a esteira de integração." });
   }
 });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Trash2, Edit3, UserPlus, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search } from 'lucide-react';
+// Adicionado o ícone "Download" na importação
+import { Trash2, Edit3, UserPlus, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search, Download } from 'lucide-react';
 
 
 //const API_URL = 'http://localhost:3001/api';
@@ -59,6 +60,44 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
 
     return atendeStatus && atendeNome;
   });
+
+  // FUNÇÃO NOVA: Exportar dados filtrados para CSV
+  const exportarParaCSV = () => {
+    if (funcionariosFiltrados.length === 0) {
+      mostrarMensagemGlobal('Não há dados para exportar com os filtros atuais.', 'erro');
+      return;
+    }
+
+    // Cabeçalho do arquivo CSV
+    const cabecalho = ['Nome', 'Matrícula', 'Cargo/Função', 'Status', 'Observações'];
+    
+    // Mapeamento das linhas
+    const linhas = funcionariosFiltrados.map(f => [
+      `"${(f.nome || '').replace(/"/g, '""')}"`,
+      `"${(f.matricula || '').replace(/"/g, '""')}"`,
+      `"${(f.cargo || '').replace(/"/g, '""')}"`,
+      `"${(f.ativo || 'ATIVO').replace(/"/g, '""')}"`,
+      `"${(f.observacoes || '').replace(/"/g, '""')}"`
+    ]);
+
+    // Une o cabeçalho e as linhas usando ponto e vírgula (padrão Excel em português)
+    const conteudoCSV = [cabecalho.join(';'), ...linhas.map(l => l.join(';'))].join('\n');
+
+    // Blob com UTF-8 BOM para garantir acentuação correta no Excel brasileiro
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), conteudoCSV], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    // Criação dinâmica do elemento de download
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `funcionarios_${filtroStatus.toLowerCase().replace(' ', '_')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    mostrarMensagemGlobal('Download concluído com sucesso!', 'sucesso');
+  };
 
   const lidarComEnvio = async (e) => {
     e.preventDefault();
@@ -239,7 +278,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       {/* 2. TABELA DE FUNCIONÁRIOS */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', width: '100%', boxSizing: 'border-box' }}>
         
-        {/* 6. AJUSTADO: Seção de cabeçalho da tabela com Barra de Pesquisa de Nome Integrada */}
+        {/* 6. AJUSTADO: Seção de cabeçalho da tabela com Barra de Pesquisa de Nome Integrada e Botão de Download */}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '12px', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', textTransform: 'uppercase' }}>
             <Users style={{ width: '16px', height: '16px', color: '#1e293b' }} />
@@ -266,6 +305,30 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 </button>
               )}
             </div>
+            
+            {/* BOTÃO NOVO: Exportar para CSV */}
+            <button
+              onClick={exportarParaCSV}
+              style={{
+                height: '28px',
+                padding: '0 10px',
+                backgroundColor: '#1e293b',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                transition: 'background-color 0.2s'
+              }}
+              title="Exportar dados filtrados para Excel/CSV"
+            >
+              <Download style={{ width: '14px', height: '14px' }} />
+              <span>Exportar</span>
+            </button>
             
             {filtroStatus !== 'TODOS' && (
               <button 

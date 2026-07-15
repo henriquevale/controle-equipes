@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, Calendar, Edit2, X, Check, FileText, Send, Inbox, Database, BarChart3, Clock, Milestone, Layers3 } from 'lucide-react';
-
-//const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; 
+import { Save, Calendar, Edit2, X, Check, FileText, Send, Inbox, Database, BarChart3, Clock, Milestone, Layers3, Download } from 'lucide-react';
 
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);
@@ -58,7 +55,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       return;
     }
 
-    // Compara puramente o texto 'YYYY-MM-DD' para evitar problemas com fuso horário
     const novaDataStr = valor; 
     const ordemEtapas = [
       'data_documentos_sst',
@@ -77,7 +73,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       const dataAnteriorRaw = dadosEdicao[campoAnterior];
       if (dataAnteriorRaw) {
         const dataAnteriorStr = formatarParaInput(dataAnteriorRaw);
-        // Permite datas iguais! Só barra se a nova data for estritamente menor que a anterior
         if (novaDataStr < dataAnteriorStr) {
           alert(`Aviso: Esta data não pode ser inferior ao passo anterior (${dataAnteriorStr}).`);
           return;
@@ -90,7 +85,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       const dataProximaRaw = dadosEdicao[campoProximo];
       if (dataProximaRaw) {
         const dataProximaStr = formatarParaInput(dataProximaRaw);
-        // Permite datas iguais! Só barra se a nova data for estritamente maior que a próxima
         if (novaDataStr > dataProximaStr) {
           alert(`Aviso: Esta data não pode ser superior ao próximo passo já preenchido (${dataProximaStr}).`);
           return;
@@ -98,7 +92,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       }
     }
 
-    // Altera apenas no estado de rascunho temporário
     setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
   };
 
@@ -113,14 +106,14 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         data_postado_bex: dadosEdicao.data_postado_bex,
         data_analise: dadosEdicao.data_analise,
         data_integracao_agendada: dadosEdicao.data_integracao_agendada,
-        data_integracao: dadosEdicao.data_integracao
+        data_integracao: dadosEdicao.data_integracao,
+        obs: dadosEdicao.obs
       });
 
       if (res.data.success) {
         if (mostrarMensagemGlobal) mostrarMensagemGlobal(res.data.message, 'sucesso');
         else alert(res.data.message);
         
-        // Só agora que salvou com sucesso nós limpamos a edição e atualizamos os filtros!
         setIdFuncionarioEmEdicao(null);
         setDadosEdicao(null);
         carregarEsteira();
@@ -133,7 +126,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   };
 
   // ========================================================
-  // CONTADORES E FILTROS DO PAINEL SUPERIOR (Sempre baseados no Banco original)
+  // CONTADORES E FILTROS DO PAINEL SUPERIOR (FLUXO SEQUENCIAL)
   // ========================================================
   const contadores = {
     TODOS: listaIntegracoes.length,
@@ -158,6 +151,48 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     return true;
   });
 
+  // ========================================================
+  // FUNÇÃO DE EXPORTAÇÃO PARA ARQUIVO CSV
+  // ========================================================
+  const exportarParaCSV = () => {
+    if (listaFiltrada.length === 0) {
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Não há dados para exportar com o filtro atual.', 'erro');
+      else alert('Não há dados para exportar com o filtro atual.');
+      return;
+    }
+
+    const cabecalho = ['Funcionario', 'Matricula', 'Cargo', 'Status', '1. Doc SST', '2. Enviados', '3. Recebidos', '4. Na BEX', '5. Analise', '6. Agendada', '7. Integracao', 'Observacao'];
+    
+    const linhas = listaFiltrada.map(f => [
+      `"${(f.nome || '').replace(/"/g, '""')}"`,
+      `"${(f.matricula || '').replace(/"/g, '""')}"`,
+      `"${(f.cargo || '').replace(/"/g, '""')}"`,
+      `"${(f.ativo || '').replace(/"/g, '""')}"`,
+      `"${formatarParaInput(f.data_documentos_sst)}"`,
+      `"${formatarParaInput(f.data_enviados)}"`,
+      `"${formatarParaInput(f.data_recebidos)}"`,
+      `"${formatarParaInput(f.data_postado_bex)}"`,
+      `"${formatarParaInput(f.data_analise)}"`,
+      `"${formatarParaInput(f.data_integracao_agendada)}"`,
+      `"${formatarParaInput(f.data_integracao)}"`,
+      `"${(f.obs || '').replace(/"/g, '""')}"`
+    ]);
+
+    const conteudoCSV = [cabecalho.join(';'), ...linhas.map(l => l.join(';'))].join('\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), conteudoCSV], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `esteira_filtrada_${filtroEtapa.toLowerCase()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    if (mostrarMensagemGlobal) mostrarMensagemGlobal('Relatório da esteira exportado com sucesso!', 'sucesso');
+  };
+
   const estiloCardContador = (chave) => ({
     flex: '1 1 auto', minWidth: '105px', padding: '10px 14px', borderRadius: '8px',
     backgroundColor: filtroEtapa === chave ? '#2563eb' : '#fff',
@@ -169,11 +204,11 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
 
   const estiloInputTabela = (disabled, isCritico = false) => ({
     fontSize: '11px', padding: '3px 4px', borderRadius: '4px', width: '115px',
-    border: isCritico ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+    border: '1px solid #e2e8f0',
     backgroundColor: disabled ? '#f8fafc' : '#fff', 
     color: disabled ? '#64748b' : '#334155',
     cursor: disabled ? 'not-allowed' : 'auto',
-    opacity: disabled ? 0.8 : 1, fontWeight: (isCritico && !disabled) ? 'bold' : 'normal'
+    opacity: disabled ? 0.8 : 1, fontWeight: 'normal'
   });
 
   if (carregando) return <div style={{ fontSize: '12px', padding: '10px' }}>Carregando esteira...</div>;
@@ -181,11 +216,26 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   return (
     <div>
       {/* Cabeçalho */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px' }}>
-        <Layers3 style={{ color: '#2563eb', width: '18px', height: '18px' }} />
-        <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b' }}>
-          Esteira de Integração de Funcionários (Acompanhamento Diário)
-        </h3>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Layers3 style={{ color: '#2563eb', width: '18px', height: '18px' }} />
+          <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b' }}>
+            Esteira de Integração de Funcionários (Acompanhamento Diário)
+          </h3>
+        </div>
+
+        <button
+          onClick={exportarParaCSV}
+          style={{
+            height: '30px', padding: '0 12px', backgroundColor: '#1e293b', color: '#fff', border: 'none',
+            borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+            fontSize: '11px', fontWeight: 'bold', boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+          }}
+          title="Exportar registros filtrados para Excel/CSV"
+        >
+          <Download style={{ width: '13px', height: '13px' }} />
+          <span>Exportar Filtro</span>
+        </button>
       </div>
 
       {/* Painel de Contadores de Monitoramento */}
@@ -241,38 +291,54 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>4. Na BEX</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>5. Análise</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>6. Agendada</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155', backgroundColor: '#1e3a8a' }}>7. Integração</th>
+                {/* 💡 Corrigido: Removido o background azul escuro diferenciado do th */}
+                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>7. Integração</th>
+                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>Obs.</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
               {listaFiltrada.map((func) => {
                 const modoEdicaoAtivo = func.id === idFuncionarioEmEdicao;
-                
-                // Se estiver editando, lê do objeto temporário "dadosEdicao", senão puxa do item original "func"
                 const itemExibido = modoEdicaoAtivo ? dadosEdicao : func;
-
-                const disabled2 = !modoEdicaoAtivo || !itemExibido.data_documentos_sst;
-                const disabled3 = !modoEdicaoAtivo || !itemExibido.data_enviados;
-                const disabled4 = !modoEdicaoAtivo || !itemExibido.data_recebidos;
-                const disabled5 = !modoEdicaoAtivo || !itemExibido.data_postado_bex;
-                const disabled6 = !modoEdicaoAtivo || !itemExibido.data_analise;
-                const disabled7 = !modoEdicaoAtivo || !itemExibido.data_integracao_agendada;
+                const completo = !!func.data_integracao;
 
                 return (
-                  <tr key={func.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: modoEdicaoAtivo ? '#eff6ff' : '#fff' }}>
+                  <tr key={func.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: completo ? '#f0fdf4' : (modoEdicaoAtivo ? '#eff6ff' : '#fff') }}>
                     <td style={{ padding: '8px 6px', color: '#334155', fontWeight: 'bold', borderLeft: modoEdicaoAtivo ? '3px solid #2563eb' : 'none' }}>
                       {func.nome} <br />
                       <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {func.matricula}</span>
                     </td>
                     
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_documentos_sst)} onChange={e => handleDataTabelaChange('data_documentos_sst', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={disabled2} value={formatarParaInput(itemExibido.data_enviados)} onChange={e => handleDataTabelaChange('data_enviados', e.target.value)} style={estiloInputTabela(disabled2)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={disabled3} value={formatarParaInput(itemExibido.data_recebidos)} onChange={e => handleDataTabelaChange('data_recebidos', e.target.value)} style={estiloInputTabela(disabled3)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={disabled4} value={formatarParaInput(itemExibido.data_postado_bex)} onChange={e => handleDataTabelaChange('data_postado_bex', e.target.value)} style={estiloInputTabela(disabled4)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={disabled5} value={formatarParaInput(itemExibido.data_analise)} onChange={e => handleDataTabelaChange('data_analise', e.target.value)} style={estiloInputTabela(disabled5)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={disabled6} value={formatarParaInput(itemExibido.data_integracao_agendada)} onChange={e => handleDataTabelaChange('data_integracao_agendada', e.target.value)} style={estiloInputTabela(disabled6)} /></td>
-                    <td style={{ padding: '4px', backgroundColor: modoEdicaoAtivo ? '#dbeafe' : '#eff6ff' }}><input type="date" disabled={disabled7} value={formatarParaInput(itemExibido.data_integracao)} style={estiloInputTabela(disabled7, true)} onChange={e => handleDataTabelaChange('data_integracao', e.target.value)} /></td>
+                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_enviados)} onChange={e => handleDataTabelaChange('data_enviados', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_recebidos)} onChange={e => handleDataTabelaChange('data_recebidos', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_postado_bex)} onChange={e => handleDataTabelaChange('data_postado_bex', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_analise)} onChange={e => handleDataTabelaChange('data_analise', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao_agendada)} onChange={e => handleDataTabelaChange('data_integracao_agendada', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    
+                    {/* 💡 Corrigido: Removida a estilização de fundo azul diferenciada da célula td */}
+                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao)} style={estiloInputTabela(!modoEdicaoAtivo)} onChange={e => handleDataTabelaChange('data_integracao', e.target.value)} /></td>
+
+                    <td style={{ padding: '4px' }}>
+                      <input 
+                        type="text" 
+                        disabled={!modoEdicaoAtivo} 
+                        value={itemExibido.obs || ''} 
+                        onChange={e => setDadosEdicao(prev => ({ ...prev, obs: e.target.value }))} 
+                        style={{
+                          fontSize: '11px', 
+                          padding: '3px 4px', 
+                          borderRadius: '4px', 
+                          width: '130px',
+                          border: '1px solid #e2e8f0',
+                          backgroundColor: !modoEdicaoAtivo ? '#f8fafc' : '#fff', 
+                          color: !modoEdicaoAtivo ? '#64748b' : '#334155',
+                          cursor: !modoEdicaoAtivo ? 'not-allowed' : 'auto'
+                        }} 
+                        placeholder="..." 
+                      />
+                    </td>
 
                     <td style={{ padding: '4px', textAlign: 'center' }}>
                       {!modoEdicaoAtivo ? (
@@ -280,7 +346,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                           onClick={() => iniciarEdicao(func)} 
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
                         >
-                          <Edit2 size={11} /> Editar Cronologia
+                          <Edit2 size={11} /> Editar
                         </button>
                       ) : (
                         <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
