@@ -178,60 +178,54 @@ export default function App() {
         </div>
       </header>
 
-      {/* MENUS / ABAS DE NAVEGAÇÃO */}
-      <div style={{ backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', padding: '4px 16px', display: 'flex', gap: '6px', width: '100%', boxSizing: 'border-box', overflowX: 'auto' }}>
-        {usuarioLogado.cargo === 'MASTER' && (
-          <>
-            <button onClick={() => setAbaAtiva('MASTER_CONTROLE')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'MASTER_CONTROLE' ? '#1e293b' : 'transparent', color: abaAtiva === 'MASTER_CONTROLE' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Criar Usuários</button>
-            <button onClick={() => setAbaAtiva('LISTA_VINCULOS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'LISTA_VINCULOS' ? '#1e293b' : 'transparent', color: abaAtiva === 'LISTA_VINCULOS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Usuários Ativos e Vínculos</button>
-            <button onClick={() => setAbaAtiva('CADASTRO_OBRAS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'CADASTRO_OBRAS' ? '#1e293b' : 'transparent', color: abaAtiva === 'CADASTRO_OBRAS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Gerenciar Obras</button>
-          </>
-        )}
-        {(usuarioLogado.cargo === 'RH' || usuarioLogado.cargo === 'MASTER') && (
-          <>
-            <button onClick={() => setAbaAtiva('RH')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'RH' ? '#1e293b' : 'transparent', color: abaAtiva === 'RH' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Recursos Humanos</button>
-            <button onClick={() => setAbaAtiva('RH_INTEGRACAO')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'RH_INTEGRACAO' ? '#1e293b' : 'transparent', color: abaAtiva === 'RH_INTEGRACAO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
-              <span>⏳ RH - Integração</span>
-            </button>
-            <button onClick={() => setAbaAtiva('CADASTRO_FUNCIONARIO')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'CADASTRO_FUNCIONARIO' ? '#1e293b' : 'transparent', color: abaAtiva === 'CADASTRO_FUNCIONARIO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
-              <UserPlus style={{ width: '12px', height: '12px' }} />
-              <span>Cadastrar Funcionário</span>
-            </button>
-            
-            {/* 🟢 ADICIONADO: Menu para cadastro de veículos visível para RH e MASTER */}
-            <button onClick={() => setAbaAtiva('CADASTRO_VEICULO')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'CADASTRO_VEICULO' ? '#1e293b' : 'transparent', color: abaAtiva === 'CADASTRO_VEICULO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
-              <Car style={{ width: '12px', height: '12px' }} />
-              <span>Gerenciar Veículos</span>
-            </button>
-          </>
-        )}
-        {(usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'GESTOR') && (
-          <>
-            <button onClick={() => setAbaAtiva('EQUIPE')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'EQUIPE' ? '#1e293b' : 'transparent', color: abaAtiva === 'EQUIPE' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Agendamento de Obra</button>
-            <button onClick={() => setAbaAtiva('DIARIO_TECNICO')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'DIARIO_TECNICO' ? '#1e293b' : 'transparent', color: abaAtiva === 'DIARIO_TECNICO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Diário de Obra</button>
-            <button onClick={() => setAbaAtiva('HISTORICO_DIARIOS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'HISTORICO_DIARIOS' ? '#1e293b' : 'transparent', color: abaAtiva === 'HISTORICO_DIARIOS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Histórico e Produção</button>
-            
-            <button onClick={() => setAbaAtiva('DIAS_PENDENTES')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'DIAS_PENDENTES' ? '#1e293b' : 'transparent', color: abaAtiva === 'DIAS_PENDENTES' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
-              <CalendarX style={{ width: '12px', height: '12px' }} />
-              <span>Diários Pendentes</span>
-            </button>
-{/* COMENTADO TEMPORARIAMENTE PARA TRABALHAR MAIS PARA FRENTE
-            <button onClick={() => setAbaAtiva('RESUMO_OBRAS')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'RESUMO_OBRAS' ? '#1e293b' : 'transparent', color: abaAtiva === 'RESUMO_OBRAS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
-              <BarChart3 style={{ width: '12px', height: '12px' }} />
-              <span>Indicadores da Obra</span>
-            </button>
-*/}
-            <button onClick={() => setAbaAtiva('HISTORICO_MATERIAIS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'HISTORICO_MATERIAIS' ? '#1e293b' : 'transparent', color: abaAtiva === 'HISTORICO_MATERIAIS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Histórico de Materiais</button>
-           
-          </>
-        )}
-        {/* 🟢 ÚNICO BOTÃO DE CONTROLE DE PRESENÇA (PARA MASTER, GESTOR E RH) */}
-          {(usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'GESTOR' || usuarioLogado.cargo === 'RH') && (
-            <button onClick={() => setAbaAtiva('PRESENCA')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'PRESENCA' ? '#1e293b' : 'transparent', color: abaAtiva === 'PRESENCA' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
-              Controle de Presença
-            </button>
+     {/* MENUS / ABAS DE NAVEGAÇÃO */}
+<div style={{ backgroundColor: '#fff', borderBottom: '1px solid #e2e8f0', padding: '4px 16px', display: 'flex', gap: '6px', width: '100%', boxSizing: 'border-box', overflowX: 'auto' }}>
+  
+  {usuarioLogado?.cargo === 'MASTER' && (
+    <>
+      <button onClick={() => setAbaAtiva('MASTER_CONTROLE')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'MASTER_CONTROLE' ? '#1e293b' : 'transparent', color: abaAtiva === 'MASTER_CONTROLE' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Criar Usuários</button>
+      <button onClick={() => setAbaAtiva('LISTA_VINCULOS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'LISTA_VINCULOS' ? '#1e293b' : 'transparent', color: abaAtiva === 'LISTA_VINCULOS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Usuários Ativos e Vínculos</button>
+      <button onClick={() => setAbaAtiva('CADASTRO_OBRAS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'CADASTRO_OBRAS' ? '#1e293b' : 'transparent', color: abaAtiva === 'CADASTRO_OBRAS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Gerenciar Obras</button>
+    </>
   )}
-      </div>
+
+  {(usuarioLogado?.cargo === 'RH' || usuarioLogado?.cargo === 'MASTER') && (
+    <>
+      <button onClick={() => setAbaAtiva('RH')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'RH' ? '#1e293b' : 'transparent', color: abaAtiva === 'RH' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Recursos Humanos</button>
+      <button onClick={() => setAbaAtiva('RH_INTEGRACAO')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'RH_INTEGRACAO' ? '#1e293b' : 'transparent', color: abaAtiva === 'RH_INTEGRACAO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
+        <span>⏳ RH - Integração</span>
+      </button>
+      <button onClick={() => setAbaAtiva('CADASTRO_FUNCIONARIO')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'CADASTRO_FUNCIONARIO' ? '#1e293b' : 'transparent', color: abaAtiva === 'CADASTRO_FUNCIONARIO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
+        <UserPlus style={{ width: '12px', height: '12px' }} />
+        <span>Cadastrar Funcionário</span>
+      </button>
+      <button onClick={() => setAbaAtiva('CADASTRO_VEICULO')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'CADASTRO_VEICULO' ? '#1e293b' : 'transparent', color: abaAtiva === 'CADASTRO_VEICULO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
+        <Car style={{ width: '12px', height: '12px' }} />
+        <span>Gerenciar Veículos</span>
+      </button>
+    </>
+  )}
+
+  {(usuarioLogado?.cargo === 'MASTER' || usuarioLogado?.cargo === 'GESTOR') && (
+    <>
+      <button onClick={() => setAbaAtiva('EQUIPE')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'EQUIPE' ? '#1e293b' : 'transparent', color: abaAtiva === 'EQUIPE' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Agendamento de Obra</button>
+      <button onClick={() => setAbaAtiva('DIARIO_TECNICO')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'DIARIO_TECNICO' ? '#1e293b' : 'transparent', color: abaAtiva === 'DIARIO_TECNICO' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Diário de Obra</button>
+      <button onClick={() => setAbaAtiva('HISTORICO_DIARIOS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'HISTORICO_DIARIOS' ? '#1e293b' : 'transparent', color: abaAtiva === 'HISTORICO_DIARIOS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Histórico e Produção</button>
+      <button onClick={() => setAbaAtiva('DIAS_PENDENTES')} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'DIAS_PENDENTES' ? '#1e293b' : 'transparent', color: abaAtiva === 'DIAS_PENDENTES' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
+        <CalendarX style={{ width: '12px', height: '12px' }} />
+        <span>Diários Pendentes</span>
+      </button>
+      <button onClick={() => setAbaAtiva('HISTORICO_MATERIAIS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'HISTORICO_MATERIAIS' ? '#1e293b' : 'transparent', color: abaAtiva === 'HISTORICO_MATERIAIS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Histórico de Materiais</button>
+    </>
+  )}
+
+  {/* BOTÃO ÚNICO COMPATÍVEL COM RH, GESTOR E MASTER */}
+  {(usuarioLogado?.cargo === 'MASTER' || usuarioLogado?.cargo === 'GESTOR' || usuarioLogado?.cargo === 'RH') && (
+    <button onClick={() => setAbaAtiva('PRESENCA')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'PRESENCA' ? '#1e293b' : 'transparent', color: abaAtiva === 'PRESENCA' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
+      Controle de Presença
+    </button>
+  )}
+</div>
         
       {mensagem.texto && (
         <div style={{ position: 'fixed', bottom: '16px', right: '16px', zIndex: 50, padding: '12px', borderRadius: '4px', border: '1px solid', fontSize: '11px', backgroundColor: mensagem.tipo === 'sucesso' ? '#f0fdf4' : '#fef2f2', color: mensagem.tipo === 'sucesso' ? '#166534' : '#991b1b' }}>{mensagem.texto}</div>
