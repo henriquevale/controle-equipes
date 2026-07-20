@@ -222,11 +222,16 @@ export default function App() {
             </button>
 */}
             <button onClick={() => setAbaAtiva('HISTORICO_MATERIAIS')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'HISTORICO_MATERIAIS' ? '#1e293b' : 'transparent', color: abaAtiva === 'HISTORICO_MATERIAIS' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Histórico de Materiais</button>
-            <button onClick={() => setAbaAtiva('PRESENCA')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'PRESENCA' ? '#1e293b' : 'transparent', color: abaAtiva === 'PRESENCA' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>Controle de Presença</button>
+           
           </>
         )}
       </div>
-
+        {/* 🟢 ÚNICO BOTÃO DE CONTROLE DE PRESENÇA (PARA MASTER, GESTOR E RH) */}
+          {(usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'GESTOR' || usuarioLogado.cargo === 'RH') && (
+            <button onClick={() => setAbaAtiva('PRESENCA')} style={{ height: '28px', padding: '0 12px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: abaAtiva === 'PRESENCA' ? '#1e293b' : 'transparent', color: abaAtiva === 'PRESENCA' ? '#fff' : '#475569', whiteSpace: 'nowrap' }}>
+              Controle de Presença
+            </button>
+  )}
       {mensagem.texto && (
         <div style={{ position: 'fixed', bottom: '16px', right: '16px', zIndex: 50, padding: '12px', borderRadius: '4px', border: '1px solid', fontSize: '11px', backgroundColor: mensagem.tipo === 'sucesso' ? '#f0fdf4' : '#fef2f2', color: mensagem.tipo === 'sucesso' ? '#166534' : '#991b1b' }}>{mensagem.texto}</div>
       )}
