@@ -281,7 +281,7 @@ export default function App() {
           </div>
         )}
 
-        {abaAtiva === 'PRESENCA' && (usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'GESTOR') && (
+        {abaAtiva === 'PRESENCA' && (usuarioLogado.cargo === 'MASTER' || usuarioLogado.cargo === 'GESTOR' || usuarioLogado.cargo === 'RH') && (
           <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '4px', width: '100%', boxSizing: 'border-box' }}>
             <HistoricoPresenca cargo={usuarioLogado.cargo} id={usuarioLogado.id} />
           </div>

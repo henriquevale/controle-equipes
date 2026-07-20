@@ -16,12 +16,12 @@ router.get('/gestor/obras-ativas', async (req, res) => {
       return res.status(400).json({ error: "ID do usuário não foi fornecido." });
     }
 
-    // Se solicitado 'incluirInativas' ou se for MASTER, traz todas. Caso contrário, traz apenas ATIVAS.
-    let trazerTodas = incluirInativas === 'true' || cargo === 'MASTER';
+    // Permitir trazer todas as obras se for MASTER ou RH
+    let trazerTodas = incluirInativas === 'true' || cargo === 'MASTER' || cargo === 'RH';
     let sql = trazerTodas ? `SELECT * FROM obras` : `SELECT * FROM obras WHERE status = 'ATIVA'`;
     const params = [];
 
-    if (cargo !== 'MASTER') {
+    if (cargo !== 'MASTER' && cargo !== 'RH') {
       if (trazerTodas) {
         sql = `
           SELECT o.* FROM obras o
@@ -780,7 +780,9 @@ router.get('/gestor/historico-presenca', async (req, res) => {
     let filtroCondicional = "";
     let params = [];
 
-    if (cargo !== 'MASTER') {
+    // Se for GESTOR, filtra apenas pelo que ele registrou.
+    // Se for MASTER ou RH, traz o histórico de todas as obras/equipes sem essa restrição.
+    if (cargo !== 'MASTER' && cargo !== 'RH') {
       filtroCondicional += ` AND EXISTS (
         SELECT 1
         FROM diario_obra do
