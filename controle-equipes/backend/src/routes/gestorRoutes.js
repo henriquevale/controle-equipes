@@ -767,7 +767,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
 });
 
 // ========================================================
-// 18. GET: HISTÓRICO DE PRESENÇA CONSOLIDADO
+// 18. GET: HISTÓRICO DE PRESENÇA CONSOLIDADO (UNIFICADO)
 // ========================================================
 router.get('/gestor/historico-presenca', async (req, res) => {
   const { id, cargo, id_obra, data_inicio, data_fim } = req.query;
@@ -780,17 +780,13 @@ router.get('/gestor/historico-presenca', async (req, res) => {
     let filtroCondicional = "";
     let params = [];
 
-    // Se for GESTOR, filtra apenas pelo que ele registrou.
-    // Se for MASTER ou RH, traz o histórico de todas as obras/equipes sem essa restrição.
+    // Se o usuário for GESTOR, filtra pelas obras/funcionários vinculados a ele
     if (cargo !== 'MASTER' && cargo !== 'RH') {
-      filtroCondicional += ` AND EXISTS (
-        SELECT 1
-        FROM diario_obra do
-        WHERE do.id_obra = de.id_obra
-          AND do.data_diario = de.data_diario
-          AND do.id_gestor = ?
+      filtroCondicional += ` AND (
+        de.id_gestor = ? OR 
+        de.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?)
       ) `;
-      params.push(parseInt(id));
+      params.push(parseInt(id), parseInt(id));
     }
 
     if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
