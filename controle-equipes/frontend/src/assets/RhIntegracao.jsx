@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, Calendar, Edit2, X, Check, FileText, Send, Inbox, Database, BarChart3, Clock, Milestone, Layers3, Download } from 'lucide-react';
+import { Save, Calendar, Edit2, X, Check, FileText, Send, Inbox, Database, BarChart3, Clock, Milestone, Layers3, Download, Search } from 'lucide-react';
 
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [filtroEtapa, setFiltroEtapa] = useState('TODOS');
+  const [termoPesquisa, setTermoPesquisa] = useState('');
 
-  // Estado para controlar qual funcionário está sendo editado na linha
-  const [idFuncionarioEmEdicao, setIdFuncionarioEmEdicao] = useState(null);
-  
-  // ESTADO ISOLADO: Guarda temporariamente os dados digitados antes de salvar
+  // Controla exatamente qual LINHA DA INTEGRAÇÃO está sendo editada
+  const [idIntegracaoEmEdicao, setIdIntegracaoEmEdicao] = useState(null);
   const [dadosEdicao, setDadosEdicao] = useState(null);
 
   const carregarEsteira = async () => {
@@ -34,21 +33,16 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     return dataBanco.split('T')[0];
   };
 
-  // Ativa o modo de edição clonando os dados reais para o estado temporário
-  const iniciarEdicao = (funcionario) => {
-    setIdFuncionarioEmEdicao(funcionario.id);
-    setDadosEdicao({ ...funcionario });
+  const iniciarEdicao = (itemIntegracao) => {
+    setIdIntegracaoEmEdicao(itemIntegracao.id_integracao);
+    setDadosEdicao({ ...itemIntegracao });
   };
 
-  // Cancelar limpa os estados temporários sem mexer na lista principal
   const cancelarEdicao = () => {
-    setIdFuncionarioEmEdicao(null);
+    setIdIntegracaoEmEdicao(null);
     setDadosEdicao(null);
   };
 
-  // ========================================================
-  // REGRAS DE ALTERAÇÃO DE DATA COM VALIDAÇÃO CRONOLÓGICA (NO TEMP)
-  // ========================================================
   const handleDataTabelaChange = (campo, valor) => {
     if (!valor) {
       setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
@@ -99,7 +93,8 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     if (!dadosEdicao) return;
 
     try {
-      const res = await axios.put(`${API_URL}/rh/funcionarios/${dadosEdicao.id}/integracao`, {
+      const res = await axios.put(`${API_URL}/rh/integracoes/${dadosEdicao.id_integracao}`, {
+        id_funcionario: dadosEdicao.id_funcionario,
         data_documentos_sst: dadosEdicao.data_documentos_sst,
         data_enviados: dadosEdicao.data_enviados,
         data_recebidos: dadosEdicao.data_recebidos,
@@ -114,7 +109,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         if (mostrarMensagemGlobal) mostrarMensagemGlobal(res.data.message, 'sucesso');
         else alert(res.data.message);
         
-        setIdFuncionarioEmEdicao(null);
+        setIdIntegracaoEmEdicao(null);
         setDadosEdicao(null);
         carregarEsteira();
         if (recarregarFuncionariosGeral) recarregarFuncionariosGeral();
@@ -125,9 +120,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     }
   };
 
-  // ========================================================
-  // CONTADORES E FILTROS DO PAINEL SUPERIOR (FLUXO SEQUENCIAL)
-  // ========================================================
   const contadores = {
     TODOS: listaIntegracoes.length,
     DOC_SST: listaIntegracoes.filter(f => !f.data_documentos_sst).length,
@@ -140,20 +132,23 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   };
 
   const listaFiltrada = listaIntegracoes.filter(f => {
-    if (filtroEtapa === 'TODOS') return true;
-    if (filtroEtapa === 'DOC_SST') return !f.data_documentos_sst;
-    if (filtroEtapa === 'ENVIADOS') return f.data_documentos_sst && !f.data_enviados;
-    if (filtroEtapa === 'RECEBIDOS') return f.data_enviados && !f.data_recebidos;
-    if (filtroEtapa === 'NA_BEX') return f.data_recebidos && !f.data_postado_bex;
-    if (filtroEtapa === 'ANALISE') return f.data_postado_bex && !f.data_analise;
-    if (filtroEtapa === 'AGENDADA') return f.data_analise && !f.data_integracao_agendada;
-    if (filtroEtapa === 'INTEGRACAO') return f.data_integracao_agendada && !f.data_integracao;
-    return true;
+    let atendeEtapa = true;
+    if (filtroEtapa === 'DOC_SST') atendeEtapa = !f.data_documentos_sst;
+    else if (filtroEtapa === 'ENVIADOS') atendeEtapa = f.data_documentos_sst && !f.data_enviados;
+    else if (filtroEtapa === 'RECEBIDOS') atendeEtapa = f.data_enviados && !f.data_recebidos;
+    else if (filtroEtapa === 'NA_BEX') atendeEtapa = f.data_recebidos && !f.data_postado_bex;
+    else if (filtroEtapa === 'ANALISE') atendeEtapa = f.data_postado_bex && !f.data_analise;
+    else if (filtroEtapa === 'AGENDADA') atendeEtapa = f.data_analise && !f.data_integracao_agendada;
+    else if (filtroEtapa === 'INTEGRACAO') atendeEtapa = f.data_integracao_agendada && !f.data_integracao;
+
+    const termo = termoPesquisa.toLowerCase();
+    const atendeBusca = 
+      (f.nome || '').toLowerCase().includes(termo) || 
+      (f.matricula || '').toLowerCase().includes(termo);
+
+    return atendeEtapa && atendeBusca;
   });
 
-  // ========================================================
-  // FUNÇÃO DE EXPORTAÇÃO PARA ARQUIVO CSV
-  // ========================================================
   const exportarParaCSV = () => {
     if (listaFiltrada.length === 0) {
       if (mostrarMensagemGlobal) mostrarMensagemGlobal('Não há dados para exportar com o filtro atual.', 'erro');
@@ -202,7 +197,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     boxShadow: '0 1px 2px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px'
   });
 
-  const estiloInputTabela = (disabled, isCritico = false) => ({
+  const estiloInputTabela = (disabled) => ({
     fontSize: '11px', padding: '3px 4px', borderRadius: '4px', width: '115px',
     border: '1px solid #e2e8f0',
     backgroundColor: disabled ? '#f8fafc' : '#fff', 
@@ -220,25 +215,47 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Layers3 style={{ color: '#2563eb', width: '18px', height: '18px' }} />
           <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b' }}>
-            Esteira de Integração de Funcionários (Acompanhamento Diário)
+            Esteira de Integração de Funcionários
           </h3>
         </div>
 
-        <button
-          onClick={exportarParaCSV}
-          style={{
-            height: '30px', padding: '0 12px', backgroundColor: '#1e293b', color: '#fff', border: 'none',
-            borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-            fontSize: '11px', fontWeight: 'bold', boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-          }}
-          title="Exportar registros filtrados para Excel/CSV"
-        >
-          <Download style={{ width: '13px', height: '13px' }} />
-          <span>Exportar Filtro</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* BARRA DE PESQUISAR */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <Search style={{ width: '14px', height: '14px', color: '#94a3b8', position: 'absolute', left: '8px' }} />
+            <input 
+              type="text" 
+              placeholder="Pesquisar funcionário..." 
+              value={termoPesquisa}
+              onChange={e => setTermoPesquisa(e.target.value)}
+              style={{ height: '30px', padding: '0 8px 0 28px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', width: '200px' }}
+            />
+            {termoPesquisa && (
+              <button 
+                onClick={() => setTermoPesquisa('')} 
+                style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={exportarParaCSV}
+            style={{
+              height: '30px', padding: '0 12px', backgroundColor: '#1e293b', color: '#fff', border: 'none',
+              borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+              fontSize: '11px', fontWeight: 'bold', boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+            }}
+            title="Exportar registros filtrados para Excel/CSV"
+          >
+            <Download style={{ width: '13px', height: '13px' }} />
+            <span>Exportar Filtro</span>
+          </button>
+        </div>
       </div>
 
-      {/* Painel de Contadores de Monitoramento */}
+      {/* Cards Méticos */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px' }}>
         <div onClick={() => setFiltroEtapa('TODOS')} style={estiloCardContador('TODOS')}>
           <Layers3 size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Todos</div>
@@ -274,10 +291,10 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         </div>
       </div>
 
-      {/* Tabela Principal de Movimentação */}
+      {/* Tabela Principal */}
       {listaFiltrada.length === 0 ? (
         <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px', backgroundColor: '#f8fafc', borderRadius: '4px' }}>
-          Nenhum funcionário parado nesta etapa da esteira.
+          Nenhum registro encontrado para esta etapa ou pesquisa.
         </div>
       ) : (
         <div style={{ overflowX: 'auto', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
@@ -291,23 +308,23 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>4. Na BEX</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>5. Análise</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>6. Agendada</th>
-                {/* 💡 Corrigido: Removido o background azul escuro diferenciado do th */}
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>7. Integração</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>Obs.</th>
                 <th style={{ padding: '10px 8px', border: '1px solid #334155', textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
-              {listaFiltrada.map((func) => {
-                const modoEdicaoAtivo = func.id === idFuncionarioEmEdicao;
-                const itemExibido = modoEdicaoAtivo ? dadosEdicao : func;
-                const completo = !!func.data_integracao;
+              {listaFiltrada.map((item) => {
+                // 💡 Edição baseada no id_integracao exclusivo da linha
+                const modoEdicaoAtivo = item.id_integracao === idIntegracaoEmEdicao;
+                const itemExibido = modoEdicaoAtivo ? dadosEdicao : item;
+                const completo = !!item.data_integracao;
 
                 return (
-                  <tr key={func.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: completo ? '#f0fdf4' : (modoEdicaoAtivo ? '#eff6ff' : '#fff') }}>
+                  <tr key={item.id_integracao} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: completo ? '#f0fdf4' : (modoEdicaoAtivo ? '#eff6ff' : '#fff') }}>
                     <td style={{ padding: '8px 6px', color: '#334155', fontWeight: 'bold', borderLeft: modoEdicaoAtivo ? '3px solid #2563eb' : 'none' }}>
-                      {func.nome} <br />
-                      <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {func.matricula}</span>
+                      {item.nome} <br />
+                      <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {item.matricula}</span>
                     </td>
                     
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_documentos_sst)} onChange={e => handleDataTabelaChange('data_documentos_sst', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
@@ -316,8 +333,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_postado_bex)} onChange={e => handleDataTabelaChange('data_postado_bex', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_analise)} onChange={e => handleDataTabelaChange('data_analise', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao_agendada)} onChange={e => handleDataTabelaChange('data_integracao_agendada', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    
-                    {/* 💡 Corrigido: Removida a estilização de fundo azul diferenciada da célula td */}
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao)} style={estiloInputTabela(!modoEdicaoAtivo)} onChange={e => handleDataTabelaChange('data_integracao', e.target.value)} /></td>
 
                     <td style={{ padding: '4px' }}>
@@ -343,7 +358,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                     <td style={{ padding: '4px', textAlign: 'center' }}>
                       {!modoEdicaoAtivo ? (
                         <button 
-                          onClick={() => iniciarEdicao(func)} 
+                          onClick={() => iniciarEdicao(item)} 
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
                         >
                           <Edit2 size={11} /> Editar
@@ -353,7 +368,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                           <button onClick={salvarLinhaCronologia} style={{ padding: '5px 8px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Salvar Alterações">
                             <Check size={14}/>
                           </button>
-                          <button onClick={cancelarEdicao} style={{ padding: '5px 8px', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Cancelar/Zerar">
+                          <button onClick={cancelarEdicao} style={{ padding: '5px 8px', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Cancelar">
                             <X size={14}/>
                           </button>
                         </div>

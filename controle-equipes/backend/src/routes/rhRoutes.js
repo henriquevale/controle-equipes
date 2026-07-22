@@ -58,25 +58,20 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
 });
 
 // ========================================================
-// B. POST: CADASTRAR NOVO FUNCIONÁRIO COM VÍNCULO AO GESTOR
+// A. CADASTRAR FUNCIONÁRIO (RH)
 // ========================================================
 router.post('/rh/funcionarios', async (req, res) => {
   const { 
-    nome, matricula, cargo, 
-    cpf, telefone, tam_calca, tam_camisa, tam_calcado,
-    id_usuario_gestor, id_usuario_cadastro,
-    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
-    observacoes 
+    nome, matricula, cargo, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
+    id_usuario_gestor, id_usuario_cadastro, data_admissao, data_postagem_aso_pasta, 
+    data_documentos_rh_completos, observacoes 
   } = req.body;
 
   if (!nome || !matricula || !cargo) {
-    return res.status(400).json({ error: "Campos obrigatórios ausentes (nome, matricula ou cargo)." });
+    return res.status(400).json({ error: "Campos obrigatórios ausentes." });
   }
 
   try {
-    let idNovoFuncionario = null;
-
-    // CORRIGIDO: Removido o "-" (hífen) que quebrava a sintaxe do SQL
     const sqlFuncionario = `
       INSERT INTO funcionarios 
         (nome, matricula, cargo, ativo, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
@@ -89,21 +84,17 @@ router.post('/rh/funcionarios', async (req, res) => {
       : parseInt(tam_calcado, 10);
 
     const [resultadoFunc] = await db.execute(sqlFuncionario, [
-      nome.trim(), 
-      matricula.trim(), 
-      cargo.trim(), 
+      nome.trim(), matricula.trim(), cargo.trim(), 
       cpf && cpf.trim() !== '' ? cpf.trim() : null,
       telefone && telefone.trim() !== '' ? telefone.trim() : null,
       tam_calca && tam_calca.trim() !== '' ? tam_calca.trim() : null,
       tam_camisa && tam_camisa.trim() !== '' ? tam_camisa.trim() : null,
-      calcadoFinal,
-      formatarData(data_admissao),
-      formatarData(data_postagem_aso_pasta),
+      calcadoFinal, formatarData(data_admissao), formatarData(data_postagem_aso_pasta),
       formatarData(data_documentos_rh_completos),
       observacoes && observacoes.trim() !== '' ? observacoes.trim() : null 
     ]);
 
-    idNovoFuncionario = resultadoFunc.insertId;
+    const idNovoFuncionario = resultadoFunc.insertId;
 
     if (id_usuario_gestor) {
       const sqlVinculo = `
@@ -111,43 +102,38 @@ router.post('/rh/funcionarios', async (req, res) => {
           (id_usuario, id_funcionario, id_obra, data_inicio, data_fim, id_usuario_alteracao) 
         VALUES (?, ?, 0, NOW(), NULL, ?)
       `;
-      
       const usuarioAlteracao = (id_usuario_cadastro && id_usuario_cadastro !== '') 
         ? parseInt(id_usuario_cadastro, 10) 
         : parseInt(id_usuario_gestor, 10);
 
-      await db.execute(sqlVinculo, [
-        parseInt(id_usuario_gestor, 10),
-        idNovoFuncionario,
-        usuarioAlteracao
-      ]);
+      await db.execute(sqlVinculo, [parseInt(id_usuario_gestor, 10), idNovoFuncionario, usuarioAlteracao]);
     }
 
+    // 💡 Cria uma nova linha/sessão de integração para este funcionário
     const sqlInicializarIntegracao = `
-      INSERT INTO integracoes_funcionarios (id_funcionario) VALUES (?)
+      INSERT INTO integracoes_funcionarios (id_funcionario, criado_em) VALUES (?, NOW())
     `;
     await db.execute(sqlInicializarIntegracao, [idNovoFuncionario]);
 
     return res.status(201).json({ 
       success: true, 
-      message: 'Funcionário cadastrado, vinculado e enviado para a esteira de integração!' 
+      message: 'Funcionário cadastrado e enviado para a esteira de integração!' 
     });
 
   } catch (error) {
-    // ... manter tratamento de erro original
+    console.error("Erro ao cadastrar funcionário:", error);
+    res.status(500).json({ error: "Erro ao cadastrar funcionário." });
   }
 });
 
 // ========================================================
-// E. PUT: ATUALIZAR FUNCIONÁRIO (EDIÇÃO DIRETA NO CADASTRO DO RH)
+// B. EDITAR FUNCIONÁRIO (RH)
 // ========================================================
 router.put('/rh/funcionarios/:id', async (req, res) => {
   const { id } = req.params;
   const { 
-    nome, matricula, cargo, ativo, 
-    cpf, telefone, tam_calca, tam_camisa, tam_calcado,
-    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
-    observacoes 
+    nome, matricula, cargo, ativo, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
+    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos, observacoes 
   } = req.body;
 
   if (!nome || !matricula || !cargo || !ativo) {
@@ -166,22 +152,22 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
     `;
     
     await db.execute(sql, [
-      nome.trim(), 
-      matricula.trim(), 
-      cargo.trim(), 
-      ativo, 
-      cpf ? cpf.trim() : null,
-      telefone ? telefone.trim() : null,
-      tam_calca ? tam_calca.trim() : null,
-      tam_camisa ? tam_camisa.trim() : null,
-      tam_calcado ? tam_calcado.trim() : null,
-      formatarData(data_admissao),
-      formatarData(data_postagem_aso_pasta),
-      formatarData(data_documentos_rh_completos),
-      // Ajustado para aceitar strings vazias sem quebrar a edição posterior
+      nome.trim(), matricula.trim(), cargo.trim(), ativo, 
+      cpf ? cpf.trim() : null, telefone ? telefone.trim() : null,
+      tam_calca ? tam_calca.trim() : null, tam_camisa ? tam_camisa.trim() : null,
+      tam_calcado ? tam_calcado.trim() : null, formatarData(data_admissao),
+      formatarData(data_postagem_aso_pasta), formatarData(data_documentos_rh_completos),
       observacoes !== undefined && observacoes !== null ? observacoes.trim() : null,
       parseInt(id)
     ]);
+
+    // 💡 SE O STATUS FOI MUDADO PARA "INTEGRAÇÃO PENDENTE", CRIA UMA NOVA LINHA NA ESTEIRA
+    if (ativo === 'INTEGRAÇÃO PENDENTE') {
+      const sqlNovaIntegracao = `
+        INSERT INTO integracoes_funcionarios (id_funcionario, criado_em) VALUES (?, NOW())
+      `;
+      await db.execute(sqlNovaIntegracao, [parseInt(id)]);
+    }
     
     res.json({ success: true, message: "Dados atualizados com sucesso!" });
   } catch (err) {
@@ -191,11 +177,48 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
 });
 
 // ========================================================
-// C. PUT: ATUALIZAR CRONOLOGIA DE INTEGRAÇÃO DO FUNCIONÁRIO
+// C. LISTAR ESTEIRA DE INTEGRAÇÃO (HISTÓRICO COMPLETO)
 // ========================================================
-router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
-  const id_funcionario = req.params.id;
+router.get('/rh/integracoes-pendentes', async (req, res) => {
+  try {
+    // 💡 Traz i.id AS id_integracao para ser usado como chave única no frontend
+    const sql = `
+      SELECT 
+        i.id AS id_integracao,
+        i.id_funcionario,
+        f.nome, 
+        f.matricula, 
+        f.cargo, 
+        f.ativo,
+        i.data_documentos_sst, 
+        i.data_enviados, 
+        i.data_recebidos,
+        i.data_postado_bex, 
+        i.data_analise, 
+        i.data_integracao_agendada, 
+        i.data_integracao,
+        i.obs,
+        i.criado_em
+      FROM integracoes_funcionarios i
+      INNER JOIN funcionarios f ON i.id_funcionario = f.id
+      ORDER BY i.id DESC
+    `;
+    
+    const [rows] = await db.execute(sql);
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar integrações para histórico:", err);
+    res.status(500).json({ error: "Erro ao carregar a esteira de integração." });
+  }
+});
+
+// ========================================================
+// D. ATUALIZAR UMA LINHA ESPECÍFICA DA ESTEIRA DE INTEGRAÇÃO
+// ========================================================
+router.put('/rh/integracoes/:idIntegracao', async (req, res) => {
+  const { idIntegracao } = req.params;
   const {
+    id_funcionario,
     data_documentos_sst,
     data_enviados,
     data_recebidos,
@@ -203,20 +226,10 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
     data_analise,
     data_integracao_agendada,
     data_integracao,
-    obs // 💡 ADICIONADO: Capturando a observação enviada pelo frontend
+    obs
   } = req.body;
 
   try {
-    // 💡 SEGURANÇA: Garante que a linha de integração exista antes de tentar dar UPDATE
-    const sqlVerificar = `SELECT id_funcionario FROM integracoes_funcionarios WHERE id_funcionario = ?`;
-    const [existe] = await db.execute(sqlVerificar, [id_funcionario]);
-    
-    if (existe.length === 0) {
-      const sqlCriarEspaco = `INSERT INTO integracoes_funcionarios (id_funcionario) VALUES (?)`;
-      await db.execute(sqlCriarEspaco, [id_funcionario]);
-    }
-
-    // 💡 ATUALIZADO: Incluído o campo "obs" na query de UPDATE
     const sqlUpdateIntegracao = `
       UPDATE integracoes_funcionarios SET
         data_documentos_sst = ?,
@@ -226,11 +239,11 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
         data_analise = ?,
         data_integracao_agendada = ?,
         data_integracao = ?,
-        obs = ?
-      WHERE id_funcionario = ?
+        obs = ?,
+        atualizado_em = NOW()
+      WHERE id = ?
     `;
 
-    // 💡 ATUALIZADO: Passando o valor de 'obs' tratado no array de parâmetros
     await db.execute(sqlUpdateIntegracao, [
       formatarData(data_documentos_sst),
       formatarData(data_enviados),
@@ -239,29 +252,26 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
       formatarData(data_analise),
       formatarData(data_integracao_agendada),
       formatarData(data_integracao),
-      obs && obs.trim() !== '' ? obs.trim() : null, // Se tiver texto salva limpo, se não grava NULL
-      id_funcionario
+      obs && obs.trim() !== '' ? obs.trim() : null,
+      parseInt(idIntegracao)
     ]);
 
-    if (data_integracao && data_integracao.trim() !== '') {
-      const sqlAtivarFuncionario = `
-        UPDATE funcionarios 
-        SET ativo = 'ATIVO' 
-        WHERE id = ?
-      `;
+    // Se concluiu a integração preenchendo 'data_integracao', ativa o funcionário no RH
+    if (data_integracao && data_integracao.trim() !== '' && id_funcionario) {
+      const sqlAtivarFuncionario = `UPDATE funcionarios SET ativo = 'ATIVO' WHERE id = ?`;
       await db.execute(sqlAtivarFuncionario, [id_funcionario]);
       
       return res.json({ 
         success: true, 
-        message: 'Cronologia e observação salvas! Como a integração foi concluída, o funcionário agora está ATIVO.' 
+        message: 'Integração concluída! O funcionário agora está ATIVO no sistema.' 
       });
     }
 
-    return res.json({ success: true, message: 'Cronologia de integração e observação atualizadas com sucesso!' });
+    return res.json({ success: true, message: 'Linha de integração atualizada com sucesso!' });
 
   } catch (error) {
     console.error("Erro ao atualizar integração:", error);
-    return res.status(500).json({ error: "Erro interno ao atualizar os dados de integração." });
+    return res.status(500).json({ error: "Erro interno ao atualizar linha de integração." });
   }
 });
 // ========================================================
