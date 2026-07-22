@@ -339,11 +339,10 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
 // ========================================================
 router.get('/rh/integracoes-pendentes', async (req, res) => {
   try {
-    // Busca os registros diretamente da tabela integracoes_funcionarios
-    // Trazendo nome, matricula e cargo da tabela funcionarios apenas para identificação
     const sql = `
       SELECT 
-        i.id_funcionario AS id,
+        i.id AS id_integracao,
+        f.id AS id_funcionario,
         f.nome, 
         f.matricula, 
         f.cargo, 
@@ -355,17 +354,19 @@ router.get('/rh/integracoes-pendentes', async (req, res) => {
         i.data_analise, 
         i.data_integracao_agendada, 
         i.data_integracao,
-        i.obs
-      FROM integracoes_funcionarios i
-      INNER JOIN funcionarios f ON i.id_funcionario = f.id
-      ORDER BY f.nome ASC
+        i.obs,
+        i.criado_em
+      FROM funcionarios f
+      INNER JOIN integracoes_funcionarios i ON f.id = i.id_funcionario
+      WHERE f.ativo = 'INTEGRAÇÃO PENDENTE'
+      ORDER BY i.id DESC
     `;
     
     const [rows] = await db.execute(sql);
     res.json(rows);
   } catch (err) {
-    console.error("Erro ao buscar integrações para histórico:", err);
-    res.status(500).json({ error: "Erro ao carregar a esteira de integração." });
+    console.error("Erro ao buscar integrações:", err);
+    res.status(500).json({ error: "Erro ao carregar a esteira." });
   }
 });
 
