@@ -33,9 +33,6 @@ router.get('/gestores', async (req, res) => {
 // ========================================================
 // A. GET: LISTAR TODOS OS FUNCIONÁRIOS (TABELA RH GERAL)
 // ========================================================
-// ========================================================
-// A. GET: LISTAR TODOS OS FUNCIONÁRIOS (TABELA RH GERAL)
-// ========================================================
 router.get('/rh/funcionarios-geral', async (req, res) => {
   try {
     const sql = `
@@ -332,6 +329,33 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
   } catch (err) {
     console.error("Erro no banco ao atualizar funcionário:", err);
     res.status(500).json({ error: "Erro ao atualizar dados do funcionário no banco." });
+  }
+});
+// ========================================================
+// E. DELETAR FUNCIONÁRIO (RH)
+// ========================================================
+router.delete('/rh/funcionarios/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Opcional: Apaga primeiro os registros vinculados na esteira de integração
+    // (Caso não tenha colocado ON DELETE CASCADE na chave estrangeira)
+    await db.execute('DELETE FROM integracoes_funcionarios WHERE id_funcionario = ?', [id]);
+
+    // 2. Apaga os vínculos de gestor/obra se existirem
+    await db.execute('DELETE FROM gestor_funcionarios WHERE id_funcionario = ?', [id]);
+
+    // 3. Apaga o funcionário da tabela principal
+    const [resultado] = await db.execute('DELETE FROM funcionarios WHERE id = ?', [id]);
+
+    if (resultado.affectedRows === 0) {
+      return res.status(404).json({ error: "Funcionário não encontrado." });
+    }
+
+    return res.json({ success: true, message: "Funcionário excluído com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao deletar funcionário:", error);
+    return res.status(500).json({ error: "Erro interno ao tentar excluir o funcionário." });
   }
 });
 // ========================================================
