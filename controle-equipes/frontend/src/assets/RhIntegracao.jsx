@@ -1,15 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, Calendar, Edit2, X, Check, FileText, Send, Inbox, Database, BarChart3, Clock, Milestone, Layers3, Download, Search } from 'lucide-react';
+import { 
+  Save, Calendar, Edit2, X, Check, FileText, Send, 
+  Inbox, Database, BarChart3, Clock, Milestone, 
+  Layers3, Download, Search, Trash2 
+} from 'lucide-react';
 
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://controle-equipes.onrender.com/api'; 
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [filtroEtapa, setFiltroEtapa] = useState('TODOS');
-  const [termoPesquisa, setTermoPesquisa] = useState('');
 
-  // Controla exatamente qual LINHA DA INTEGRAÇÃO está sendo editada
+  // 🔍 Estado para o campo de pesquisa (Busca por Nome ou Matrícula)
+  const [busca, setBusca] = useState('');
+
+  // Controla a linha em edição usando a chave única da integração
   const [idIntegracaoEmEdicao, setIdIntegracaoEmEdicao] = useState(null);
+  
+  // ESTADO ISOLADO: Guarda temporariamente os dados digitados antes de salvar
   const [dadosEdicao, setDadosEdicao] = useState(null);
 
   const carregarEsteira = async () => {
@@ -33,16 +43,56 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     return dataBanco.split('T')[0];
   };
 
-  const iniciarEdicao = (itemIntegracao) => {
-    setIdIntegracaoEmEdicao(itemIntegracao.id_integracao);
-    setDadosEdicao({ ...itemIntegracao });
+  // Ativa o modo de edição clonando os dados reais para o estado temporário
+  const iniciarEdicao = (item) => {
+    const chaveEdicao = item.id_integracao || item.id;
+    setIdIntegracaoEmEdicao(chaveEdicao);
+    setDadosEdicao({ ...item });
   };
 
+  // Cancelar limpa os estados temporários sem mexer na lista principal
   const cancelarEdicao = () => {
     setIdIntegracaoEmEdicao(null);
     setDadosEdicao(null);
   };
 
+  // 🗑️ FUNÇÃO DE EXCLUSÃO (DELETE) DA LINHA DA ESTEIRA
+  const deletarIntegracao = async (item) => {
+    const idIntegracao = item.id_integracao || item.id;
+    const nomeExibicao = item.nome || 'este funcionário';
+
+    if (!idIntegracao) {
+      const msg = "Erro: Não foi possível identificar a linha da integração para exclusão.";
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal(msg, 'erro');
+      else alert(msg);
+      return;
+    }
+
+    if (!window.confirm(`Tem certeza que deseja remover o registro de integração de "${nomeExibicao}"? (O cadastro principal do funcionário continuará salvo no RH)`)) {
+      return;
+    }
+
+    try {
+      const res = await axios.delete(`${API_URL}/rh/integracao/${idIntegracao}`);
+      
+      if (res.data.success) {
+        if (mostrarMensagemGlobal) mostrarMensagemGlobal(res.data.message, 'sucesso');
+        else alert(res.data.message);
+
+        carregarEsteira();
+        if (recarregarFuncionariosGeral) recarregarFuncionariosGeral();
+      }
+    } catch (err) {
+      console.error("Erro ao deletar integração:", err);
+      const msgErro = err.response?.data?.error || "Erro ao remover registro de integração.";
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal(msgErro, 'erro');
+      else alert(msgErro);
+    }
+  };
+
+  // ========================================================
+  // REGRAS DE ALTERAÇÃO DE DATA COM VALIDAÇÃO CRONOLÓGICA
+  // ========================================================
   const handleDataTabelaChange = (campo, valor) => {
     if (!valor) {
       setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
@@ -93,8 +143,10 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     if (!dadosEdicao) return;
 
     try {
-      const res = await axios.put(`${API_URL}/rh/integracoes/${dadosEdicao.id_integracao}`, {
-        id_funcionario: dadosEdicao.id_funcionario,
+      const idFunc = dadosEdicao.id_funcionario || dadosEdicao.id;
+
+      const res = await axios.put(`${API_URL}/rh/funcionarios/${idFunc}/integracao`, {
+        id_integracao: dadosEdicao.id_integracao,
         data_documentos_sst: dadosEdicao.data_documentos_sst,
         data_enviados: dadosEdicao.data_enviados,
         data_recebidos: dadosEdicao.data_recebidos,
@@ -120,6 +172,9 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     }
   };
 
+  // ========================================================
+  // CONTADORES E FILTROS DO PAINEL SUPERIOR
+  // ========================================================
   const contadores = {
     TODOS: listaIntegracoes.length,
     DOC_SST: listaIntegracoes.filter(f => !f.data_documentos_sst).length,
@@ -131,24 +186,29 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     INTEGRACAO: listaIntegracoes.filter(f => f.data_integracao_agendada && !f.data_integracao).length,
   };
 
+  // 🔍 FILTRO COMBINADO: Pesquisa por Texto + Filtro por Etapa
   const listaFiltrada = listaIntegracoes.filter(f => {
-    let atendeEtapa = true;
-    if (filtroEtapa === 'DOC_SST') atendeEtapa = !f.data_documentos_sst;
-    else if (filtroEtapa === 'ENVIADOS') atendeEtapa = f.data_documentos_sst && !f.data_enviados;
-    else if (filtroEtapa === 'RECEBIDOS') atendeEtapa = f.data_enviados && !f.data_recebidos;
-    else if (filtroEtapa === 'NA_BEX') atendeEtapa = f.data_recebidos && !f.data_postado_bex;
-    else if (filtroEtapa === 'ANALISE') atendeEtapa = f.data_postado_bex && !f.data_analise;
-    else if (filtroEtapa === 'AGENDADA') atendeEtapa = f.data_analise && !f.data_integracao_agendada;
-    else if (filtroEtapa === 'INTEGRACAO') atendeEtapa = f.data_integracao_agendada && !f.data_integracao;
+    const termo = busca.toLowerCase().trim();
+    const passaBusca = !termo || 
+      (f.nome && f.nome.toLowerCase().includes(termo)) ||
+      (f.matricula && f.matricula.toLowerCase().includes(termo));
 
-    const termo = termoPesquisa.toLowerCase();
-    const atendeBusca = 
-      (f.nome || '').toLowerCase().includes(termo) || 
-      (f.matricula || '').toLowerCase().includes(termo);
+    if (!passaBusca) return false;
 
-    return atendeEtapa && atendeBusca;
+    if (filtroEtapa === 'TODOS') return true;
+    if (filtroEtapa === 'DOC_SST') return !f.data_documentos_sst;
+    if (filtroEtapa === 'ENVIADOS') return f.data_documentos_sst && !f.data_enviados;
+    if (filtroEtapa === 'RECEBIDOS') return f.data_enviados && !f.data_recebidos;
+    if (filtroEtapa === 'NA_BEX') return f.data_recebidos && !f.data_postado_bex;
+    if (filtroEtapa === 'ANALISE') return f.data_postado_bex && !f.data_analise;
+    if (filtroEtapa === 'AGENDADA') return f.data_analise && !f.data_integracao_agendada;
+    if (filtroEtapa === 'INTEGRACAO') return f.data_integracao_agendada && !f.data_integracao;
+    return true;
   });
 
+  // ========================================================
+  // EXPORTAÇÃO PARA ARQUIVO CSV
+  // ========================================================
   const exportarParaCSV = () => {
     if (listaFiltrada.length === 0) {
       if (mostrarMensagemGlobal) mostrarMensagemGlobal('Não há dados para exportar com o filtro atual.', 'erro');
@@ -211,33 +271,34 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   return (
     <div>
       {/* Cabeçalho */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Layers3 style={{ color: '#2563eb', width: '18px', height: '18px' }} />
           <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b' }}>
-            Esteira de Integração de Funcionários
+            Esteira de Integração de Funcionários (Acompanhamento Diário)
           </h3>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* BARRA DE PESQUISAR */}
+        {/* 🔍 CAMPO DE PESQUISA E BOTÃO EXPORTAR */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <Search style={{ width: '14px', height: '14px', color: '#94a3b8', position: 'absolute', left: '8px' }} />
+            <Search style={{ position: 'absolute', left: '8px', width: '14px', height: '14px', color: '#94a3b8' }} />
             <input 
-              type="text" 
-              placeholder="Pesquisar funcionário..." 
-              value={termoPesquisa}
-              onChange={e => setTermoPesquisa(e.target.value)}
-              style={{ height: '30px', padding: '0 8px 0 28px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', width: '200px' }}
+              type="text"
+              placeholder="Pesquisar por nome ou matrícula..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              style={{
+                paddingLeft: '28px',
+                paddingRight: '10px',
+                height: '30px',
+                fontSize: '11px',
+                borderRadius: '4px',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                width: '220px'
+              }}
             />
-            {termoPesquisa && (
-              <button 
-                onClick={() => setTermoPesquisa('')} 
-                style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
-              >
-                ✕
-              </button>
-            )}
           </div>
 
           <button
@@ -255,7 +316,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         </div>
       </div>
 
-      {/* Cards Méticos */}
+      {/* Painel de Contadores */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px' }}>
         <div onClick={() => setFiltroEtapa('TODOS')} style={estiloCardContador('TODOS')}>
           <Layers3 size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Todos</div>
@@ -294,7 +355,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       {/* Tabela Principal */}
       {listaFiltrada.length === 0 ? (
         <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px', backgroundColor: '#f8fafc', borderRadius: '4px' }}>
-          Nenhum registro encontrado para esta etapa ou pesquisa.
+          Nenhum funcionário encontrado para o filtro ou pesquisa informada.
         </div>
       ) : (
         <div style={{ overflowX: 'auto', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
@@ -314,17 +375,17 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
               </tr>
             </thead>
             <tbody>
-              {listaFiltrada.map((item) => {
-                // 💡 Edição baseada no id_integracao exclusivo da linha
-                const modoEdicaoAtivo = item.id_integracao === idIntegracaoEmEdicao;
-                const itemExibido = modoEdicaoAtivo ? dadosEdicao : item;
-                const completo = !!item.data_integracao;
+              {listaFiltrada.map((func) => {
+                const chaveUnica = func.id_integracao || func.id;
+                const modoEdicaoAtivo = chaveUnica === idIntegracaoEmEdicao;
+                const itemExibido = modoEdicaoAtivo ? dadosEdicao : func;
+                const completo = !!func.data_integracao;
 
                 return (
-                  <tr key={item.id_integracao} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: completo ? '#f0fdf4' : (modoEdicaoAtivo ? '#eff6ff' : '#fff') }}>
+                  <tr key={chaveUnica} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: completo ? '#f0fdf4' : (modoEdicaoAtivo ? '#eff6ff' : '#fff') }}>
                     <td style={{ padding: '8px 6px', color: '#334155', fontWeight: 'bold', borderLeft: modoEdicaoAtivo ? '3px solid #2563eb' : 'none' }}>
-                      {item.nome} <br />
-                      <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {item.matricula}</span>
+                      {func.nome} <br />
+                      <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {func.matricula}</span>
                     </td>
                     
                     <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_documentos_sst)} onChange={e => handleDataTabelaChange('data_documentos_sst', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
@@ -355,14 +416,26 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                       />
                     </td>
 
+                    {/* BOTÕES DE AÇÃO */}
                     <td style={{ padding: '4px', textAlign: 'center' }}>
                       {!modoEdicaoAtivo ? (
-                        <button 
-                          onClick={() => iniciarEdicao(item)} 
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
-                        >
-                          <Edit2 size={11} /> Editar
-                        </button>
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button 
+                            onClick={() => iniciarEdicao(func)} 
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                            title="Editar datas"
+                          >
+                            <Edit2 size={11} /> Editar
+                          </button>
+                          
+                          <button 
+                            onClick={() => deletarIntegracao(func)} 
+                            style={{ display: 'inline-flex', alignItems: 'center', backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '5px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                            title="Excluir da esteira"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       ) : (
                         <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
                           <button onClick={salvarLinhaCronologia} style={{ padding: '5px 8px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Salvar Alterações">
