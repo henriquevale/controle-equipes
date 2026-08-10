@@ -1,41 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios'; 
-import { Users, Trash2, MoveHorizontal, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle, MoveHorizontal, Search } from 'lucide-react';
 
 export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
-//const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; ;
 
+  const API_URL = 'http://localhost:3001/api';
+  //const API_URL = 'https://controle-equipes.onrender.com/api'; 
+  //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+
+  // --- FILTROS PRIMÁRIOS DE CABEÇALHO ---
   const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
   const [obraFiltro, setObraFiltro] = useState('');
-  const [filtroEquipe, setFiltroEquipe] = useState('TODAS');
-  const [funcionariosAlocados, setFuncionariosAlocados] = useState([]);
+  const [turnoAtivo, setTurnoAtivo] = useState('DIURNO');
+  const [filtroEquipeTabela, setFiltroEquipeTabela] = useState('TODAS');
+
+  // --- CAMPO DE PESQUISA NOS DISPONÍVEIS ---
+  const [termoBuscaDisponiveis, setTermoBuscaDisponiveis] = useState('');
+
+  // --- DADOS DO SISTEMA ---
+  const [todosFuncionarios, setTodosFuncionarios] = useState([]);
+  const [alocacoesDoDia, setAlocacoesDoDia] = useState([]);
   const [todosOsAgendamentosDoDia, setTodosOsAgendamentosDoDia] = useState([]);
-  const [listaFuncionariosDisponiveis, setListaFuncionariosDisponiveis] = useState([]);
-  
-  // Estados para a gestão e visibilidade dos veículos vinculados
   const [listaVeiculos, setListaVeiculos] = useState([]);
+
+  // --- CONTROLE DE EQUIPES LOCAIS (POR OBRA E TURNO) ---
+  const [equipesLocais, setEquipesLocais] = useState([]); 
+  const [nomeNovaEquipe, setNomeNovaEquipe] = useState('');
+
+  // --- CONTROLE DE VISIBILIDADE DE PAINÉIS/TABELAS ---
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
-  const [mostrarResumoVeiculos, setMostrarResumoVeiculos] = useState(false);
-
-  const [novaAlocacao, setNovaAlocacao] = useState({
-    id_funcionario: '',
-    id_veiculo: '', // Novo campo para alocação conjunta
-    turno: 'DIURNO',
-    equipe: '', 
-    observacao: ''
-  });
-
-  const [novaFolga, setNovaFolga] = useState({
-    id_funcionario: '',
-    observacao: 'Folga Programada'
-  });
-
-  // Estados de controle de visibilidade das tabelas
   const [mostrarResumoOcupacao, setMostrarResumoOcupacao] = useState(false);
+  const [mostrarResumoVeiculos, setMostrarResumoVeiculos] = useState(false);
   const [mostrarRemanejamento, setMostrarRemanejamento] = useState(false);
 
-  // Estados do Modal de Remanejamento
+  // --- MODAL DE REMANEJAMENTO DE GESTOR ---
   const [modalAberto, setModalAberto] = useState(false);
   const [remanejamentoDados, setRemanejamentoDados] = useState({
     id_funcionario: null, 
@@ -44,6 +42,7 @@ const API_URL = 'https://controle-equipes.onrender.com/api'; ;
   });
   const [listaGestores, setListaGestores] = useState([]);
 
+  // --- EFEITOS DE CARREGAMENTO ---
   useEffect(() => {
     if (obrasDisponiveis && obrasDisponiveis.length > 0 && !obraFiltro) {
       setObraFiltro(obrasDisponiveis[0].id);
@@ -57,34 +56,104 @@ const API_URL = 'https://controle-equipes.onrender.com/api'; ;
     carregarTodosOsAgendamentosDoDia();
     carregarFuncionariosDoGestor();
     carregarVeiculosDoGestor(); 
-  }, [dataSelecionada, obraFiltro, novaAlocacao.turno]);
+  }, [dataSelecionada, obraFiltro, turnoAtivo]);
 
-  // Filtra os veículos trazendo apenas os vinculados ao ID do Gestor logado
-const carregarVeiculosDoGestor = async () => {
-  try {
-    const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-    
-    // Mesmos parâmetros exatos da rota de funcionários
-    const params = { 
-      id: usuario?.id, 
-      cargo: usuario?.cargo 
-    };
+  // --- COPIAR ÚLTIMO AGENDAMENTO/ESCALA REGISTRADO ---
+  const handleCopiarUltimoAgendamento = async () => {
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa antes de copiar a escala!");
+      return;
+    }
 
-    // Ajustado o caminho para incluir /gestor/veiculos
-    const res = await axios.get(`${API_URL}/gestor/veiculos`, { params });
-    
-    setListaVeiculos(res.data || []);
-  } catch (e) {
-    console.error("Erro ao carregar veículos do gestor:", e);
-  }
-};
+    if (alocacoesDoDia.length > 0) {
+      const confirma = window.confirm(
+        "⚠️ Já existem alocações na data selecionada. Deseja substituí-las pelo histórico do último agendamento?"
+      );
+      if (!confirma) return;
+    }
+
+    try {
+      const res = await axios.get(`${API_URL}/gestor/obter-ultimo-agendamento`, {
+        params: { id_obra: obraFiltro, data_atual: dataSelecionada }
+      });
+
+      const { data_origem, alocacoes } = res.data;
+
+      if (!alocacoes || alocacoes.length === 0) {
+        alert("Nenhum histórico encontrado para esta obra.");
+        return;
+      }
+
+      const novasAlocacoes = alocacoes.map(item => ({
+        ...item,
+        id_obra: Number(obraFiltro)
+      }));
+
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        efetivo: novasAlocacoes
+      });
+
+      alert(`✅ Escala copiada com sucesso do dia ${data_origem}!`);
+
+      carregarAlocacoesDaObra();
+      carregarTodosOsAgendamentosDoDia();
+
+    } catch (err) {
+      console.error("Erro ao copiar último agendamento:", err);
+      alert(err.response?.data?.error || "Erro ao copiar a escala do agendamento anterior.");
+    }
+  };
+
+  // --- MÉTODOS DE REQUISIÇÃO (API) ---
+  const carregarVeiculosDoGestor = async () => {
+    try {
+      const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
+      const params = { id: usuario?.id, cargo: usuario?.cargo };
+      const res = await axios.get(`${API_URL}/gestor/veiculos`, { params });
+      setListaVeiculos(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar veículos:", e);
+    }
+  };
 
   const carregarAlocacoesDaObra = async () => {
     try {
       const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
-      setFuncionariosAlocados(res.data || []);
+      const alocs = res.data || [];
+      setAlocacoesDoDia(alocs);
+
+      setEquipesLocais(prev => {
+        const deOutrasObras = prev.filter(e => String(e.id_obra) !== String(obraFiltro));
+        const novasDaObraAtual = [];
+
+        alocs.forEach(aloc => {
+          if (aloc.equipe && aloc.turno) {
+            const eqNome = aloc.equipe.trim().toUpperCase();
+            const eqTurno = String(aloc.turno).trim().toUpperCase();
+            
+            const jaExiste = novasDaObraAtual.some(
+              e => e.nome.toUpperCase() === eqNome && 
+                   e.turno.toUpperCase() === eqTurno && 
+                   String(e.id_obra) === String(obraFiltro)
+            );
+
+            if (!jaExiste) {
+              novasDaObraAtual.push({ 
+                nome: eqNome, 
+                turno: eqTurno, 
+                id_obra: String(obraFiltro) 
+              });
+            }
+          }
+        });
+
+        return [...deOutrasObras, ...novasDaObraAtual];
+      });
+
     } catch (e) {
       console.error("Erro ao carregar alocações da obra:", e);
     }
@@ -106,9 +175,9 @@ const carregarVeiculosDoGestor = async () => {
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
       const params = { id: usuario?.id, cargo: usuario?.cargo, data_diario: dataSelecionada };
       const res = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { params });
-      setListaFuncionariosDisponiveis(res.data && res.data.funcionarios ? res.data.funcionarios : []);
+      setTodosFuncionarios(res.data && res.data.funcionarios ? res.data.funcionarios : []);
     } catch (e) {
-      console.error("Erro ao carregar funcionários do gestor:", e);
+      console.error("Erro ao carregar colaboradores:", e);
     }
   };
 
@@ -124,6 +193,249 @@ const carregarVeiculosDoGestor = async () => {
     }
   };
 
+  // --- CRIAÇÃO AUTOMÁTICA DA EQUIPE FOLGUISTA ---
+  const handleCriarEquipeFolguista = () => {
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa!");
+      return;
+    }
+
+    const nomeFolguista = "FOLGUISTAS";
+
+    setEquipesLocais((prevEquipes) => {
+      const jaExiste = prevEquipes.some(
+        (eq) => eq.nome.toUpperCase() === nomeFolguista && 
+               eq.turno.toUpperCase() === turnoAtivo.toUpperCase() &&
+               String(eq.id_obra) === String(obraFiltro)
+      );
+
+      if (jaExiste) {
+        alert("A equipe de Folguistas já foi criada para este turno e obra!");
+        return prevEquipes;
+      }
+
+      return [
+        ...prevEquipes,
+        { nome: nomeFolguista, turno: turnoAtivo, id_obra: String(obraFiltro) }
+      ];
+    });
+  };
+
+  // --- EQUIPES FILTRADAS EXCLUSIVAMENTE PARA A OBRA E TURNO SELECIONADOS ---
+  const equipesDoTurnoAtivo = equipesLocais.filter(
+    eq => eq.turno.toUpperCase() === turnoAtivo.toUpperCase() && 
+          String(eq.id_obra) === String(obraFiltro)
+  );
+
+  // --- DISPONIBILIDADE EM TEMPO REAL POR TURNO ---
+  const funcionariosAlocadosNoTurnoIds = todosOsAgendamentosDoDia
+    .filter(a => String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
+    .map(a => Number(a.id_funcionario));
+
+  const funcionariosDisponiveisNoTurno = todosFuncionarios.filter(f => {
+    const estaLivreNoTurno = !funcionariosAlocadosNoTurnoIds.includes(Number(f.id));
+    const nomeOuMatricula = `${f.nome || ''} ${f.matricula || ''} ${f.cargo || ''}`.toLowerCase();
+    const atendeFiltroBusca = nomeOuMatricula.includes(termoBuscaDisponiveis.toLowerCase().trim());
+
+    return estaLivreNoTurno && atendeFiltroBusca;
+  });
+
+  // --- CRIAÇÃO DE EQUIPE ---
+  const handleCriarEquipe = (e) => {
+    e.preventDefault();
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa!");
+      return;
+    }
+
+    const nomeFormatado = nomeNovaEquipe.trim().toUpperCase();
+    if (!nomeFormatado) return;
+
+    const jaExisteNoTurno = equipesLocais.some(
+      eq => eq.nome.toUpperCase() === nomeFormatado && 
+            eq.turno.toUpperCase() === turnoAtivo.toUpperCase() &&
+            String(eq.id_obra) === String(obraFiltro)
+    );
+
+    if (jaExisteNoTurno) {
+      alert(`⚠️ A equipe "${nomeFormatado}" já existe para esta obra no turno ${turnoAtivo}!`);
+      return;
+    }
+
+    setEquipesLocais([...equipesLocais, { nome: nomeFormatado, turno: turnoAtivo.toUpperCase(), id_obra: String(obraFiltro) }]);
+    setNomeNovaEquipe('');
+  };
+
+  // --- ALOCAÇÃO DO COLABORADOR À EQUIPE ---
+  const handleAlocarParaEquipe = async (idFuncionario, nomeEquipe) => {
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa!");
+      return;
+    }
+
+    const funcObj = todosFuncionarios.find(f => Number(f.id) === Number(idFuncionario));
+    if (!funcObj) return;
+
+    const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
+    const ehFolguista = nomeEquipe.toUpperCase() === 'FOLGUISTAS';
+
+    let listaAtualizada = [...alocacoesDoDia];
+
+    if (ehFolguista) {
+      listaAtualizada = listaAtualizada.filter(a => Number(a.id_funcionario) !== Number(idFuncionario));
+
+      ['DIURNO', 'NOTURNO'].forEach(t => {
+        listaAtualizada.push({
+          id_funcionario: funcObj.id,
+          id_obra: Number(obraFiltro),
+          id_gestor: usuario?.id || null,
+          nome: funcObj.nome,
+          cargo: funcObj.cargo || 'N/D',
+          matricula: funcObj.matricula || '',
+          turno: t,
+          status_presenca: 'Folga',
+          observacao: 'Folga Programada (Escala)',
+          equipe: 'FOLGUISTAS',
+          id_veiculo: null
+        });
+      });
+    } else {
+      const novaAloc = {
+        id_funcionario: funcObj.id,
+        id_obra: Number(obraFiltro),
+        id_gestor: usuario?.id || null,
+        nome: funcObj.nome,
+        cargo: funcObj.cargo || 'N/D',
+        matricula: funcObj.matricula || '',
+        turno: turnoAtivo,
+        status_presenca: 'ALOCADO',
+        observacao: '',
+        equipe: nomeEquipe,
+        id_veiculo: null
+      };
+      listaAtualizada.push(novaAloc);
+    }
+
+    setAlocacoesDoDia(listaAtualizada);
+
+    try {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        efetivo: listaAtualizada
+      });
+      carregarTodosOsAgendamentosDoDia();
+    } catch (err) {
+      console.error("Erro ao alocar funcionário:", err);
+      alert("Erro ao salvar alocação no servidor.");
+      carregarAlocacoesDaObra();
+    }
+  };
+
+  // --- ATUALIZAÇÃO E VALIDAÇÃO DE VEÍCULO EXCLUSIVO POR FUNCIONÁRIO ---
+  const handleAlterarVeiculoFuncionario = async (idFuncionario, idVeiculo) => {
+    const idVeicTratado = idVeiculo ? Number(idVeiculo) : null;
+
+    if (idVeicTratado) {
+      const jaEmUso = alocacoesDoDia.find(
+        a => Number(a.id_veiculo) === idVeicTratado &&
+             String(a.turno).toUpperCase() === turnoAtivo.toUpperCase() &&
+             Number(a.id_funcionario) !== Number(idFuncionario)
+      );
+
+      if (jaEmUso) {
+        alert(`⚠️ O veículo selecionado já está vinculado ao colaborador ${jaEmUso.nome} no turno ${turnoAtivo}! Escolha outro veículo.`);
+        return;
+      }
+    }
+
+    const listaAtualizada = alocacoesDoDia.map(a => {
+      if (Number(a.id_funcionario) === Number(idFuncionario) && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()) {
+        return { ...a, id_veiculo: idVeicTratado };
+      }
+      return a;
+    });
+
+    try {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        efetivo: listaAtualizada
+      });
+
+      setAlocacoesDoDia(listaAtualizada);
+      carregarTodosOsAgendamentosDoDia();
+    } catch (err) {
+      console.error("Erro ao vincular veículo ao funcionário:", err);
+      alert("Erro ao atualizar veículo do colaborador.");
+    }
+  };
+
+  const handleRemoverDaEquipe = async (idFuncionario) => {
+    const listaAtualizada = alocacoesDoDia.filter(
+      a => !(Number(a.id_funcionario) === Number(idFuncionario) && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
+    );
+
+    try {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        efetivo: listaAtualizada
+      });
+
+      setAlocacoesDoDia(listaAtualizada);
+      carregarTodosOsAgendamentosDoDia();
+    } catch (err) {
+      console.error("Erro ao remover alocação:", err);
+      alert("Erro ao remover funcionário da equipe.");
+    }
+  };
+
+  // --- EXCLUSÃO DE EQUIPE ---
+  const handleDeletarEquipe = async (nomeEquipeDeletar) => {
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa!");
+      return;
+    }
+
+    if (!window.confirm(`Tem certeza que deseja apagar a equipe "${nomeEquipeDeletar}"? Os colaboradores alocados nela voltarão para a lista de disponíveis e o registro da equipe será excluído.`)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`${API_URL}/gestor/equipe`, {
+        params: {
+          nome_equipe: nomeEquipeDeletar,
+          turno: turnoAtivo,
+          id_obra: Number(obraFiltro),
+          data_diario: dataSelecionada
+        }
+      });
+
+      const listaAtualizada = alocacoesDoDia.filter(
+        a => !(a.equipe.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
+      );
+
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        efetivo: listaAtualizada
+      });
+
+      setAlocacoesDoDia(listaAtualizada);
+      setEquipesLocais(prev => prev.filter(
+        eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && eq.turno.toUpperCase() === turnoAtivo.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
+      ));
+
+      carregarTodosOsAgendamentosDoDia();
+
+    } catch (err) {
+      console.error("Erro ao deletar equipe:", err);
+      alert("⚠️ Erro ao excluir a equipe do banco de dados.");
+    }
+  };
+
+  // --- REMANEJAMENTO DE GESTOR DE ENGENHARIA ---
   const handleIniciarRemanejamento = async (funcionario) => {
     try {
       await carregarGestoresParaModal();
@@ -134,8 +446,8 @@ const carregarVeiculosDoGestor = async () => {
       });
       setModalAberto(true);
     } catch (err) {
-      console.error("Erro ao preparar dados para o modal de remanejamento:", err);
-      alert("Não foi possível carregar a lista de gestores. Tente novamente.");
+      console.error("Erro ao preparar modal:", err);
+      alert("Erro ao buscar lista de gestores.");
     }
   };
 
@@ -144,552 +456,431 @@ const carregarVeiculosDoGestor = async () => {
     const gestorDestinoObj = listaGestores.find(g => Number(g.id) === Number(remanejamentoDados.id_gestor_destino));
 
     if (!remanejamentoDados.id_gestor_destino || !gestorDestinoObj) {
-      alert("Por favor, selecione o Gestor de Destino!");
+      alert("Por favor, selecione o Gestor Destino!");
       return;
     }
 
     try {
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-      const idUsuarioAlteracao = usuario?.id || null;
 
-      const dadosPayload = {
-        id_usuario: Number(remanejamentoDados.id_gestor_destino), 
+      await axios.post(`${API_URL}/gestor/remanezar-funcionario-vincular`, {
+        id_usuario: Number(remanejamentoDados.id_gestor_destino),
         id_funcionario: Number(remanejamentoDados.id_funcionario),
-        id_obra: obraFiltro ? Number(obraFiltro) : null, 
-        data_inicio: dataSelecionada, 
-        data_fim: null, 
-        id_usuario_alteracao: idUsuarioAlteracao 
-      };
+        id_obra: obraFiltro ? Number(obraFiltro) : null,
+        data_inicio: dataSelecionada,
+        data_fim: null,
+        id_usuario_alteracao: usuario?.id || null
+      });
 
-      await axios.post(`${API_URL}/gestor/remanezar-funcionario-vincular`, dadosPayload);
-
-      alert(
-        `📢 NOTIFICAÇÃO ENVIADA COM SUCESSO!\n\n` +
-        `Para: Engenheiro/Gestor ${gestorDestinoObj.nome}\n` +
-        `Mensagem: "O colaborador ${remanejamentoDados.nome_funcionario} foi transferido para a sua gerência técnica a partir de ${dataSelecionada}."`
-      );
+      alert(`📢 NOTIFICAÇÃO ENVIADA COM SUCESSO!\n\nColaborador ${remanejamentoDados.nome_funcionario} foi transferido para o Gestor ${gestorDestinoObj.nome}.`);
 
       setModalAberto(false);
-      await carregarAlocacoesDaObra();
-      await carregarTodosOsAgendamentosDoDia();
-      await carregarFuncionariosDoGestor();
-    } catch (err) {
-      console.error(err);
-      alert("Erro ao realizar transferência e vincular funcionário ao novo gestor.");
-    }
-  };
-
-  const ejecutarInclusaoFolga = async (funcionario, turnoAlvo, observacaoTexto, equipeTexto) => {
-    try {
-      const resAtual = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
-        params: { data_diario: dataSelecionada, id_obra: obraFiltro }
-      });
-      let listaEfetivoAtualizada = resAtual.data || [];
-
-      const turnosParaAplicar = turnoAlvo === 'AMBOS' ? ['DIURNO', 'NOTURNO'] : [turnoAlvo];
-      const nomeEquipeTratado = equipeTexto;
-
-      const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-      const idGestorAtual = usuario?.id || null;
-
-      turnosParaAplicar.forEach(turno => {
-        listaEfetivoAtualizada = listaEfetivoAtualizada.filter(
-          a => !(String(a.id_funcionario) === String(funcionario.id) && String(a.turno).toUpperCase() === turno)
-        );
-
-        listaEfetivoAtualizada.push({
-          id_funcionario: funcionario.id,
-          id_obra: Number(obraFiltro), 
-          id_gestor: idGestorAtual, 
-          nome: funcionario.nome || 'N/D',
-          cargo: funcionario.cargo || 'N/D',
-          matricula: funcionario.matricula || '',
-          turno: turno,
-          status_presenca: 'Folga', 
-          observacao: observacaoTexto || 'Folga Programada',
-          equipe: nomeEquipeTratado,
-          id_veiculo: null
-        });
-      });
-
-      return await axios.post(`${API_URL}/gestor/diario-efetivo`, {
-        data_diario: dataSelecionada,
-        id_obra: Number(obraFiltro),
-        efetivo: listaEfetivoAtualizada
-      });
-
-    } catch (err) {
-      console.error("Erro ao aplicar folga:", err);
-      throw err;
-    }
-  };
-
-  const handleSalvarFolgaEspecifica = async (e) => {
-    e.preventDefault();
-    if (!obraFiltro || !novaFolga.id_funcionario) {
-      alert("⚠️ Selecione a Obra ativa e o Funcionário para a folga!");
-      return;
-    }
-
-    const funcionarioCompleto = listaFuncionavisDisponiveis.find(
-      f => String(f.id) === String(novaFolga.id_funcionario)
-    );
-
-    if (!funcionarioCompleto) {
-      alert("⚠️ Funcionário não encontrado.");
-      return;
-    }
-
-    if (!window.confirm(`Confirmar registro de FOLGA para ${funcionarioCompleto.nome} nos turnos Diurno e Noturno?`)) {
-      return;
-    }
-
-    try {
-      await ejecutarInclusaoFolga(funcionarioCompleto, 'AMBOS', novaFolga.observacao, 'FOLGUISTAS');
-      alert('Folga registrada com sucesso!');
-      setFiltroEquipe('FOLGUISTAS');
-      setNovaFolga({ id_funcionario: '', observacao: 'Folga Programada' });
       carregarAlocacoesDaObra();
       carregarTodosOsAgendamentosDoDia();
       carregarFuncionariosDoGestor();
-    } catch {
-      alert("Erro ao salvar folga no banco de dados.");
-    }
-  };
-
-  const handleSalvarAlocacao = async (e) => {
-    e.preventDefault();
-    const nomeEquipeTratado = novaAlocacao.equipe.trim();
-
-    if (!nomeEquipeTratado) {
-      alert("⚠️ O preenchimento do nome da equipe é OBRIGATÓRIO!");
-      return;
-    }
-
-    if (!obraFiltro || !novaAlocacao.id_funcionario) {
-      alert("⚠️ Preencha a Obra e selecione um Funcionário!");
-      return;
-    }
-
-    const funcionarioCompleto = listaFuncionariosDisponiveis.find(
-      f => String(f.id) === String(novaAlocacao.id_funcionario)
-    );
-
-    if (!funcionarioCompleto) {
-      alert("⚠️ Erro: Funcionário selecionado não foi encontrado na lista de disponíveis.");
-      return;
-    }
-
-    const jaAlocadoNoTurno = todosOsAgendamentosDoDia.find(
-      a => String(a.id_funcionario) === String(novaAlocacao.id_funcionario) && 
-           String(a.turno).toUpperCase() === String(novaAlocacao.turno).toUpperCase()
-    );
-
-    if (jaAlocadoNoTurno) {
-      const dadosObraJaAlocada = obrasDisponiveis.find(o => Number(o.id) === Number(jaAlocadoNoTurno.id_obra));
-      const nomeObraConflito = dadosObraJaAlocada ? dadosObraJaAlocada.nome_obra : `ID Obra ${jaAlocadoNoTurno.id_obra}`;
-      alert(`⚠️ Impossível alocar! O colaborador já está escalado neste turno (${jaAlocadoNoTurno.turno}) na equipe "${jaAlocadoNoTurno.equipe}" da obra: "${nomeObraConflito}".`);
-      return;
-    }
-
-    // Validação se o veículo já está ocupado no mesmo turno em qualquer outra alocação do dia
-    if (novaAlocacao.id_veiculo) {
-      const veiculoOcupado = todosOsAgendamentosDoDia.find(
-        a => String(a.id_veiculo) === String(novaAlocacao.id_veiculo) &&
-             String(a.turno).toUpperCase() === String(novaAlocacao.turno).toUpperCase()
-      );
-      if (veiculoOcupado) {
-        alert(`⚠️ O veículo selecionado já está alocado neste turno (${novaAlocacao.turno}) em outra equipe.`);
-        return;
-      }
-    }
-
-    try {
-      const resAtual = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
-        params: { data_diario: dataSelecionada, id_obra: obraFiltro }
-      });
-      const todosOsTurnosEEquipesDessaObra = resAtual.data || [];
-      const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-      const idGestorAtual = usuario?.id || null;
-
-      const listaEfetivoAtualizada = [
-        ...todosOsTurnosEEquipesDessaObra.map(a => ({
-          id_funcionario: a.id_funcionario,
-          id_obra: a.id_obra || Number(obraFiltro),
-          id_gestor: a.id_gestor || idGestorAtual, 
-          nome: a.nome || 'N/D',
-          cargo: a.cargo || 'N/D',
-          matricula: a.matricula || '',
-          turno: a.turno,
-          status_presenca: a.status_presenca || 'ALOCADO',
-          observacao: a.observacao || '',
-          equipe: a.equipe.trim(),
-          id_veiculo: a.id_veiculo || null
-        })),
-        {
-          id_funcionario: funcionarioCompleto.id,
-          id_obra: Number(obraFiltro),
-          id_gestor: idGestorAtual, 
-          nome: funcionarioCompleto.nome || 'N/D',
-          cargo: funcionarioCompleto.cargo || 'N/D',
-          matricula: funcionarioCompleto.matricula || '',
-          turno: novaAlocacao.turno,
-          status_presenca: 'ALOCADO', 
-          observacao: novaAlocacao.observacao || '',
-          equipe: nomeEquipeTratado,
-          id_veiculo: novaAlocacao.id_veiculo ? Number(novaAlocacao.id_veiculo) : null
-        }
-      ];
-
-      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
-        data_diario: dataSelecionada,
-        id_obra: Number(obraFiltro),
-        efetivo: listaEfetivoAtualizada
-      });
-      
-      setFiltroEquipe(nomeEquipeTratado.toUpperCase());
-      setNovaAlocacao({ ...novaAlocacao, id_funcionario: '', id_veiculo: '', equipe: '', observacao: '' });
-      
-      carregarAlocacoesDaObra();
-      carregarTodosOsAgendamentosDoDia();
-      carregarFuncionariosDoGestor(); 
-      carregarVeiculosDoGestor();
     } catch (err) {
-      console.error("❌ Erro ao salvar alocação:", err);
-      alert(`Erro crítico ao salvar alocação no banco de dados.`);
+      console.error(err);
+      alert("Erro ao realizar transferência do colaborador.");
     }
   };
 
-  const handleDeletarAlocacao = async (idFuncionario, turnoAloc, equipeAloc) => {
-    if (!window.confirm("Remover este funcionário da escala?")) return;
-    try {
-      const resAtual = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
-        params: { data_diario: dataSelecionada, id_obra: obraFiltro }
-      });
-      const todosOsTurnosDessaObra = resAtual.data || [];
-      const eFolguista = String(equipeAloc).toUpperCase() === 'FOLGUISTAS';
-
-      const listaEfetivoAtualizada = todosOsTurnosDessaObra
-        .filter(a => {
-          if (eFolguista) {
-            return !(String(a.id_funcionario) === String(idFuncionario) && String(a.equipe).toUpperCase() === 'FOLGUISTAS');
-          }
-          const eqA = String(a.equipe).toUpperCase();
-          const eqB = String(equipeAloc).toUpperCase();
-          return !(
-            String(a.id_funcionario) === String(idFuncionario) && 
-            String(a.turno).toUpperCase() === String(turnoAloc).toUpperCase() &&
-            eqA === eqB
-          );
-        })
-        .map(a => ({
-          id_funcionario: a.id_funcionario,
-          id_obra: a.id_obra || Number(obraFiltro),
-          nome: a.nome || 'N/D',
-          cargo: a.cargo || 'N/D',
-          matricula: a.matricula || '',
-          turno: a.turno,
-          status_presenca: a.status_presenca || 'ALOCADO',
-          observacao: a.observacao || '',
-          equipe: a.equipe.trim(),
-          id_veiculo: a.id_veiculo || null
-        }));
-
-      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
-        data_diario: dataSelecionada,
-        id_obra: Number(obraFiltro),
-        efetivo: listaEfetivoAtualizada
-      });
-      
-      carregarAlocacoesDaObra();
-      carregarTodosOsAgendamentosDoDia();
-      carregarFuncionariosDoGestor(); 
-      carregarVeiculosDoGestor();
-    } catch (err) {
-      console.error("❌ Erro ao remover agendamento:", err);
-      alert("Erro ao remover agendamento.");
-    }
-  };
-
+  // --- UTILITÁRIOS DE STATUS DE TABELAS ---
   const obterStatusPorTurno = (idFuncionario, turnoAlvo) => {
-    const agendamentoNoTurno = todosOsAgendamentosDoDia.find(
+    const ag = todosOsAgendamentosDoDia.find(
       a => String(a.id_funcionario) === String(idFuncionario) && String(a.turno).toUpperCase() === turnoAlvo
     );
     
-    if (agendamentoNoTurno) {
-      if (agendamentoNoTurno.status_presenca === 'Folga' || String(agendamentoNoTurno.equipe).toUpperCase() === 'FOLGUISTAS') {
+    if (ag) {
+      if (ag.status_presenca === 'Folga' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS') {
         return { texto: 'FOLGA', corBg: '#fef2f2', corTxt: '#991b1b' };
       }
-      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(agendamentoNoTurno.id_obra));
-      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${agendamentoNoTurno.id_obra}`;
-      return { texto: `${nomeObra} [${agendamentoNoTurno.equipe}]`, corBg: '#e0f2fe', corTxt: '#0369a1' };
+      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(ag.id_obra));
+      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${ag.id_obra}`;
+      return { texto: `${nomeObra} [${ag.equipe}]`, corBg: '#e0f2fe', corTxt: '#0369a1' };
     }
     return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
   };
 
-  // Nova lógica de status por turno exclusiva de veículos
   const obterStatusVeiculoPorTurno = (idVeiculo, turnoAlvo) => {
-    const alocacaoVeiculo = todosOsAgendamentosDoDia.find(
+    const aloc = todosOsAgendamentosDoDia.find(
       a => Number(a.id_veiculo) === Number(idVeiculo) && String(a.turno).toUpperCase() === turnoAlvo
     );
 
-    if (alocacaoVeiculo) {
-      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(alocacaoVeiculo.id_obra));
-      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${alocacaoVeiculo.id_obra}`;
-      return { texto: `EM USO - ${nomeObra} [${alocacaoVeiculo.equipe}]`, corBg: '#fef9c3', corTxt: '#713f12' };
+    if (aloc) {
+      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(aloc.id_obra));
+      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${aloc.id_obra}`;
+      return { texto: `ESCALADO - ${nomeObra} (${aloc.nome})`, corBg: '#e0f2fe', corTxt: '#0369a1' };
     }
     return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
   };
 
-  const renderBadgeStatusVeiculo = (statusTxt, idVeiculo) => {
-    const jaAlocadoHoje = todosOsAgendamentosDoDia.some(a => Number(a.id_veiculo) === Number(idVeiculo));
-    const st = jaAlocadoHoje ? 'EM USO' : (statusTxt ? statusTxt.toUpperCase() : '');
+  // RENDEREIZAÇÃO DE BADGE REAL DO VEÍCULO (Mantém o status original vindo do banco/frota)
+  const renderBadgeStatusVeiculo = (statusOriginal) => {
+    const st = statusOriginal ? String(statusOriginal).toUpperCase().trim() : 'DISPONÍVEL';
     
     let bg = '#dcfce7', text = '#166534', icone = <CheckCircle style={{ width: '11px', height: '11px' }} />;
-    let label = statusTxt || 'DISPONÍVEL';
 
-    if (st === 'EM MANUTENÇÃO') { 
-        bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '11px', height: '11px' }} />;
-    } else if (st === 'EM USO') { 
-        bg = '#fef9c3'; text = '#713f12'; icone = <AlertTriangle style={{ width: '11px', height: '11px' }} />; 
-        label = 'EM USO NA ESCALA';
+    if (st === 'EM MANUTENÇÃO' || st === 'MANUTENÇÃO') { 
+      bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '11px', height: '11px' }} />;
+    } else if (st === 'INATIVO' || st === 'INDISPONÍVEL') { 
+      bg = '#f3f4f6'; text = '#4b5563'; icone = <AlertTriangle style={{ width: '11px', height: '11px' }} />; 
     }
 
     return (
-        <span style={{ backgroundColor: bg, color: text, padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            {icone} {label}
-        </span>
+      <span style={{ backgroundColor: bg, color: text, padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        {icone} {st}
+      </span>
     );
   };
 
-  const funcionariosDisponiveisParaRemanejamento = listaFuncionariosDisponiveis.filter(func => {
-    return !todosOsAgendamentosDoDia.some(agend => String(agend.id_funcionario) === String(func.id));
+  const funcionariosDisponiveisParaRemanejamento = todosFuncionarios.filter(func => {
+    return !todosOsAgendamentosDoDia.some(ag => String(ag.id_funcionario) === String(func.id));
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box', position: 'relative' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
       
-      {/* 1. PAINEL DE FILTROS */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
-        <div style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-          Parâmetros do Diário Técnico
+      {/* 1. SELEÇÃO PRIMÁRIA DE FILTROS DA ESCALA */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
+        <div style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '12px', color: '#0f172a', fontSize: '12px' }}>
+          1. Parâmetros da Escala (Defina o Turno Primário)
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          
+          {/* SELEÇÃO DE TURNO */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>Data do Diário</label>
-            <input type="date" style={{ height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={dataSelecionada} onChange={e => setDataSelecionada(e.target.value)} />
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#2563eb' }}>Turno Ativo em Foco *</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setTurnoAtivo('DIURNO')}
+                style={{
+                  flex: 1,
+                  height: '36px',
+                  borderRadius: '4px',
+                  border: turnoAtivo === 'DIURNO' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  backgroundColor: turnoAtivo === 'DIURNO' ? '#eff6ff' : '#f8fafc',
+                  color: turnoAtivo === 'DIURNO' ? '#1d4ed8' : '#64748b',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                ☀️ DIURNO
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTurnoAtivo('NOTURNO')}
+                style={{
+                  flex: 1,
+                  height: '36px',
+                  borderRadius: '4px',
+                  border: turnoAtivo === 'NOTURNO' ? '2px solid #1e1b4b' : '1px solid #cbd5e1',
+                  backgroundColor: turnoAtivo === 'NOTURNO' ? '#312e81' : '#f8fafc',
+                  color: turnoAtivo === 'NOTURNO' ? '#fff' : '#64748b',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                🌙 NOTURNO
+              </button>
+            </div>
           </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>Selecione a Obra para Gerenciamento *</label>
-            <select style={{ height: '32px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold' }} value={obraFiltro} onChange={e => setObraFiltro(e.target.value)}>
-              <option value="">-- Escolha uma Obra Ativa --</option>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>Data do Diário</label>
+            <input 
+              type="date" 
+              style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold' }} 
+              value={dataSelecionada} 
+              onChange={e => setDataSelecionada(e.target.value)} 
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>Obra em Gerenciamento *</label>
+            <select 
+              style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold' }} 
+              value={obraFiltro} 
+              onChange={e => setObraFiltro(e.target.value)}
+            >
+              <option value="">-- Selecione uma Obra Ativa --</option>
               {obrasDisponiveis.map(o => (
                 <option key={o.id} value={o.id}>[{o.codigo_obra}] {o.nome_obra}</option>
               ))}
             </select>
           </div>
+
         </div>
       </div>
 
-      {/* 2. FORMULÁRIO DE ALOCAÇÃO DINÂMICA */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
-        <div style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-          Alocar e Criar Equipes Dinamicamente
-        </div>
-        <form onSubmit={handleSalvarAlocacao} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Selecione o Funcionário *</label>
-              <select required style={{ height: '32px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={novaAlocacao.id_funcionario} onChange={e => setNovaAlocacao({...novaAlocacao, id_funcionario: e.target.value})}>
-                <option value="">-- Escolha o Funcionário --</option>
-                {listaFuncionariosDisponiveis.map(f => (
-                  <option key={f.id} value={f.id}>{f.nome} ({f.cargo})</option>
-                ))}
-              </select>
-            </div>
-
-            {/* VINCULAR VEÍCULO DO GESTOR JUNTO AO COLABORADOR */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#2563eb' }}>Vincular Veículo Frota</label>
-              <select style={{ height: '32px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={novaAlocacao.id_veiculo} onChange={e => setNovaAlocacao({...novaAlocacao, id_veiculo: e.target.value})}>
-                <option value="">-- Sem Veículo Alocado --</option>
-                {listaVeiculos.map(v => (
-                  <option key={v.id} value={v.id}>[{v.placa}] {v.marca} {v.modelo}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Turno em Foco *</label>
-              <select style={{ height: '32px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold', backgroundColor: '#fff' }} value={novaAlocacao.turno} onChange={e => setNovaAlocacao({...novaAlocacao, turno: e.target.value})}>
-                <option value="DIURNO">DIURNO</option>
-                <option value="NOTURNO">NOTURNO</option>
-              </select>
-            </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#1e293b' }}>Nome da Equipe *</label>
-              <input 
-                required
-                type="text" 
-                placeholder="Ex: Equipe 1, Equipe 20, Alfa..."
-                style={{ height: '30px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold' }} 
-                value={novaAlocacao.equipe} 
-                onChange={e => setNovaAlocacao({...novaAlocacao, equipe: e.target.value})}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Observação Adicional</label>
-              <input type="text" placeholder="Ex: Motorista..." style={{ height: '30px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={novaAlocacao.observacao} onChange={e => setNovaAlocacao({...novaAlocacao, observacao: e.target.value})} />
-            </div>
+      {/* 2. BARRA DE CRIAR EQUIPES E FOLGUISTAS */}
+      <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+        
+        <form onSubmit={handleCriarEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flex: '1 1 300px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>
+              Nome da Nova Equipe (Exclusiva para Turno {turnoAtivo})
+            </label>
+            <input 
+              required
+              type="text" 
+              placeholder="Ex: EQUIPE ALFA, ESCAVAÇÃO..." 
+              value={nomeNovaEquipe}
+              onChange={e => setNomeNovaEquipe(e.target.value)}
+              style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: '500', boxSizing: 'border-box' }}
+            />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="submit" style={{ height: '32px', padding: '0 24px', backgroundColor: '#1e293b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Plus style={{ width: '14px', height: '14px' }} />
-              Alocar na Escala ({novaAlocacao.turno})
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* PROGRAMAÇÃO DE FOLGA DIRETA */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
-        <div style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
-          Programar Folga Direta (Lançamento Rápido — Ambos os Turnos)
-        </div>
-        <form onSubmit={handleSalvarFolgaEspecifica} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>Colaborador que entrará em Folga *</label>
-              <select 
-                required
-                style={{ height: '32px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }} 
-                value={novaFolga.id_funcionario} 
-                onChange={e => setNovaFolga({...novaFolga, id_funcionario: e.target.value})}
-              >
-                <option value="">-- Selecione o Colaborador --</option>
-                {listaFuncionariosDisponiveis.map(f => (
-                  <option key={f.id} value={f.id}>{f.nome} ({f.cargo})</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>Motivo / Observação</label>
-              <input 
-                type="text" 
-                style={{ height: '30px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} 
-                value={novaFolga.observacao} 
-                onChange={e => setNovaFolga({...novaFolga, observacao: e.target.value})}
-              />
-            </div>
-
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button 
-              type="submit" 
-              style={{ height: '32px', padding: '0 24px', backgroundColor: '#1e293b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              Confirmar Registro de Folga
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* SEÇÃO STATUS DE VEÍCULOS DA FROTA (IGUAL AO EFETIVO ESCALADO GERAL) */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px' }}>
-          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Car style={{ width: '16px', height: '16px', color: '#2563eb' }} />
-            Status dos Veículos da Frota (Atrelados aos seus Colaboradores)
-          </div>
-          
           <button 
-            type="button"
-            onClick={() => setMostrarTabelaVeiculos(!mostrarTabelaVeiculos)}
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '6px', 
-              backgroundColor: '#f1f5f9', 
-              border: '1px solid #cbd5e1', 
-              padding: '4px 12px', 
-              borderRadius: '4px', 
-              cursor: 'pointer', 
-              fontSize: '11px', 
-              fontWeight: 'bold', 
-              color: '#1e293b' 
-            }}
+            type="submit" 
+            style={{ height: '36px', padding: '0 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
-            {mostrarTabelaVeiculos ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
-            {mostrarTabelaVeiculos ? 'Ocultar Veículos' : 'Visualizar Veículos'}
+            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe ({turnoAtivo})
+          </button>
+        </form>
+
+        <div style={{ borderLeft: '1px solid #cbd5e1', paddingLeft: '12px', display: 'flex', alignItems: 'center' }}>
+          <button 
+            type="button" 
+            onClick={handleCriarEquipeFolguista}
+            style={{ height: '36px', padding: '0 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+            title="Cria o painel de Folguistas para ambos os turnos (Diurno + Noturno)"
+          >
+            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe Folguista (Ambos os Turnos)
           </button>
         </div>
-
-        {mostrarTabelaVeiculos && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#0f172a', color: '#fff', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 12px' }}>Placa / Identificação</th>
-                  <th style={{ padding: '10px 12px' }}>Veículo / Modelo</th>
-                  <th style={{ padding: '10px 12px' }}>Tipo</th>
-                  <th style={{ padding: '10px 12px' }}>Condutor na Escala Atual</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '140px' }}>Status Operacional</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listaVeiculos.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum veículo disponível cadastrado para este gestor.
-                    </td>
-                  </tr>
-                ) : (
-                  listaVeiculos.map((veiculo, index) => {
-                    const alocacaoAtiva = todosOsAgendamentosDoDia.find(a => Number(a.id_veiculo) === Number(veiculo.id));
-                    return (
-                      <tr key={`veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: alocacaoAtiva ? '#fef9c3' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</td>
-                        <td style={{ padding: '10px 12px', color: '#334155' }}>{veiculo.marca} {veiculo.modelo} ({veiculo.ano || '—'})</td>
-                        <td style={{ padding: '10px 12px', color: '#64748b' }}>{veiculo.tipo || 'Geral'}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: '500', color: '#1e3a8a' }}>
-                          {alocacaoAtiva ? `${alocacaoAtiva.nome} [${alocacaoAtiva.equipe}]` : 'Disponível na Garagem'}
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          {renderBadgeStatusVeiculo(veiculo.status, veiculo.id)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+        
+        <button
+          type="button"
+          onClick={handleCopiarUltimoAgendamento}
+          style={{
+            height: '36px',
+            padding: '0 16px',
+            backgroundColor: '#0284c7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontWeight: 'bold',
+            fontSize: '11px',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            whiteSpace: 'nowrap'
+          }}
+          title="Copia a formação de equipes e veículos do último dia em que houve agendamento para esta obra"
+        >
+          📋 Copiar Últimos Agendamentos
+        </button> 
+      </div>  
+       
+      {/* 3. PAINEL DINÂMICO DE ALOCAÇÃO */}
+      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '16px', alignItems: 'start' }}>
+        
+        {/* COLUNA ESQUERDA: DISPONÍVEIS NO TURNO */}
+        <div style={{ backgroundColor: '#fff', border: '2px solid #3b82f6', borderRadius: '6px', padding: '12px', minHeight: '380px' }}>
+          <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#1e40af', textTransform: 'uppercase' }}>
+              Disponíveis ({turnoAtivo}): {funcionariosDisponiveisNoTurno.length}
+            </span>
           </div>
-        )}
+
+          {/* CAMPO DE BUSCA DOS DISPONÍVEIS */}
+          <div style={{ position: 'relative', marginBottom: '10px' }}>
+            <input
+              type="text"
+              placeholder="Pesquisar por nome, cargo ou mat..."
+              value={termoBuscaDisponiveis}
+              onChange={(e) => setTermoBuscaDisponiveis(e.target.value)}
+              style={{
+                width: '100%',
+                height: '30px',
+                padding: '0 28px 0 8px',
+                fontSize: '10px',
+                border: '1px solid #cbd5e1',
+                borderRadius: '4px',
+                boxSizing: 'border-box',
+                outline: 'none'
+              }}
+            />
+            <Search style={{ width: '12px', height: '12px', color: '#94a3b8', position: 'absolute', right: '8px', top: '9px' }} />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '460px', overflowY: 'auto' }}>
+            {funcionariosDisponiveisNoTurno.length === 0 ? (
+              <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
+                {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : `Todos os colaboradores já foram alocados para o turno ${turnoAtivo}!`}
+              </div>
+            ) : (
+              funcionariosDisponiveisNoTurno.map(f => (
+                <div 
+                  key={`disp-${f.id}`} 
+                  style={{ padding: '8px', border: '1px solid #e2e8f0', borderRadius: '4px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{f.nome}</div>
+                    <div style={{ fontSize: '9px', color: '#64748b' }}>{f.cargo} | MAT: {f.matricula || '—'}</div>
+                  </div>
+
+                  {equipesDoTurnoAtivo.length > 0 && (
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleAlocarParaEquipe(f.id, e.target.value);
+                          e.target.value = "";
+                        }
+                      }}
+                      style={{ fontSize: '10px', padding: '3px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
+                    >
+                      <option value="" disabled>+ Mover para Equipe ({turnoAtivo})...</option>
+                      {equipesDoTurnoAtivo.map(eq => (
+                        <option key={`opt-${eq.nome}`} value={eq.nome}>{eq.nome}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* COLUNA DIREITA: CARDS DE EQUIPES EXCLUSIVAS DO TURNO E OBRA */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+          {equipesDoTurnoAtivo.length === 0 ? (
+            <div style={{ backgroundColor: '#fff', border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px', gridColumn: '1/-1' }}>
+              Nenhuma equipe cadastrada para esta obra no turno <strong>{turnoAtivo}</strong>. Crie uma equipe para esta obra acima!
+            </div>
+          ) : (
+            equipesDoTurnoAtivo.map((eq) => {
+              const integrantes = alocacoesDoDia.filter(
+                a => a.equipe.toUpperCase() === eq.nome.toUpperCase() && 
+                     String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
+              );
+
+              return (
+                <div key={`card-eq-${eq.nome}-${eq.turno}`} style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                  
+                  {/* Cabeçalho do Card da Equipe */}
+                  <div style={{ backgroundColor: '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{eq.nome}</div>
+                      <div style={{ fontSize: '9px', color: '#94a3b8' }}>TURNO: {eq.turno}</div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ backgroundColor: '#334155', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold' }}>
+                        {integrantes.length} Colaboradores
+                      </span>
+
+                      {/* BOTÃO EXCLUIR EQUIPE */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeletarEquipe(eq.nome)}
+                        title="Excluir esta equipe"
+                        style={{ border: 'none', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Trash2 style={{ width: '13px', height: '13px' }} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Integrantes da Equipe com Seleção de Veículo Exclusivo */}
+                  <div style={{ padding: '8px', minHeight: '120px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#fafafa' }}>
+                    {integrantes.length === 0 ? (
+                      <div style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '16px' }}>
+                        Selecione colaboradores na caixa ao lado para alocar nesta equipe.
+                      </div>
+                    ) : (
+                      integrantes.map((membro) => {
+                        // 1. Veículos ordenados por placa
+                        const veiculosOrdenados = [...listaVeiculos].sort((a, b) => 
+                          (a.placa || '').localeCompare(b.placa || '')
+                        );
+
+                        // 2. Oculta veículos que já foram atribuídos no turno atual, exceto o do próprio membro
+                        const veiculosDisponiveisOuAtual = veiculosOrdenados.filter(v => {
+                          const ocupante = todosOsAgendamentosDoDia.find(
+                            a => Number(a.id_veiculo) === Number(v.id) &&
+                                 String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
+                          );
+                          const ehOVeiculoAtual = Number(membro.id_veiculo) === Number(v.id);
+                          return !ocupante || ehOVeiculoAtual;
+                        });
+
+                        return (
+                          <div 
+                            key={`membro-${membro.id_funcionario}`} 
+                            style={{ padding: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{membro.nome}</div>
+                                <div style={{ fontSize: '8px', color: '#64748b' }}>{membro.cargo}</div>
+                              </div>
+
+                              <button 
+                                type="button" 
+                                onClick={() => handleRemoverDaEquipe(membro.id_funcionario)}
+                                title="Remover da equipe (retorna para disponíveis)"
+                                style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                              >
+                                <X style={{ width: '14px', height: '14px' }} />
+                              </button>
+                            </div>
+
+                            {/* CAMPO DE ASSOCIAÇÃO EXCLUSIVA DO VEÍCULO */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <Car style={{ width: '12px', height: '12px', color: '#2563eb' }} />
+                              <select
+                                value={membro.id_veiculo || ''}
+                                onChange={(e) => handleAlterarVeiculoFuncionario(membro.id_funcionario, e.target.value)}
+                                style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
+                              >
+                                <option value="">-- Sem Veículo Atribuído --</option>
+                                {veiculosDisponiveisOuAtual.map(v => (
+                                  <option key={v.id} value={v.id}>
+                                    [{v.placa}] {v.marca} {v.modelo}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                </div>
+              );
+            })
+          )}
+        </div>
+
       </div>
 
-      {/* 3. LISTAGEM DO EFETIVO ALOCADO NO DIA */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
+
+
+{/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Users style={{ width: '16px', height: '16px', color: '#475569' }} />
-            Efetivo Escalado Geral (Apenas Alocados)
+            Efetivo Escalado na Obra ({alocacoesDoDia.length} Registro(s))
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase' }}>Filtrar Equipe:</label>
             <select
-              value={filtroEquipe}
-              onChange={(e) => setFiltroEquipe(e.target.value)}
+              value={filtroEquipeTabela}
+              onChange={(e) => setFiltroEquipeTabela(e.target.value)}
               style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', fontWeight: '500', color: '#334155' }}
             >
               <option value="TODAS">⚠️ TODAS AS EQUIPES</option>
-              {[...new Set(funcionariosAlocados.map(a => a.equipe).filter(Boolean))].map(eq => (
+              {[...new Set(alocacoesDoDia.map(a => a.equipe).filter(Boolean))].map(eq => (
                 <option key={eq} value={eq}>{eq.toUpperCase()}</option>
               ))}
             </select>
@@ -706,28 +897,28 @@ const carregarVeiculosDoGestor = async () => {
                 <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
                 <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
                 <th style={{ padding: '10px 12px' }}>Obs</th>
-                <th style={{ padding: '10px 12px' }}>Obra Destino</th>
-                <th style={{ padding: '10px 12px', textAlign: 'center', width: '80px' }}>Ação</th>
+                {/* ❌ Célula "Ação" removida daqui */}
               </tr>
             </thead>
             <tbody>
               {(() => {
-                const alocacoesFiltradas = funcionariosAlocados.filter(aloc => {
-                  if (filtroEquipe === 'TODAS') return true;
-                  return String(aloc.equipe).toUpperCase().trim() === filtroEquipe.toUpperCase().trim();
+                const alocsFiltradas = alocacoesDoDia.filter(aloc => {
+                  if (filtroEquipeTabela === 'TODAS') return true;
+                  return String(aloc.equipe).toUpperCase().trim() === filtroEquipeTabela.toUpperCase().trim();
                 });
 
-                if (alocacoesFiltradas.length === 0) {
+                if (alocsFiltradas.length === 0) {
                   return (
                     <tr>
-                      <td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                      {/* ✅ colSpan ajustado para 6 (eram 7) */}
+                      <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
                         Nenhum colaborador alocado para os critérios selecionados.
                       </td>
                     </tr>
                   );
                 }
 
-                return alocacoesFiltradas.map((aloc, index) => {
+                return alocsFiltradas.map((aloc, index) => {
                   const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
                                       String(aloc.status_presenca).toUpperCase() === 'FOLGA';
                   const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
@@ -741,10 +932,8 @@ const carregarVeiculosDoGestor = async () => {
                       }}
                     >
                       <td style={{ padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
-                            {aloc.nome}
-                          </span>
+                        <div style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
+                          {aloc.nome}
                         </div>
                         <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
                       </td>
@@ -763,18 +952,7 @@ const carregarVeiculosDoGestor = async () => {
                       <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
                         {aloc.observacao || '—'}
                       </td>
-                      <td style={{ padding: '10px 12px', fontWeight: '500', color: '#334155' }}>
-                        {aloc.obra_nome || aloc.nome_obra || 'Obra Alocada'}
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <button 
-                          type="button" 
-                          onClick={() => handleDeletarAlocacao(aloc.id_funcionario, aloc.turno, aloc.equipe)} 
-                          style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                        >
-                          <Trash2 style={{ width: '14px', height: '14px' }} />
-                        </button>
-                      </td>
+                      {/* ❌ Botão de remoção tirado daqui */}
                     </tr>
                   );
                 });
@@ -784,10 +962,10 @@ const carregarVeiculosDoGestor = async () => {
         </div>
       </div>
 
-      {/* SEÇÃO RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
+      {/* 7. RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoOcupacao ? '12px' : '0' }}>
-          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '13px' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '12px' }}>
             Resumo Geral da Ocupação dos Funcionários no Dia (Por Turno)
           </div>
           <button 
@@ -811,7 +989,7 @@ const carregarVeiculosDoGestor = async () => {
                 </tr>
               </thead>
               <tbody>
-                {listaFuncionariosDisponiveis.map((func, index) => {
+                {todosFuncionarios.map((func, index) => {
                   const statusDiurno = obterStatusPorTurno(func.id, 'DIURNO');
                   const statusNoturno = obterStatusPorTurno(func.id, 'NOTURNO');
                   return (
@@ -839,10 +1017,10 @@ const carregarVeiculosDoGestor = async () => {
         )}
       </div>
 
-      {/* NOVA PARTE: RESUMO GERAL DA OCUPAÇÃO DOS VEÍCULOS NO DIA (POR TURNO) */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
+      {/* 8. RESUMO DE OCUPAÇÃO DOS VEÍCULOS NO DIA */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoVeiculos ? '12px' : '0' }}>
-          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e3a8a', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e3a8a', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Car style={{ width: '16px', height: '16px' }} />
             Resumo Geral da Ocupação dos Veículos no Dia (Por Turno)
           </div>
@@ -874,29 +1052,31 @@ const carregarVeiculosDoGestor = async () => {
                     </td>
                   </tr>
                 ) : (
-                  listaVeiculos.map((veiculo, index) => {
-                    const statusDiurno = obterStatusVeiculoPorTurno(veiculo.id, 'DIURNO');
-                    const statusNoturno = obterStatusVeiculoPorTurno(veiculo.id, 'NOTURNO');
+                  [...listaVeiculos]
+                    .sort((a, b) => (a.placa || '').localeCompare(b.placa || ''))
+                    .map((veiculo, index) => {
+                      const statusDiurno = obterStatusVeiculoPorTurno(veiculo.id, 'DIURNO');
+                      const statusNoturno = obterStatusVeiculoPorTurno(veiculo.id, 'NOTURNO');
 
-                    return (
-                      <tr key={`resumo-veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <td style={{ padding: '10px 12px' }}>
-                          <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</div>
-                          <div style={{ fontSize: '9px', color: '#64748b' }}>{veiculo.marca} {veiculo.modelo}</div>
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          <span style={{ backgroundColor: statusDiurno.corBg, color: statusDiurno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                            {statusDiurno.texto}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          <span style={{ backgroundColor: statusNoturno.corBg, color: statusNoturno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                            {statusNoturno.texto}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
+                      return (
+                        <tr key={`resumo-veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</div>
+                            <div style={{ fontSize: '9px', color: '#64748b' }}>{veiculo.marca} {veiculo.modelo}</div>
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            <span style={{ backgroundColor: statusDiurno.corBg, color: statusDiurno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              {statusDiurno.texto}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            <span style={{ backgroundColor: statusNoturno.corBg, color: statusNoturno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              {statusNoturno.texto}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
                 )}
               </tbody>
             </table>
@@ -904,10 +1084,10 @@ const carregarVeiculosDoGestor = async () => {
         )}
       </div>
 
-      {/* 4. SEÇÃO REMANEJAMENTO */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px' }}>
+      {/* 9. TRANSFERÊNCIA EXTERNA DE ENGENHARIA */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarRemanejamento ? '12px' : '0' }}>
-          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <MoveHorizontal style={{ width: '16px', height: '16px', color: '#65a30d' }} />
             Transferência Externa de Engenharia (Remanejamento Definitivo)
           </div>
@@ -936,7 +1116,7 @@ const carregarVeiculosDoGestor = async () => {
                 {funcionariosDisponiveisParaRemanejamento.length === 0 ? (
                   <tr>
                     <td colSpan="4" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum colaborador disponível para remanejamento técnico nesta obra hoje.
+                      Nenhum colaborador livre para remanejamento técnico hoje.
                     </td>
                   </tr>
                 ) : (
@@ -963,13 +1143,13 @@ const carregarVeiculosDoGestor = async () => {
         )}
       </div>
 
-      {/* MODAL DE SELEÇÃO DE DESTINO PARA TRANSFERÊNCIA */}
+      {/* MODAL DE SELEÇÃO DE DESTINO DE TRANSFERÊNCIA DE GESTOR */}
       {modalAberto && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '6px', width: '90%', maxWidth: '450px', padding: '20px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px', marginBottom: '16px' }}>
-              <div style={{ fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase', color: '#0f172a' }}>
-                Selecionar Gestor de Engenharia Destino
+              <div style={{ fontWeight: 'bold', fontSize: '12px', textTransform: 'uppercase', color: '#0f172a' }}>
+                Selecionar Engenheiro / Gestor Destino
               </div>
               <button type="button" onClick={() => setModalAberto(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}>
                 <X style={{ width: '18px', height: '18px' }} />

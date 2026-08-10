@@ -171,7 +171,7 @@ router.get('/gestor/diario-efetivo', async (req, res) => {
   }
 });
 
-// ========================================================
+/// ========================================================
 // 5. POST: SALVAR / ATUALIZAR APONTAMENTOS (DIÁRIO EFETIVO)
 // ========================================================
 router.post('/gestor/diario-efetivo', async (req, res) => {
@@ -188,6 +188,18 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
   try {
     await connection.beginTransaction();
 
+    // 1. Antes de deletar a escala anterior, recupera os veículos que estavam alocados nessa obra/data/equipe
+    let queryVeiculosAnteriores = "SELECT DISTINCT id_veiculo FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND id_veiculo IS NOT NULL";
+    let paramsVeiculosAnteriores = [data_diario, parseInt(id_obra)];
+
+    if (equipeTratada) {
+      queryVeiculosAnteriores += " AND UPPER(TRIM(equipe)) = ?";
+      paramsVeiculosAnteriores.push(equipeTratada);
+    }
+
+    const [veiculosRemovidos] = await connection.execute(queryVeiculosAnteriores, paramsVeiculosAnteriores);
+
+    // 2. Apaga do diário a escala anterior (para reescrever)
     if (equipeTratada) {
       await connection.execute(
         "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?", 
@@ -200,6 +212,9 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
       );
     }
     
+    // 3. Insere as novas alocações e coleta os IDs dos veículos alocados atualmente
+    const veiculosAlocadosAtualmente = new Set();
+
     if (listaFuncionarios.length > 0) {
       const sqlInsert = `
         INSERT INTO diario_efetivo 
@@ -221,6 +236,10 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
         const equipeFuncionario = f.equipe ? String(f.equipe).trim().toUpperCase() : (equipeTratada || 'GERAL');
         const idVeiculoValido = f.id_veiculo ? parseInt(f.id_veiculo) : null;
 
+        if (idVeiculoValido) {
+          veiculosAlocadosAtualmente.add(idVeiculoValido);
+        }
+
         await connection.execute(sqlInsert, [
           data_diario,
           parseInt(id_obra),
@@ -238,8 +257,28 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
       }
     }
 
+    // 5. LIBERA OS VEÍCULOS DESVINCULADOS:
+    // Se algum veículo estava associado anteriormente e não está mais na nova lista de alocação, restaura seu status para 'DISPONÍVEL'
+    for (const row of veiculosRemovidos) {
+      const idVeicAntigo = row.id_veiculo;
+      if (idVeicAntigo && !veiculosAlocadosAtualmente.has(idVeicAntigo)) {
+        // Verifica se o veículo não está alocado em outra obra/equipe no mesmo dia antes de liberar
+        const [outroUso] = await connection.execute(
+          "SELECT id FROM diario_efetivo WHERE id_veiculo = ? AND data_diario = ?",
+          [idVeicAntigo, data_diario]
+        );
+
+        if (outroUso.length === 0) {
+          await connection.execute(
+            "UPDATE veiculos SET status = 'DISPONÍVEL' WHERE id = ?",
+            [idVeicAntigo]
+          );
+        }
+      }
+    }
+
     await connection.commit();
-    res.status(200).json({ success: true, message: "Efetivo gravado com sucesso!" });
+    res.status(200).json({ success: true, message: "Efetivo e status de veículos gravados com sucesso!" });
   } catch (err) {
     await connection.rollback();
     console.error("Erro crítico na transação:", err);
@@ -1080,15 +1119,24 @@ router.get('/gestor/veiculos', async (req, res) => {
     let sql;
     let params = [];
 
-    // Alterado v.tipo na listagem de colunas e v.id_funcionario como base principal
+    // Ajustado com MAX(de.id_funcionario) para evitar o erro de GROUP BY
     sql = `
       SELECT 
-        v.id, v.marca, v.modelo, v.placa, v.ano, v.status, v.id_gestor, v.tipo,
-        v.id_funcionario, -- Mudança crucial: Pegamos o motorista fixo do veículo
+        v.id, 
+        v.marca, 
+        v.modelo, 
+        v.placa, 
+        v.ano, 
+        v.status, 
+        v.id_gestor, 
+        v.tipo,
+        COALESCE(v.id_funcionario, MAX(de.id_funcionario)) AS id_funcionario,
+        COALESCE(v.id_funcionario, MAX(de.id_funcionario)) AS id_condutor,
         GROUP_CONCAT(DISTINCT de.equipe SEPARATOR ', ') AS equipe,
-        GROUP_CONCAT(DISTINCT de.nome SEPARATOR ', ') AS nome_colaborador,
+        GROUP_CONCAT(DISTINCT COALESCE(f.nome, de.nome) SEPARATOR ', ') AS nome_colaborador,
         GROUP_CONCAT(DISTINCT o.nome_obra SEPARATOR ', ') AS nome_obra
       FROM veiculos v
+      LEFT JOIN funcionarios f ON v.id_funcionario = f.id
       LEFT JOIN diario_efetivo de ON v.id = de.id_veiculo ${data_diario ? 'AND de.data_diario = ?' : ''}
       LEFT JOIN obras o ON de.id_obra = o.id
       WHERE 1=1
@@ -1103,7 +1151,18 @@ router.get('/gestor/veiculos', async (req, res) => {
       params.push(parseInt(id), parseInt(id));
     }
 
-    sql += " GROUP BY v.id ORDER BY v.marca ASC, v.modelo ASC";
+    // Incluídas todas as colunas de 'v' no GROUP BY para compatibilidade com o MySQL Strict Mode
+    sql += ` GROUP BY 
+              v.id, 
+              v.marca, 
+              v.modelo, 
+              v.placa, 
+              v.ano, 
+              v.status, 
+              v.id_gestor, 
+              v.tipo, 
+              v.id_funcionario 
+            ORDER BY v.marca ASC, v.modelo ASC`;
 
     const [results] = await db.execute(sql, params);
     return res.json(results);
@@ -1135,5 +1194,103 @@ router.put('/gestor/veiculos/status/:id', async (req, res) => {
     res.status(500).json({ error: "Erro interno no servidor ao salvar status do veículo." });
   }
 });
+// ========================================================
+// 21. DELETE: EXCLUIR EQUIPE DO CONTROLE E DESVINCULAR INTEGRANTES
+// ========================================================
+router.delete('/gestor/equipe', async (req, res) => {
+  const { nome_equipe, turno, id_obra, data_diario } = req.query;
 
+  if (!nome_equipe || !id_obra || !data_diario) {
+    return res.status(400).json({ 
+      error: "Parâmetros obrigatórios ausentes (nome_equipe, id_obra e data_diario são necessários)." 
+    });
+  }
+
+  const equipeTratada = String(nome_equipe).trim().toUpperCase();
+  const turnoTratado = turno ? String(turno).trim().toUpperCase() : 'DIURNO';
+  const idObraNum = parseInt(id_obra);
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // 1. Remove o registro da equipe da tabela de controle
+    await connection.execute(
+      `DELETE FROM controle_diarios_equipe 
+       WHERE UPPER(TRIM(equipe)) = ? 
+         AND id_obra = ? 
+         AND data_diario = ?`,
+      [equipeTratada, idObraNum, data_diario]
+    );
+
+    // 2. Apaga as alocações dos funcionários associados a esta equipe/turno nesta data e obra
+    await connection.execute(
+      `DELETE FROM diario_efetivo 
+       WHERE UPPER(TRIM(equipe)) = ? 
+         AND UPPER(TRIM(turno)) = ? 
+         AND id_obra = ? 
+         AND data_diario = ?`,
+      [equipeTratada, turnoTratado, idObraNum, data_diario]
+    );
+
+    await connection.commit();
+    res.status(200).json({ 
+      
+      success: true, 
+      message: `Equipe '${equipeTratada}' excluída e colaboradores desvinculados com sucesso.` 
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao deletar equipe no backend:", error);
+    res.status(500).json({ error: "Erro interno no servidor ao excluir a equipe." });
+  } finally {
+    connection.release();
+  }
+});
+// ========================================================
+// GET: RECUPERAR / COPIAR ÚLTIMO AGENDAMENTO REGISTRADO DA OBRA
+// ========================================================
+router.get('/gestor/obter-ultimo-agendamento', async (req, res) => {
+  const { id_obra, data_atual } = req.query;
+
+  if (!id_obra) {
+    return res.status(400).json({ error: "O ID da obra é obrigatório." });
+  }
+
+  try {
+    // 1. Descobre a data mais recente que possui registros ANTES da data atual
+    const [dataRows] = await db.execute(
+      `SELECT MAX(data_diario) as ultima_data 
+       FROM diario_efetivo 
+       WHERE id_obra = ? ${data_atual ? 'AND data_diario < ?' : ''}`,
+      data_atual ? [parseInt(id_obra), data_atual] : [parseInt(id_obra)]
+    );
+
+    const ultimaData = dataRows[0]?.ultima_data;
+
+    if (!ultimaData) {
+      return res.status(404).json({ error: "Nenhum agendamento anterior foi encontrado para esta obra." });
+    }
+
+    // 2. Busca todas as alocações daquela última data
+    const [alocacoesAnteriores] = await db.execute(
+      `SELECT id_funcionario, id_obra, id_gestor, nome, cargo, matricula, turno, status_presenca, observacao, equipe, id_veiculo
+       FROM diario_efetivo
+       WHERE id_obra = ? AND data_diario = ?
+       ORDER BY equipe ASC, nome ASC`,
+      [parseInt(id_obra), ultimaData]
+    );
+
+    res.json({
+      data_origem: ultimaData,
+      alocacoes: alocacoesAnteriores
+    });
+
+  } catch (err) {
+    console.error("Erro ao buscar último agendamento:", err);
+    res.status(500).json({ error: "Erro interno ao buscar histórico." });
+  }
+});
 export default router;

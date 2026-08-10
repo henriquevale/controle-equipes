@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Search, Eye, BarChart3, Users } from 'lucide-react'; // Adicionado o ícone Users
+import { Search, Eye, BarChart3, Users } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -14,8 +14,9 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-//const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; 
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 // Recebe 'id' (da coluna ID da tabela usuario_sistema) e 'cargo'
 export default function HistoricoDiarios({ id, cargo }) {
@@ -28,16 +29,15 @@ export default function HistoricoDiarios({ id, cargo }) {
   const [loading, setLoading] = useState(false);
 
   // 🛠️ Busca amarrada ao ID único do usuário
-  // 1️⃣ FUNÇÃO DO HISTÓRICO (Resolve o Erro 400 da linha 47)
+  // 1️⃣ FUNÇÃO DO HISTÓRICO
   const buscarHistorico = useCallback(async () => {
     if (!id) return; // 'id' numérico vindo do App.jsx
 
     setLoading(true);
     try {
       const res = await axios.get(`${API_URL}/gestor/historico-diarios`, {
-        // Dentro de buscarHistorico no HistoricoDiarios.jsx:
         params: { 
-          id: id,                  // O número (17) que veio da prop 'id'
+          id: id,                  // O número que veio da prop 'id'
           cargo: cargo,            // O cargo ("GESTOR")
           id_obra: idObra || undefined, 
           data_inicio: dataInicio || undefined, 
@@ -55,14 +55,13 @@ export default function HistoricoDiarios({ id, cargo }) {
   }, [id, cargo, idObra, dataInicio, dataFim]);
 
 
-  // 2️⃣ EFFECT DAS OBRAS DO FILTRO (Resolve o Erro 404 da linha 65)
+  // 2️⃣ EFFECT DAS OBRAS DO FILTRO
   useEffect(() => {
     const carregarObrasFiltro = async () => {
       try {
-        // 🔍 CORRIGIDO: Apontando para a rota real e existente do back-end
         const res = await axios.get(`${API_URL}/gestor/obras-ativas`, {
           params: { 
-            id: id,     // 🔍 CORRIGIDO: Enviando como 'id'
+            id: id,     
             cargo: cargo 
           }
         });
@@ -75,13 +74,13 @@ export default function HistoricoDiarios({ id, cargo }) {
     if (id) carregarObrasFiltro();
   }, [id, cargo]);
 
-  // CORRIGIDO: Carrega as obras usando a variável correta 'id'
+  // Carrega as obras usando a variável correta 'id'
   useEffect(() => {
     const carregarObras = async () => {
-      if (!id) return; // Corrigido aqui de id_usuario para id
+      if (!id) return;
       try {
         const res = await axios.get(`${API_URL}/gestor/obras-ativas`, { 
-          params: { id: id, cargo } // Passa o id correto para a API
+          params: { id: id, cargo }
         });
         setObras(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
@@ -228,55 +227,75 @@ export default function HistoricoDiarios({ id, cargo }) {
         </div>
         <div style={{ padding: '12px', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-  <thead>
-    <tr style={{ backgroundColor: '#f1f5f9' }}>
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>DATA</th>
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>EQUIPE</th> 
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>CÓD. OBRA</th>
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>NOME DA OBRA</th>
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>EFETIVO ATIVO</th>
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>ATIVIDADES RELATADAS</th>
-      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center', width: '80px' }}>VER</th>
-    </tr>
-  </thead>
-  <tbody>
-    {loading ? (
-      <tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b' }}>Buscando registros no banco de dados...</td></tr>
-    ) : listaDiarios.length === 0 ? (
-      <tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum RDO encontrado para este gestor ou filtros aplicados.</td></tr>
-    ) : (
-      listaDiarios.map((rdo, index) => (
-        <tr key={rdo.id || index} style={{ borderBottom: '1px solid #e2e8f0' }}>
-          <td style={{ padding: '10px', whiteSpace: 'nowrap', fontWeight: 'bold', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</td>
-          
-          <td style={{ padding: '10px', fontWeight: 'bold', color: '#475569' }}>
-            <span style={{ backgroundColor: '#f1f5f9', padding: '3px 6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-              {rdo.equipe || 'Geral'}
-            </span>
-          </td>
+            <thead>
+              <tr style={{ backgroundColor: '#f1f5f9' }}>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>DATA</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>EQUIPE</th> 
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>STATUS RDO</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>CÓD. OBRA</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>NOME DA OBRA</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>EFETIVO ATIVO</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>ATIVIDADES RELATADAS</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center', width: '80px' }}>VER</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b' }}>Buscando registros no banco de dados...</td></tr>
+              ) : listaDiarios.length === 0 ? (
+                <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum RDO encontrado para este gestor ou filtros aplicados.</td></tr>
+              ) : (
+                listaDiarios.map((rdo, index) => {
+                  const isPendente = rdo.status_rdo === 'PENDENTE' || !rdo.status_rdo;
 
-          <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>{rdo.codigo_obra}</td>
-          <td style={{ padding: '10px', fontWeight: '500' }}>{rdo.nome_obra}</td>
-          <td style={{ padding: '10px', textAlign: 'center' }}>
-            <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold' }}>{rdo.total_efetivo || 0} Colaboradores</span>
-          </td>
-          <td style={{ padding: '10px', color: '#334155', fontSize: '11px' }}>
-            {rdo.servicos_resumo ? <div style={{ whiteSpace: 'pre-line' }}>{rdo.servicos_resumo}</div> : <span style={{ color: '#94a3b8' }}>Sem produção registrada</span>}
-          </td>
-          <td style={{ padding: '10px', textAlign: 'center' }}>
-            <button onClick={() => setDiarioSelecionado(rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-              <Eye style={{ width: '14px', color: '#2563eb' }} /> Detalhes
-            </button>
-          </td>
-        </tr>
-      ))
-    )}
-  </tbody>
-</table>
+                  return (
+                    <tr key={rdo.id || index} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '10px', whiteSpace: 'nowrap', fontWeight: 'bold', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</td>
+                      
+                      <td style={{ padding: '10px', fontWeight: 'bold', color: '#475569' }}>
+                        <span style={{ backgroundColor: '#f1f5f9', padding: '3px 6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                          {rdo.equipe || 'Geral'}
+                        </span>
+                      </td>
+
+                      {/* COLUNA STATUS RDO ADICIONADA */}
+                      <td style={{ padding: '10px', textAlign: 'center' }}>
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 'bold',
+                          backgroundColor: isPendente ? '#fef2f2' : '#f0fdf4',
+                          color: isPendente ? '#ef4444' : '#16a34a',
+                          border: `1px solid ${isPendente ? '#fca5a5' : '#86efac'}`
+                        }}>
+                          {isPendente ? 'SEM RDO' : 'CONCLUÍDO'}
+                        </span>
+                      </td>
+
+                      <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>{rdo.codigo_obra}</td>
+                      <td style={{ padding: '10px', fontWeight: '500' }}>{rdo.nome_obra}</td>
+                      <td style={{ padding: '10px', textAlign: 'center' }}>
+                        <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold' }}>{rdo.total_efetivo || 0} Colaboradores</span>
+                      </td>
+                      <td style={{ padding: '10px', color: '#334155', fontSize: '11px' }}>
+                        {rdo.servicos_resumo ? <div style={{ whiteSpace: 'pre-line' }}>{rdo.servicos_resumo}</div> : <span style={{ color: '#94a3b8' }}>Sem produção registrada</span>}
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'center' }}>
+                        <button onClick={() => setDiarioSelecionado(rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Eye style={{ width: '14px', color: '#2563eb' }} /> Detalhes
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* MODAL DE DETALHES FORMATEDO IGUAL À IMAGEM */}
+      {/* MODAL DE DETALHES */}
       {diarioSelecionado && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '20px' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '6px', width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #94a3b8', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
@@ -290,7 +309,7 @@ export default function HistoricoDiarios({ id, cargo }) {
             {/* Conteúdo Interno Organizado */}
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '18px', backgroundColor: '#ffffff' }}>
               
-              {/* Informações Superiores Desvinculadas de Cards */}
+              {/* Informações Superiores */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '14px', color: '#1e293b' }}>
                 <div><strong>Obra Vinculada:</strong> <span style={{ color: '#2563eb', fontWeight: 'bold' }}>[{diarioSelecionado.codigo_obra || '100'}]</span> {diarioSelecionado.nome_obra}</div>
                 <div><strong>Equipe Responsável:</strong> <span style={{ fontWeight: 'bold' }}>{diarioSelecionado.equipe || 'A'}</span></div>
@@ -325,7 +344,6 @@ export default function HistoricoDiarios({ id, cargo }) {
                   Listagem do Serviço (Resumo do RDO):
                 </div>
                 <div style={{ padding: '16px', backgroundColor: '#fff', fontSize: '13px', color: '#334155', lineHeight: '1.6' }}>
-                  {/* Se o seu RDO lida com materiais no resumo ou estiver vazio */}
                   {diarioSelecionado.servicos_resumo ? (
                     <div style={{ whiteSpace: 'pre-line' }}>{diarioSelecionado.servicos_resumo}</div>
                   ) : (

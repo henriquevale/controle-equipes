@@ -247,12 +247,33 @@ router.put('/master/usuarios/:id', async (req, res) => {
 // ========================================================
 router.get(['/master/funcionarios-todos', '/funcionarios'], async (req, res) => {
   try {
-    // 💡 Traz absolutamente TODO MUNDO. Não importa se tem gestor, se não tem, status, etc.
+    // 💡 Traz TODOS os funcionários e busca o último gestor vinculado (se houver)
     const sql = `
-      SELECT id, matricula, nome, cargo, ativo, observacoes
-      FROM funcionarios 
-      ORDER BY nome ASC
+      SELECT 
+        f.id, 
+        f.matricula, 
+        f.nome, 
+        f.cargo, 
+        f.ativo, 
+        f.observacoes,
+        gf.id_usuario AS id_usuario_gestor,
+        u.nome AS nome_gestor,
+        u.nome AS gestor
+      FROM funcionarios f
+      LEFT JOIN (
+        -- Agrupa por funcionário pegando apenas a última inserção de vínculo
+        SELECT gf_inner.*
+        FROM gestor_funcionarios gf_inner
+        INNER JOIN (
+          SELECT id_funcionario, MAX(id) as max_id
+          FROM gestor_funcionarios
+          GROUP BY id_funcionario
+        ) gf_max ON gf_inner.id = gf_max.max_id
+      ) gf ON f.id = gf.id_funcionario
+      LEFT JOIN usuarios_sistema u ON gf.id_usuario = u.id
+      ORDER BY f.nome ASC
     `;
+    
     const [rows] = await db.execute(sql);
     res.json(rows);
   } catch (err) {

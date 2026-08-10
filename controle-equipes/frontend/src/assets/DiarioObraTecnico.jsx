@@ -4,8 +4,9 @@ import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDa
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-//const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api';  
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api';  
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 const SERVICOS_PADRONIZADOS = [
   "REMOÇÃO DE TACHA (UN)",
@@ -67,18 +68,17 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     new Set(efetivoAgendado.map(f => String(f.equipe || 'GERAL').trim().toUpperCase()))
   ).filter(Boolean);
 
-// 1. Carrega as obras apenas uma vez ao iniciar a tela
-useEffect(() => {
-  carregarObrasIniciais();
-}, []);
+  // 1. Carrega as obras apenas uma vez ao iniciar a tela
+  useEffect(() => {
+    carregarObrasIniciais();
+  }, []);
 
-// 2. EXCLUSIVO PARA VEÍCULOS: Dispara de forma independente
-useEffect(() => {
-  // Chamamos a função diretamente. A validação de segurança fica dentro dela.
-  carregarVeiculosDoSistema(); 
-}, [dataDiario]); 
+  // 2. EXCLUSIVO PARA VEÍCULOS: Dispara de forma independente
+  useEffect(() => {
+    carregarVeiculosDoSistema(); 
+  }, [dataDiario]); 
 
-  // 3. Mantém o que já busca o efetivo dos agendamentos (Sem alterações)
+  // 3. Mantém o que já busca o efetivo dos agendamentos
   useEffect(() => {
     if (idObraSelecionada && dataDiario) {
       buscarEfetivoVindoDoAgendamento();
@@ -114,43 +114,33 @@ useEffect(() => {
     }
   }, [efetivoAgendado]);
 
-const carregarVeiculosDoSistema = async () => {
-  try {
-    // Busca o ID do usuário de forma segura. Se não achar, usa 0 temporariamente para evitar o erro 400
-    const gestorId = usuarioLogado?.id || 0; 
-    const gestorCargo = usuarioLogado?.cargo || 'GESTOR';
-
-    const res = await axios.get(`${API_URL}/gestor/veiculos`, {
-      params: {
-        id: gestorId,
-        cargo: gestorCargo,
-        data_diario: dataDiario // Passa a data atual do diário
-      }
-    });
-    
-    setListaVeiculos(res.data || []);
-  } catch (e) {
-    console.error("Erro ao carregar veículos para o diário técnico:", e);
-  }
-};
-
-  const handleMudarStatusVeiculo = async (idVeiculo, novoStatus) => {
+  const carregarVeiculosDoSistema = async () => {
     try {
-      setLoading(true);
-      await axios.put(`${API_URL}/gestor/veiculos/status/${idVeiculo}`, { status: novoStatus });
+      const gestorId = usuarioLogado?.id || 0; 
+      const gestorCargo = usuarioLogado?.cargo || 'GESTOR';
+
+      const res = await axios.get(`${API_URL}/gestor/veiculos`, {
+        params: {
+          id: gestorId,
+          cargo: gestorCargo,
+          data_diario: dataDiario
+        }
+      });
       
-      setListaVeiculos(prev => 
-        prev.map(v => v.id === idVeiculo ? { ...v, status: novoStatus } : v)
-      );
-      
-      setStatusEnvio({ texto: "✓ Status do veículo atualizado com sucesso!", tipo: "sucesso" });
-      setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 3000);
-    } catch (err) {
-      console.error("Erro ao atualizar status do veículo:", err);
-      setErroPainel("Não foi possível atualizar o status do veículo.");
-    } finally {
-      setLoading(false);
+      setListaVeiculos(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar veículos para o diário técnico:", e);
     }
+  };
+
+  // Alteração AQUI: Atualiza APENAS no estado local do RDO (não envia PUT para a frota do banco)
+  const handleMudarStatusVeiculo = (idVeiculo, novoStatus) => {
+    setListaVeiculos(prev => 
+      prev.map(v => v.id === idVeiculo ? { ...v, status: novoStatus } : v)
+    );
+    
+    setStatusEnvio({ texto: "✓ Status do veículo definido para este RDO!", tipo: "sucesso" });
+    setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 3000);
   };
 
   const carregarObrasIniciais = async () => {
@@ -324,7 +314,7 @@ const carregarVeiculosDoSistema = async () => {
 
       const idsVistos = new Set();
       const nomesDuplicados = [];
-     // CÓDIGO CORRIGIDO:
+
       efetivoFiltradoPorEquipe.forEach(f => {
         if (f.id_funcionario) {
           if (idsVistos.has(f.id_funcionario)) {
@@ -380,7 +370,7 @@ const carregarVeiculosDoSistema = async () => {
           modelo_veiculo: veiculoDados ? veiculoDados.modelo : null,
           ano_veiculo: veiculoDados ? veiculoDados.ano : null,
           tipo_veiculo: veiculoDados ? veiculoDados.tipo : null,
-          status_veiculo: veiculoDados ? veiculoDados.status : null
+          status_veiculo: veiculoDados ? veiculoDados.status : null // Status alterado só do RDO enviado para a gravação do histórico
         };
 
         if (f.turno === 'DIURNO e NOTURNO') {
@@ -451,25 +441,27 @@ const carregarVeiculosDoSistema = async () => {
       doc.text(`1. Efetivo e Presença (Equipe: ${equipeSelecionadaFiltro})`, 10, currentY);
       const colunasEfetivo = ["Colaborador / Nome", "Função", "Turno", "Status de Presença", "Veículo / Placa"];
       
-      const linhasEfetivo = (efetivoAgendado || [])
-        .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase())
-        .map(f => {
-          const v = listaVeiculos.find(ve => ve.id_funcionario && String(ve.id_funcionario) === String(f.id_funcionario));
-          const veiculoText = v ? `${v.placa} (${v.modelo})` : 'Nenhum';
+      const funcionariosDaEquipeAtiva = (efetivoAgendado || []).filter(
+        f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase()
+      );
 
-          return [
-            String(f?.name || '---'), 
-            String(f?.cargo || '---'), 
-            String(f?.turno || 'DIURNO'), 
-            f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase(),
-            veiculoText
-          ];
-        });
+      const linhasEfetivo = funcionariosDaEquipeAtiva.map(f => {
+        const v = (listaVeiculos || []).find(ve => ve.id_funcionario && String(ve.id_funcionario) === String(f.id_funcionario));
+        const veiculoText = v ? `${v.placa} (${v.modelo}) - ${v.status}` : 'Nenhum';
+
+        return [
+          String(f?.name || '---'), 
+          String(f?.cargo || '---'), 
+          String(f?.turno || 'DIURNO'), 
+          f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase(),
+          veiculoText
+        ];
+      });
 
       autoTable(doc, {
         startY: currentY + 2,
         head: [colunasEfetivo],
-        body: linhasEfetivo,
+        body: linhasEfetivo.length > 0 ? linhasEfetivo : [["Nenhum funcionário encontrado para esta equipe", "-", "-", "-", "-"]],
         theme: 'grid',
         headStyles: { fillColor: [71, 85, 105], textColor: 255, fontSize: 9 },
         bodyStyles: { fontSize: 8.5 },
@@ -546,14 +538,19 @@ const carregarVeiculosDoSistema = async () => {
   const totalFolgas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Folga').length;
   const totalFaltas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Faltou').length;
 
-      // CORREÇÃO FILTRO: Permite mostrar veículos da equipe ou veículos sem motorista definido
-    const veiculosDoQuadroAtivo = listaVeiculos.filter(v => {
-      // Se o veículo não tem funcionário associado, exibe para o gestor poder gerenciar
-      if (!v.id_funcionario) return true; 
-      
-      // Se tiver, checa se o funcionário faz parte da equipe carregada na tela
-      return funcionariosDaEquipe.some(f => String(f.id_funcionario) === String(v.id_funcionario));
-    });
+  const idsFuncionariosNaEquipe = new Set(
+    funcionariosDaEquipe
+      .map(f => f.id_funcionario || f.id)
+      .filter(Boolean)
+      .map(id => String(id).trim())
+  );
+
+  const veiculosDoQuadroAtivo = listaVeiculos.filter(veiculo => {
+    const idMotoristaVeiculo = veiculo.id_funcionario || veiculo.id_condutor;
+    if (!idMotoristaVeiculo) return false;
+    return idsFuncionariosNaEquipe.has(String(idMotoristaVeiculo).trim());
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', fontFamily: 'sans-serif', fontSize: '12px' }}>
       
@@ -698,7 +695,7 @@ const carregarVeiculosDoSistema = async () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarTabelaVeiculos ? '12px' : '0' }}>
               <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Car style={{ width: '16px', height: '16px', color: '#2563eb' }} />
-                Status dos Veículos da Frota (Atrelados aos seus Colaboradores e Equipe)
+                Status dos Veículos no RDO (Atrelados aos seus Colaboradores e Equipe)
               </div>
               
               <button 
@@ -732,7 +729,7 @@ const carregarVeiculosDoSistema = async () => {
                       <th style={{ padding: '10px 12px' }}>Veículo / Modelo</th>
                       <th style={{ padding: '10px 12px' }}>Tipo</th>
                       <th style={{ padding: '10px 12px' }}>Colaborador Vinculado</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center', width: '180px' }}>Status do Veículo</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', width: '180px' }}>Status no RDO</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -751,7 +748,7 @@ const carregarVeiculosDoSistema = async () => {
                             <td style={{ padding: '10px 12px', color: '#334155' }}>{veiculo.marca} {veiculo.modelo} ({veiculo.ano})</td>
                             <td style={{ padding: '10px 12px', color: '#64748b' }}>{veiculo.tipo}</td>
                             <td style={{ padding: '10px 12px', fontWeight: '500', color: '#1e293b' }}>
-                              {motorista ? `${motorista.name} (${motorista.cargo})` : `ID Funcionário: #${veiculo.id_funcionario}`}
+                              {motorista ? `${motorista.name} (${motorista.cargo})` : (veiculo.id_funcionario ? `ID Funcionário: #${veiculo.id_funcionario}` : 'Sem Motorista')}
                             </td>
                             <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                               <select

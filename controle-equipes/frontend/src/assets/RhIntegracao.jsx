@@ -6,20 +6,19 @@ import {
   Layers3, Download, Search, Trash2 
 } from 'lucide-react';
 
-//const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://controle-equipes.onrender.com/api'; 
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://controle-equipes.onrender.com/api'; 
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);
+  const [obras, setObras] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [filtroEtapa, setFiltroEtapa] = useState('TODOS');
 
-  // 🔍 Estado para o campo de pesquisa (Busca por Nome ou Matrícula)
+  // 🔍 Estado para o campo de pesquisa
   const [busca, setBusca] = useState('');
 
-  // Controla a linha em edição usando a chave única da integração
+  // Controla a linha em edição
   const [idIntegracaoEmEdicao, setIdIntegracaoEmEdicao] = useState(null);
-  
-  // ESTADO ISOLADO: Guarda temporariamente os dados digitados antes de salvar
   const [dadosEdicao, setDadosEdicao] = useState(null);
 
   const carregarEsteira = async () => {
@@ -34,8 +33,18 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     }
   };
 
+  const carregarObras = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/obras`);
+      setObras(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar lista de obras:", e);
+    }
+  };
+
   useEffect(() => {
     carregarEsteira();
+    carregarObras();
   }, []);
 
   const formatarParaInput = (dataBanco) => {
@@ -43,20 +52,17 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     return dataBanco.split('T')[0];
   };
 
-  // Ativa o modo de edição clonando os dados reais para o estado temporário
   const iniciarEdicao = (item) => {
     const chaveEdicao = item.id_integracao || item.id;
     setIdIntegracaoEmEdicao(chaveEdicao);
     setDadosEdicao({ ...item });
   };
 
-  // Cancelar limpa os estados temporários sem mexer na lista principal
   const cancelarEdicao = () => {
     setIdIntegracaoEmEdicao(null);
     setDadosEdicao(null);
   };
 
-  // 🗑️ FUNÇÃO DE EXCLUSÃO (DELETE) DA LINHA DA ESTEIRA
   const deletarIntegracao = async (item) => {
     const idIntegracao = item.id_integracao || item.id;
     const nomeExibicao = item.nome || 'este funcionário';
@@ -68,7 +74,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       return;
     }
 
-    if (!window.confirm(`Tem certeza que deseja remover o registro de integração de "${nomeExibicao}"? (O cadastro principal do funcionário continuará salvo no RH)`)) {
+    if (!window.confirm(`Tem certeza que deseja remover o registro de integração de "${nomeExibicao}"?`)) {
       return;
     }
 
@@ -90,9 +96,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     }
   };
 
-  // ========================================================
-  // REGRAS DE ALTERAÇÃO DE DATA COM VALIDAÇÃO CRONOLÓGICA
-  // ========================================================
   const handleDataTabelaChange = (campo, valor) => {
     if (!valor) {
       setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
@@ -147,6 +150,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
 
       const res = await axios.put(`${API_URL}/rh/funcionarios/${idFunc}/integracao`, {
         id_integracao: dadosEdicao.id_integracao,
+        id_obra: dadosEdicao.id_obra || null,
         data_documentos_sst: dadosEdicao.data_documentos_sst,
         data_enviados: dadosEdicao.data_enviados,
         data_recebidos: dadosEdicao.data_recebidos,
@@ -172,9 +176,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     }
   };
 
-  // ========================================================
-  // CONTADORES E FILTROS DO PAINEL SUPERIOR
-  // ========================================================
   const contadores = {
     TODOS: listaIntegracoes.length,
     DOC_SST: listaIntegracoes.filter(f => !f.data_documentos_sst).length,
@@ -186,7 +187,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     INTEGRACAO: listaIntegracoes.filter(f => f.data_integracao_agendada && !f.data_integracao).length,
   };
 
-  // 🔍 FILTRO COMBINADO: Pesquisa por Texto + Filtro por Etapa
   const listaFiltrada = listaIntegracoes.filter(f => {
     const termo = busca.toLowerCase().trim();
     const passaBusca = !termo || 
@@ -206,9 +206,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     return true;
   });
 
-  // ========================================================
-  // EXPORTAÇÃO PARA ARQUIVO CSV
-  // ========================================================
   const exportarParaCSV = () => {
     if (listaFiltrada.length === 0) {
       if (mostrarMensagemGlobal) mostrarMensagemGlobal('Não há dados para exportar com o filtro atual.', 'erro');
@@ -216,7 +213,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       return;
     }
 
-    const cabecalho = ['Funcionario', 'Matricula', 'Cargo', 'Status', '1. Doc SST', '2. Enviados', '3. Recebidos', '4. Na BEX', '5. Analise', '6. Agendada', '7. Integracao', 'Observacao'];
+    const cabecalho = ['Funcionario', 'Matricula', 'Cargo', 'Status', '1. Doc SST', '2. Enviados', '3. Recebidos', '4. Na BEX', '5. Analise', '6. Agendada', '7. Integracao', 'Obra', 'Observacao'];
     
     const linhas = listaFiltrada.map(f => [
       `"${(f.nome || '').replace(/"/g, '""')}"`,
@@ -230,6 +227,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       `"${formatarParaInput(f.data_analise)}"`,
       `"${formatarParaInput(f.data_integracao_agendada)}"`,
       `"${formatarParaInput(f.data_integracao)}"`,
+      `"${(f.nome_obra || f.id_obra || '').replace(/"/g, '""')}"`,
       `"${(f.obs || '').replace(/"/g, '""')}"`
     ]);
 
@@ -249,7 +247,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   };
 
   const estiloCardContador = (chave) => ({
-    flex: '1 1 auto', minWidth: '105px', padding: '10px 14px', borderRadius: '8px',
+    flex: '1 1 110px', padding: '8px 10px', borderRadius: '8px',
     backgroundColor: filtroEtapa === chave ? '#2563eb' : '#fff',
     color: filtroEtapa === chave ? '#fff' : '#475569',
     border: filtroEtapa === chave ? '1px solid #2563eb' : '1px solid #e2e8f0',
@@ -258,28 +256,29 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   });
 
   const estiloInputTabela = (disabled) => ({
-    fontSize: '11px', padding: '3px 4px', borderRadius: '4px', width: '115px',
+    fontSize: '11px', padding: '3px 4px', borderRadius: '4px', width: '100px',
     border: '1px solid #e2e8f0',
     backgroundColor: disabled ? '#f8fafc' : '#fff', 
     color: disabled ? '#64748b' : '#334155',
     cursor: disabled ? 'not-allowed' : 'auto',
-    opacity: disabled ? 0.8 : 1, fontWeight: 'normal'
+    opacity: disabled ? 0.8 : 1, fontWeight: 'normal',
+    boxSizing: 'border-box'
   });
 
   if (carregando) return <div style={{ fontSize: '12px', padding: '10px' }}>Carregando esteira...</div>;
 
   return (
-    <div>
+    <div style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Layers3 style={{ color: '#2563eb', width: '18px', height: '18px' }} />
           <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b' }}>
-            Esteira de Integração de Funcionários (Acompanhamento Diário)
+            Esteira de Integração de Funcionários
           </h3>
         </div>
 
-        {/* 🔍 CAMPO DE PESQUISA E BOTÃO EXPORTAR */}
+        {/* Campo de Pesquisa e Exportar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search style={{ position: 'absolute', left: '8px', width: '14px', height: '14px', color: '#94a3b8' }} />
@@ -296,7 +295,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                 borderRadius: '4px',
                 border: '1px solid #cbd5e1',
                 outline: 'none',
-                width: '220px'
+                width: '200px'
               }}
             />
           </div>
@@ -311,67 +310,68 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
             title="Exportar registros filtrados para Excel/CSV"
           >
             <Download style={{ width: '13px', height: '13px' }} />
-            <span>Exportar Filtro</span>
+            <span>Exportar</span>
           </button>
         </div>
       </div>
 
       {/* Painel de Contadores */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '8px', marginBottom: '20px' }}>
         <div onClick={() => setFiltroEtapa('TODOS')} style={estiloCardContador('TODOS')}>
           <Layers3 size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>Todos</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.TODOS}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.TODOS}</div>
         </div>
         <div onClick={() => setFiltroEtapa('DOC_SST')} style={estiloCardContador('DOC_SST')}>
           <FileText size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>1. Doc SST</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.DOC_SST}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.DOC_SST}</div>
         </div>
         <div onClick={() => setFiltroEtapa('ENVIADOS')} style={estiloCardContador('ENVIADOS')}>
           <Send size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>2. Enviados</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.ENVIADOS}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.ENVIADOS}</div>
         </div>
         <div onClick={() => setFiltroEtapa('RECEBIDOS')} style={estiloCardContador('RECEBIDOS')}>
           <Inbox size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>3. Recebidos</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.RECEBIDOS}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.RECEBIDOS}</div>
         </div>
         <div onClick={() => setFiltroEtapa('NA_BEX')} style={estiloCardContador('NA_BEX')}>
           <Database size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>4. Na BEX</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.NA_BEX}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.NA_BEX}</div>
         </div>
         <div onClick={() => setFiltroEtapa('ANALISE')} style={estiloCardContador('ANALISE')}>
           <BarChart3 size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>5. Análise</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.ANALISE}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.ANALISE}</div>
         </div>
         <div onClick={() => setFiltroEtapa('AGENDADA')} style={estiloCardContador('AGENDADA')}>
           <Clock size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>6. Agendada</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.AGENDADA}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.AGENDADA}</div>
         </div>
         <div onClick={() => setFiltroEtapa('INTEGRACAO')} style={estiloCardContador('INTEGRACAO')}>
           <Milestone size={14} /> <div style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase' }}>7. Integração</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{contadores.INTEGRACAO}</div>
+          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{contadores.INTEGRACAO}</div>
         </div>
       </div>
 
-      {/* Tabela Principal */}
+      {/* Container com Rolagem Horizontal Habilitada */}
       {listaFiltrada.length === 0 ? (
         <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px', backgroundColor: '#f8fafc', borderRadius: '4px' }}>
-          Nenhum funcionário encontrado para o filtro ou pesquisa informada.
+          Nenhum funcionário encontrado.
         </div>
       ) : (
-        <div style={{ overflowX: 'auto', borderRadius: '4px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+        <div style={{ width: '100%', overflowX: 'auto', borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <table style={{ width: '100%', minWidth: '1150px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
             <thead>
               <tr style={{ backgroundColor: '#0f172a', color: '#fff' }}>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>Funcionário / Matrícula</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>1. Doc SST</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>2. Enviados</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>3. Recebidos</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>4. Na BEX</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>5. Análise</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>6. Agendada</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>7. Integração</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155' }}>Obs.</th>
-                <th style={{ padding: '10px 8px', border: '1px solid #334155', textAlign: 'center' }}>Ação</th>
+                <th style={{ padding: '8px 6px', border: '1px solid #334155', minWidth: '150px' }}>Funcionário / Matrícula</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>1. Doc SST</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>2. Enviados</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>3. Recebidos</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>4. Na BEX</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>5. Análise</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>6. Agendada</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>7. Integração</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '115px' }}>Obra</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '115px' }}>Obs.</th>
+                <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '85px', textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -383,20 +383,50 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
 
                 return (
                   <tr key={chaveUnica} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: completo ? '#f0fdf4' : (modoEdicaoAtivo ? '#eff6ff' : '#fff') }}>
-                    <td style={{ padding: '8px 6px', color: '#334155', fontWeight: 'bold', borderLeft: modoEdicaoAtivo ? '3px solid #2563eb' : 'none' }}>
-                      {func.nome} <br />
+                    <td style={{ padding: '6px', color: '#334155', fontWeight: 'bold', borderLeft: modoEdicaoAtivo ? '3px solid #2563eb' : 'none' }}>
+                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }} title={func.nome}>
+                        {func.nome}
+                      </div>
                       <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {func.matricula}</span>
                     </td>
                     
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_documentos_sst)} onChange={e => handleDataTabelaChange('data_documentos_sst', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_enviados)} onChange={e => handleDataTabelaChange('data_enviados', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_recebidos)} onChange={e => handleDataTabelaChange('data_recebidos', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_postado_bex)} onChange={e => handleDataTabelaChange('data_postado_bex', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_analise)} onChange={e => handleDataTabelaChange('data_analise', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao_agendada)} onChange={e => handleDataTabelaChange('data_integracao_agendada', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
-                    <td style={{ padding: '4px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao)} style={estiloInputTabela(!modoEdicaoAtivo)} onChange={e => handleDataTabelaChange('data_integracao', e.target.value)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_documentos_sst)} onChange={e => handleDataTabelaChange('data_documentos_sst', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_enviados)} onChange={e => handleDataTabelaChange('data_enviados', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_recebidos)} onChange={e => handleDataTabelaChange('data_recebidos', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_postado_bex)} onChange={e => handleDataTabelaChange('data_postado_bex', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_analise)} onChange={e => handleDataTabelaChange('data_analise', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao_agendada)} onChange={e => handleDataTabelaChange('data_integracao_agendada', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
+                    <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_integracao)} onChange={e => handleDataTabelaChange('data_integracao', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
 
-                    <td style={{ padding: '4px' }}>
+                    {/* SELECT DE OBRA */}
+                    <td style={{ padding: '3px' }}>
+                      <select
+                        disabled={!modoEdicaoAtivo}
+                        value={itemExibido.id_obra || ''}
+                        onChange={e => setDadosEdicao(prev => ({ ...prev, id_obra: e.target.value }))}
+                        style={{
+                          fontSize: '11px',
+                          padding: '3px 2px',
+                          borderRadius: '4px',
+                          width: '110px',
+                          border: '1px solid #e2e8f0',
+                          backgroundColor: !modoEdicaoAtivo ? '#f8fafc' : '#fff',
+                          color: !modoEdicaoAtivo ? '#64748b' : '#334155',
+                          cursor: !modoEdicaoAtivo ? 'not-allowed' : 'pointer',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="">Selecione...</option>
+                        {obras.map(o => (
+                          <option key={o.id} value={o.id}>
+                            {o.nome || o.nome_obra || `Obra ${o.id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    {/* OBSERVAÇÃO */}
+                    <td style={{ padding: '3px' }}>
                       <input 
                         type="text" 
                         disabled={!modoEdicaoAtivo} 
@@ -406,43 +436,44 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                           fontSize: '11px', 
                           padding: '3px 4px', 
                           borderRadius: '4px', 
-                          width: '130px',
+                          width: '110px',
                           border: '1px solid #e2e8f0',
                           backgroundColor: !modoEdicaoAtivo ? '#f8fafc' : '#fff', 
                           color: !modoEdicaoAtivo ? '#64748b' : '#334155',
-                          cursor: !modoEdicaoAtivo ? 'not-allowed' : 'auto'
+                          cursor: !modoEdicaoAtivo ? 'not-allowed' : 'auto',
+                          boxSizing: 'border-box'
                         }} 
                         placeholder="..." 
                       />
                     </td>
 
-                    {/* BOTÕES DE AÇÃO */}
-                    <td style={{ padding: '4px', textAlign: 'center' }}>
+                    {/* COLUNA DE AÇÕES (GARANTIDA) */}
+                    <td style={{ padding: '3px', textAlign: 'center' }}>
                       {!modoEdicaoAtivo ? (
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                        <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
                           <button 
                             onClick={() => iniciarEdicao(func)} 
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '2px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '4px 6px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
                             title="Editar datas"
                           >
-                            <Edit2 size={11} /> Editar
+                            <Edit2 size={11} />
                           </button>
                           
                           <button 
                             onClick={() => deletarIntegracao(func)} 
-                            style={{ display: 'inline-flex', alignItems: 'center', backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '5px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '4px 6px', borderRadius: '4px', cursor: 'pointer' }}
                             title="Excluir da esteira"
                           >
-                            <Trash2 size={12} />
+                            <Trash2 size={11} />
                           </button>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                          <button onClick={salvarLinhaCronologia} style={{ padding: '5px 8px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Salvar Alterações">
-                            <Check size={14}/>
+                        <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
+                          <button onClick={salvarLinhaCronologia} style={{ padding: '4px 6px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Salvar Alterações">
+                            <Check size={13}/>
                           </button>
-                          <button onClick={cancelarEdicao} style={{ padding: '5px 8px', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Cancelar">
-                            <X size={14}/>
+                          <button onClick={cancelarEdicao} style={{ padding: '4px 6px', background: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }} title="Cancelar">
+                            <X size={13}/>
                           </button>
                         </div>
                       )}

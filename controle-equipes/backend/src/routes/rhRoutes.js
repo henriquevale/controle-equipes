@@ -27,18 +27,45 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
   try {
     const sql = `
       SELECT 
-        f.id, f.matricula, f.nome, f.cargo, f.ativo, f.cpf, f.telefone, 
-        f.tam_calca, f.tam_camisa, f.tam_calcado, f.atualizado_em,
-        f.data_admissao, f.data_postagem_aso_pasta, f.data_documentos_rh_completos,
+        f.id, 
+        f.matricula, 
+        f.nome, 
+        f.cargo, 
+        f.ativo, 
+        f.cpf, 
+        f.telefone, 
+        f.tam_calca, 
+        f.tam_camisa, 
+        f.tam_calcado, 
+        f.atualizado_em,
+        f.data_admissao, 
+        f.data_demissao, 
+        f.data_postagem_aso_pasta, 
+        f.data_documentos_rh_completos,
         f.observacoes,
+        
+        -- ID do gestor vindo da tabela gestor_funcionarios
         gf.id_usuario AS id_usuario_gestor,
-        u.nome AS nome_gestor
+        
+        -- Aqui pegamos o campo 'nome' da tabela usuarios_sistema (u.nome) 
+        -- e renomeamos para 'nome_gestor' e 'gestor'
+        u.nome AS nome_gestor,
+        u.nome AS gestor
+        
       FROM funcionarios f
-      LEFT JOIN gestor_funcionarios gf ON f.id = gf.id_funcionario AND gf.data_fim IS NULL
-      LEFT JOIN usuarios_sistema u ON gf.id_usuario = u.id
-      WHERE f.ativo = 'ATIVO' OR f.ativo = 'ATIVO '
+      
+      -- Traz apenas o vínculo do gestor que está ativo no momento (data_fim é NULL)
+      LEFT JOIN gestor_funcionarios gf 
+        ON f.id = gf.id_funcionario 
+        AND gf.data_fim IS NULL
+        
+      -- Relaciona com a usuarios_sistema para pegar o nome do gestor
+      LEFT JOIN usuarios_sistema u 
+        ON gf.id_usuario = u.id
+        
       ORDER BY f.nome ASC
     `;
+    
     const [rows] = await db.execute(sql);
     return res.json(rows);
   } catch (err) {
@@ -66,8 +93,8 @@ router.post('/rh/funcionarios', async (req, res) => {
     const sqlFuncionario = `
       INSERT INTO funcionarios 
         (nome, matricula, cargo, ativo, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
-         data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos, observacoes, atualizado_em)
-      VALUES (?, ?, ?, 'INTEGRAÇÃO PENDENTE', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        data_admissao, data_demissao, data_postagem_aso_pasta, data_documentos_rh_completos, observacoes, atualizado_em)
+      VALUES (?, ?, ?, 'INTEGRAÇÃO PENDENTE', ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NOW())
     `;
     
     const calcadoFinal = (tam_calcado === '' || tam_calcado === undefined || tam_calcado === null) 
@@ -130,22 +157,39 @@ router.post('/rh/funcionarios', async (req, res) => {
   }
 });
 
-// 3. PUT: Atualizar dados cadastrais do funcionário
+// 3. PUT: Atualizar dados cadastrais do funcionário e seu vínculo de Gestor
 router.put('/rh/funcionarios/:id', async (req, res) => {
   const { id } = req.params;
   const { 
     nome, matricula, cargo, ativo, 
     cpf, telefone, tam_calca, tam_camisa, tam_calcado,
-    data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
-    observacoes 
+    data_admissao, data_demissao, data_postagem_aso_pasta, data_documentos_rh_completos,
+    observacoes,
+    id_usuario_gestor, gestor // Aceita o gestor vindo do formulário
   } = req.body;
 
-  if (!nome || !matricula || !cargo || !ativo) {
-    return res.status(400).json({ error: "Campos obrigatórios ausentes." });
+  const limparTexto = (valor) => {
+    if (valor === null || valor === undefined) return null;
+    const str = String(valor).trim();
+    return str === '' ? null : str;
+  };
+
+  const statusFormatado = ativo ? String(ativo).trim().toUpperCase() : '';
+  const nomeFormatado = limparTexto(nome);
+  const matriculaFormatada = limparTexto(matricula);
+  const cargoFormatado = limparTexto(cargo);
+
+  if (!nomeFormatado || !matriculaFormatada || !cargoFormatado || !statusFormatado) {
+    return res.status(400).json({ error: "Campos obrigatórios ausentes (nome, matrícula, cargo ou status)." });
   }
 
   try {
     const idFunc = parseInt(id, 10);
+    if (isNaN(idFunc)) {
+      return res.status(400).json({ error: "ID de funcionário inválido." });
+    }
+
+    const dataDemissaoFinal = (statusFormatado === 'INATIVO') ? formatarData(data_demissao) : null;
 
     const sql = `
       UPDATE funcionarios 
@@ -160,6 +204,7 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
         tam_camisa = ?, 
         tam_calcado = ?,
         data_admissao = ?,
+        data_demissao = ?,
         data_postagem_aso_pasta = ?,
         data_documentos_rh_completos = ?,
         observacoes = ?,
@@ -167,39 +212,82 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
       WHERE id = ?
     `;
     
-    await db.execute(sql, [
-      nome.trim(), 
-      matricula.trim(), 
-      cargo.trim(), 
-      ativo, 
-      cpf ? cpf.trim() : null,
-      telefone ? telefone.trim() : null,
-      tam_calca ? tam_calca.trim() : null,
-      tam_camisa ? tam_camisa.trim() : null,
-      tam_calcado ? tam_calcado.trim() : null,
+    const [result] = await db.execute(sql, [
+      nomeFormatado, 
+      matriculaFormatada, 
+      cargoFormatado, 
+      statusFormatado, 
+      limparTexto(cpf),
+      limparTexto(telefone),
+      limparTexto(tam_calca),
+      limparTexto(tam_camisa),
+      limparTexto(tam_calcado),
       formatarData(data_admissao),
+      dataDemissaoFinal,
       formatarData(data_postagem_aso_pasta),
       formatarData(data_documentos_rh_completos),
-      observacoes ? observacoes.trim() : null,
+      limparTexto(observacoes),
       idFunc
     ]);
 
-    // CORREÇÃO: Força a criação de um novo ciclo na esteira sempre que o status mudar para INTEGRAÇÃO PENDENTE
-    if (String(ativo).trim().toUpperCase() === 'INTEGRAÇÃO PENDENTE') {
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Funcionário não encontrado para atualização." });
+    }
+
+    // --- ATUALIZAÇÃO DO GESTOR VINCULADO ---
+    const gestorIdTarget = id_usuario_gestor !== undefined ? id_usuario_gestor : gestor;
+
+    // Se o campo de gestor foi enviado na requisição
+    if (gestorIdTarget !== undefined) {
+      const novoIdGestor = (gestorIdTarget && gestorIdTarget !== '') ? parseInt(gestorIdTarget, 10) : null;
+
+      // 1. Busca no banco qual é o gestor atual ativo deste funcionário
+      const [vinculoAtual] = await db.execute(
+        `SELECT id_usuario FROM gestor_funcionarios WHERE id_funcionario = ? AND data_fim IS NULL LIMIT 1`,
+        [idFunc]
+      );
+
+      const idGestorAtual = vinculoAtual.length > 0 ? vinculoAtual[0].id_usuario : null;
+
+      // 2. Só altera a tabela gestor_funcionarios se houver MUDANÇA real de gestor
+      if (novoIdGestor !== idGestorAtual) {
+        
+        // Encerra o vínculo ativo anterior
+        await db.execute(
+          `UPDATE gestor_funcionarios SET data_fim = NOW() WHERE id_funcionario = ? AND data_fim IS NULL`,
+          [idFunc]
+        );
+
+        // Se um novo gestor foi selecionado, insere ou reativa
+        if (novoIdGestor && !isNaN(novoIdGestor)) {
+          const sqlUpsertGestor = `
+            INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra, data_inicio, data_fim) 
+            VALUES (?, ?, 0, NOW(), NULL)
+            ON DUPLICATE KEY UPDATE 
+              id_obra = 0,
+              data_inicio = NOW(),
+              data_fim = NULL
+          `;
+          await db.execute(sqlUpsertGestor, [novoIdGestor, idFunc]);
+        }
+      }
+    }
+
+    if (statusFormatado === 'INTEGRAÇÃO PENDENTE') {
       const sqlNovaIntegracao = `
         INSERT INTO integracoes_funcionarios (id_funcionario, obs, criado_em) 
         VALUES (?, ?, NOW())
       `;
       await db.execute(sqlNovaIntegracao, [
         idFunc, 
-        observacoes ? observacoes.trim() : null
+        limparTexto(observacoes)
       ]);
     }
     
     return res.json({ success: true, message: "Dados do funcionário atualizados com sucesso!" });
   } catch (err) {
     console.error("Erro no banco ao atualizar funcionário:", err);
-    return res.status(500).json({ error: "Erro ao atualizar dados do funcionário no banco." });
+    return res.status(500).json({ error: "Erro interno ao atualizar dados do funcionário no banco." });
   }
 });
 
@@ -243,12 +331,15 @@ router.delete('/rh/funcionarios/:id', async (req, res) => {
 // ========================================================
 
 // 1. GET: Listar histórico completo das integrações
+// 1. GET: Listar histórico completo das integrações
 router.get('/rh/integracoes-pendentes', async (req, res) => {
   try {
     const sql = `
       SELECT 
         i.id AS id_integracao,
         i.id_funcionario,
+        i.id_obra,
+        o.nome_obra,            -- 👈 CORRIGIDO AQUI (era o.nome)
         f.nome, 
         f.matricula, 
         f.cargo, 
@@ -265,6 +356,7 @@ router.get('/rh/integracoes-pendentes', async (req, res) => {
         i.atualizado_em
       FROM integracoes_funcionarios i
       INNER JOIN funcionarios f ON i.id_funcionario = f.id
+      LEFT JOIN obras o ON i.id_obra = o.id
       ORDER BY i.id DESC
     `;
     
@@ -323,6 +415,7 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
   const id_funcionario = req.params.id;
   const {
     id_integracao,
+    id_obra,               // 👈 1. Recebe id_obra do req.body
     data_documentos_sst,
     data_enviados,
     data_recebidos,
@@ -335,11 +428,12 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
 
   try {
     const idFunc = parseInt(id_funcionario, 10);
+    const obraIdFinal = (id_obra && id_obra !== '') ? parseInt(id_obra, 10) : null; // 👈 Trata o id_obra
 
-    // Se tiver id_integracao, altera a linha específica (1:N)
     if (id_integracao) {
       const sqlUpdate = `
         UPDATE integracoes_funcionarios SET
+          id_obra = ?,            -- 👈 2. Adicionado na Query
           data_documentos_sst = ?,
           data_enviados = ?,
           data_recebidos = ?,
@@ -353,6 +447,7 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
       `;
 
       await db.execute(sqlUpdate, [
+        obraIdFinal,              // 👈 3. Adicionado no Array de parâmetros
         formatarData(data_documentos_sst),
         formatarData(data_enviados),
         formatarData(data_recebidos),
@@ -364,9 +459,9 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
         parseInt(id_integracao, 10)
       ]);
     } else {
-      // Caso não passe id_integracao, atualiza o registro mais recente do funcionário
       const sqlUpdateGenerico = `
         UPDATE integracoes_funcionarios SET
+          id_obra = ?,            -- 👈 Adicionado na Query genérica
           data_documentos_sst = ?,
           data_enviados = ?,
           data_recebidos = ?,
@@ -381,6 +476,7 @@ router.put('/rh/funcionarios/:id/integracao', async (req, res) => {
       `;
 
       await db.execute(sqlUpdateGenerico, [
+        obraIdFinal,              // 👈 Adicionado no Array de parâmetros
         formatarData(data_documentos_sst),
         formatarData(data_enviados),
         formatarData(data_recebidos),
@@ -620,5 +716,22 @@ router.delete('/veiculos/:id', async (req, res) => {
     return res.status(500).json({ error: `Erro no banco de dados: ${err.message}` });
   }
 });
-
+// ========================================================
+// E. ROTA DE OBRAS DISPONÍVEIS
+// ========================================================
+router.get('/obras', async (req, res) => {
+  try {
+    // Busca id e nome_obra
+    const sql = `
+      SELECT id, nome_obra AS nome 
+      FROM obras 
+      ORDER BY nome_obra ASC
+    `;
+    const [rows] = await db.execute(sql);
+    return res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar obras:", err);
+    return res.status(500).json({ error: "Erro ao carregar lista de obras." });
+  }
+});
 export default router;
