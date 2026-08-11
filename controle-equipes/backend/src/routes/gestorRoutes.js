@@ -1343,4 +1343,6 @@ router.get('/gestor/obter-ultimo-agendamento', async (req, res) => {
     res.status(500).json({ error: "Erro interno ao buscar histórico." });
   }
 });
+
+
 export default router;
