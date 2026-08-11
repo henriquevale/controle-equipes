@@ -295,7 +295,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 });
 
 // ========================================================
-// 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO (PRODUÇÃO + MATERIAIS) ✅ ALINHADO E SEGURO
+// POST: SALVAR DIÁRIO TÉCNICO COMPLETO (COM VALIDAÇÃO NO BACKEND)
 // ========================================================
 router.post('/gestor/salvar-diario-completo', async (req, res) => {
   const { 
@@ -310,29 +310,42 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     status 
   } = req.body;
 
-  // Validação inicial rigorosa para impedir que valores nulos quebrem o banco
+  // 1. Validação básica de entrada
   if (!data_diario || !id_obra || !id_gestor || !equipe) {
-    return res.status(400).json({ error: "Dados obrigatórios ausentes para salvar o diário." });
+    return res.status(400).json({ mensagem: "Dados obrigatórios ausentes para salvar o diário." });
   }
 
-  // Tratamentos de segurança contra valores inválidos
   const gestorIdValido = parseInt(id_gestor) || null;
   const obraIdValida = parseInt(id_obra) || null;
   const equipeMaiuscula = String(equipe).trim().toUpperCase();
   const statusTratadoDiario = status && String(status).trim() !== '' ? String(status).trim().toUpperCase() : 'SALVO';
 
   if (!gestorIdValido || !obraIdValida) {
-    return res.status(400).json({ error: "IDs de obra ou gestor são inválidos." });
+    return res.status(400).json({ mensagem: "IDs de obra ou gestor são inválidos." });
   }
 
   const connection = await db.getConnection();
+
   try {
+    // 🔒 2. VALIDAÇÃO NO BACKEND: Checa se o RDO já está FINALIZADO
+    // (Caso você queira proibir re-edição de RDOs já finalizados)
+    const [statusAtual] = await connection.execute(
+      `SELECT status_rdo FROM controle_diarios_equipe 
+       WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [data_diario, obraIdValida, equipeMaiuscula]
+    );
+
+    // Se você quiser BLOQUEAR a re-edição de quem já finalizou, descomente as 3 linhas abaixo:
+    // if (statusAtual.length > 0 && statusAtual[0].status_rdo === 'FINALIZADO') {
+    //   return res.status(400).json({ mensagem: "Esta equipe já possui um RDO FINALIZADO para esta data e não pode ser alterada." });
+    // }
+
     await connection.beginTransaction();
     await connection.execute('SET FOREIGN_KEY_CHECKS = 0');
 
-    // 1. Busca se já existe um cabeçalho técnico mestre para esta Obra, Data e Equipe[cite: 1]
+    // 3. Busca ou cria o registro mestre (diario_obra)
     const [existenteMestre] = await connection.execute(
-      'SELECT id FROM diario_obra WHERE id_obra = ? AND data_diario = ? AND equipe = ?',
+      'SELECT id FROM diario_obra WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
     );
 
@@ -343,13 +356,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         'UPDATE diario_obra SET observacoes = ?, id_gestor = ?, status = ? WHERE id = ?',
         [observacoes || null, gestorIdValido, statusTratadoDiario, diarioId]
       );
-
-      await connection.execute(
-        `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo) 
-         VALUES (?, ?, ?, 'FINALIZADO') 
-         ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO'`,
-        [data_diario, obraIdValida, equipeMaiuscula]
-      );
     } else {
       const [resultadoInsereMestre] = await connection.execute(
         'INSERT INTO diario_obra (id_obra, data_diario, observacoes, id_gestor, equipe, status) VALUES (?, ?, ?, ?, ?, ?)',
@@ -358,17 +364,17 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       diarioId = resultadoInsereMestre.insertId;
     }
 
-    // 🌟 SEGURO DE VEÍCULOS: Recupera os veículos antes da limpeza para evitar remoções indesejadas[cite: 1]
+    // 4. Mapeamento para preservação de veículos
     const [veiculosAtuais] = await connection.execute(
-      'SELECT id_funcionario, id_veiculo FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND equipe = ?',
+      'SELECT id_funcionario, id_veiculo FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
     );
     const mapaVeiculos = new Map(veiculosAtuais.map(v => [v.id_funcionario, v.id_veiculo]));
 
-    // 2. Limpa e reinsere o Efetivo Confirmado[cite: 1]
+    // 5. Atualiza Efetivo
     await connection.execute('DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?', [diarioId]);
     await connection.execute(
-      'DELETE FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND equipe = ?', 
+      'DELETE FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?', 
       [obraIdValida, data_diario, equipeMaiuscula]
     );
 
@@ -379,7 +385,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
       
-      // Reinserido a coluna id_veiculo para manter a integridade com o banco original[cite: 1]
       const sqlDiarioEfetivo = `
         INSERT INTO diario_efetivo 
         (nome, data_diario, id_obra, id_funcionario, cargo, matricula, turno, status_presenca, observacao, equipe, id_gestor, id_veiculo) 
@@ -394,7 +399,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         if (statusTratado === 'FERIAS') statusTratado = 'FÉRIAS';
         if (statusTratado === 'INTEGRACAO') statusTratado = 'INTEGRAÇÃO';
 
-        // Preserva o veículo recuperado no mapa[cite: 1]
         const idVeiculoPreservado = f.id_veiculo ? parseInt(f.id_veiculo) : (mapaVeiculos.get(fid) || null);
 
         await connection.execute(sqlConfirmado, [
@@ -424,7 +428,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 3. Limpa e reinsere as Atividades[cite: 1]
+    // 6. Atualiza Atividades
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
       const sqlAtividade = `INSERT INTO diario_atividades (id_diario, tipo_servico, quantidade) VALUES (?, ?, ?)`;
@@ -440,11 +444,10 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 4. Limpa e reinsere os Materiais Apontados[cite: 1]
+    // 7. Atualiza Materiais
     await connection.execute('DELETE FROM diario_materiais_apontados WHERE id_diario = ?', [diarioId]);
     if (materials_apontados && materials_apontados.length > 0) {
       const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, material_nome, quantidade) VALUES (?, ?, ?)`;
-      
       for (const m of materials_apontados) {
         const materialNome = m.material || m.nome;
         if (!materialNome) continue; 
@@ -454,30 +457,38 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           String(materialNome).trim(), 
           parseFloat(m.quantidade) || 0.00
         ]);
-        console.log(`[Sucesso] Material Salvo no BD: ${materialNome}`);
       }
     }
 
+    // 8. Atualiza o controle de diários para FINALIZADO
+    await connection.execute(
+      `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo) 
+       VALUES (?, ?, ?, 'FINALIZADO') 
+       ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO'`,
+      [data_diario, obraIdValida, equipeMaiuscula]
+    );
+
     await connection.execute('SET FOREIGN_KEY_CHECKS = 1');
     await connection.commit();
-    res.status(200).json({ success: true, message: `RDO da equipe '${equipeMaiuscula}' salvo com sucesso!` });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: `RDO da equipe '${equipeMaiuscula}' salvo com sucesso!` 
+    });
 
   } catch (err) {
     try { await connection.execute('SET FOREIGN_KEY_CHECKS = 1'); } catch(e){}
     await connection.rollback();
     
-    // Log estendido de erro no console para expor qualquer quebra de sintaxe ou coluna ausente[cite: 1]
-    console.error("❌ ERRO DETALHADO NO BACKEND:", err);
-    
-    res.status(500).json({ 
-      error: "Erro interno no banco de dados ao salvar o RDO completo.",
+    console.error("❌ ERRO NO SALVAMENTO:", err);
+    return res.status(500).json({ 
+      mensagem: "Erro interno no servidor ao salvar o RDO.", 
       detalhes: err.message 
     });
   } finally {
     connection.release();
   }
 });
-
 // ========================================================
 // 6-B. GET: RECUPERAR DIÁRIO TÉCNICO COMPLETO (POR EQUIPE)
 // ========================================================
@@ -737,11 +748,14 @@ router.post('/gestor/remanezar-funcionario-vincular', async (req, res) => {
 // ========================================================
 router.get('/gestor/historico-diarios', async (req, res) => {
   try {
-    const { id, cargo, id_obra, data_inicio, data_fim } = req.query;
+    const { id, cargo, id_obra, data_inicio, data_fim, status_rdo, id_gestor_filtro } = req.query;
 
     if (!id) {
       return res.status(400).json({ error: "ID numérico do usuário não foi fornecido." });
     }
+
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+    const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'ADMIN' || cargoUpper === 'RH';
 
     let sql = `
       SELECT
@@ -750,6 +764,8 @@ router.get('/gestor/historico-diarios', async (req, res) => {
         r.equipe, 
         o.nome_obra,
         o.codigo_obra,
+        u.nome AS nome_gestor,
+        IFNULL(c.status_rdo, 'PENDENTE') AS status_rdo,
         COUNT(DISTINCT r.id_funcionario) AS total_efetivo,
         GROUP_CONCAT(DISTINCT r.nome ORDER BY r.nome SEPARATOR ', ') AS nomes_efetivo,
         IFNULL(do.observacoes, '') AS observacoes,
@@ -770,13 +786,23 @@ router.get('/gestor/historico-diarios', async (req, res) => {
         ) AS materiais_resumo
       FROM diario_efetivo r
       INNER JOIN obras o ON r.id_obra = o.id
-      LEFT JOIN diario_obra do ON do.id_obra = r.id_obra AND do.data_diario = r.data_diario AND do.equipe = r.equipe
+      LEFT JOIN diario_obra do 
+             ON do.id_obra = r.id_obra 
+            AND do.data_diario = r.data_diario 
+            AND UPPER(TRIM(do.equipe)) = UPPER(TRIM(r.equipe))
+      LEFT JOIN usuarios_sistema u 
+             ON u.id = COALESCE(do.id_gestor, r.id_gestor)
+      LEFT JOIN controle_diarios_equipe c 
+             ON c.data_diario = r.data_diario 
+            AND c.id_obra = r.id_obra 
+            AND UPPER(TRIM(c.equipe)) = UPPER(TRIM(r.equipe))
       WHERE 1=1
     `;
 
     const params = [];
 
-    if (cargo !== 'MASTER') {
+    // 🔒 REGRAS DE PERMISSÃO / FILTRO POR PERFIL
+    if (!isMaster) {
       if (data_inicio && data_fim) {
         sql += ` AND r.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?) `;
         params.push(Number(id));
@@ -784,20 +810,47 @@ router.get('/gestor/historico-diarios', async (req, res) => {
         sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
         params.push(Number(id), Number(id));
       }
+    } else {
+      // Se for MASTER e selecionou um gestor no dropdown do React
+      if (id_gestor_filtro && id_gestor_filtro !== '' && id_gestor_filtro !== 'TODOS') {
+        sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
+        params.push(Number(id_gestor_filtro), Number(id_gestor_filtro));
+      }
     }
 
+    // 🎯 FILTRO: OBRA
     if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
       sql += ` AND r.id_obra = ? `;
       params.push(Number(id_obra));
     }
 
+    // 🎯 FILTRO: INTERVALO DE DATAS
     if (data_inicio && data_fim) {
       sql += ` AND r.data_diario BETWEEN ? AND ? `;
       params.push(data_inicio, data_fim);
     }
 
+    // 🎯 FILTRO: STATUS RDO (PENDENTE vs FINALIZADO) - LÓGICA BASEADA NA ROTA 19
+    if (status_rdo && status_rdo !== '' && status_rdo !== 'TODOS') {
+      if (status_rdo.toUpperCase() === 'PENDENTE') {
+        sql += ` AND (c.status_rdo IS NULL OR UPPER(TRIM(c.status_rdo)) = 'PENDENTE') `;
+      } else {
+        sql += ` AND UPPER(TRIM(c.status_rdo)) = ? `;
+        params.push(status_rdo.toUpperCase());
+      }
+    }
+
     sql += `
-      GROUP BY r.data_diario, r.id_obra, r.equipe, o.nome_obra, o.codigo_obra, do.observacoes, do.id
+      GROUP BY 
+        r.data_diario, 
+        r.id_obra, 
+        r.equipe, 
+        o.nome_obra, 
+        o.codigo_obra, 
+        u.nome, 
+        c.status_rdo, 
+        do.observacoes, 
+        do.id
       ORDER BY r.data_diario DESC, r.equipe ASC
     `;
 
@@ -807,7 +860,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
 
   } catch (error) {
     console.error("Erro na rota de histórico de diários:", error);
-    res.status(500).json({ error: "Erro interno no servidor" });
+    res.status(500).json({ error: "Erro interno no servidor ao carregar histórico." });
   }
 });
 
@@ -1204,53 +1257,44 @@ router.put('/gestor/veiculos/status/:id', async (req, res) => {
 // 21. DELETE: EXCLUIR EQUIPE DO CONTROLE E DESVINCULAR INTEGRANTES
 // ========================================================
 router.delete('/gestor/equipe', async (req, res) => {
-  const { nome_equipe, turno, id_obra, data_diario } = req.query;
+  const { nome_equipe, id_obra, data_diario } = req.query;
 
   if (!nome_equipe || !id_obra || !data_diario) {
-    return res.status(400).json({ 
-      error: "Parâmetros obrigatórios ausentes (nome_equipe, id_obra e data_diario são necessários)." 
-    });
+    return res.status(400).json({ error: "Parâmetros ausentes." });
   }
-
-  const equipeTratada = String(nome_equipe).trim().toUpperCase();
-  const turnoTratado = turno ? String(turno).trim().toUpperCase() : 'DIURNO';
-  const idObraNum = parseInt(id_obra);
 
   const connection = await db.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    // 1. Remove o registro da equipe da tabela de controle
+    const equipeTratada = String(nome_equipe).trim().toUpperCase();
+    const idObraNum = parseInt(id_obra);
+
+    // 1. Remove os funcionários do efetivo nessa equipe
     await connection.execute(
-      `DELETE FROM controle_diarios_equipe 
-       WHERE UPPER(TRIM(equipe)) = ? 
-         AND id_obra = ? 
-         AND data_diario = ?`,
-      [equipeTratada, idObraNum, data_diario]
+      "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
+      [data_diario, idObraNum, equipeTratada]
     );
 
-    // 2. Apaga as alocações dos funcionários associados a esta equipe/turno nesta data e obra
+    // 2. Remove o controle de status da equipe
     await connection.execute(
-      `DELETE FROM diario_efetivo 
-       WHERE UPPER(TRIM(equipe)) = ? 
-         AND UPPER(TRIM(turno)) = ? 
-         AND id_obra = ? 
-         AND data_diario = ?`,
-      [equipeTratada, turnoTratado, idObraNum, data_diario]
+      "DELETE FROM controle_diarios_equipe WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
+      [data_diario, idObraNum, equipeTratada]
+    );
+
+    // 3. NOVO: Limpa as atividades do RDO daquela equipe para não reaparecerem se recriar a equipe
+    await connection.execute(
+      "DELETE FROM diario_obra WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
+      [data_diario, idObraNum, equipeTratada]
     );
 
     await connection.commit();
-    res.status(200).json({ 
-      
-      success: true, 
-      message: `Equipe '${equipeTratada}' excluída e colaboradores desvinculados com sucesso.` 
-    });
-
-  } catch (error) {
+    res.status(200).json({ success: true, message: "Equipe e histórico de atividades excluídos com sucesso." });
+  } catch (err) {
     await connection.rollback();
-    console.error("Erro ao deletar equipe no backend:", error);
-    res.status(500).json({ error: "Erro interno no servidor ao excluir a equipe." });
+    console.error("Erro ao deletar equipe:", err);
+    res.status(500).json({ error: "Erro ao excluir equipe do banco de dados." });
   } finally {
     connection.release();
   }

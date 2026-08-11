@@ -18,43 +18,52 @@ const API_URL = 'http://localhost:3001/api';
 //const API_URL = 'https://controle-equipes.onrender.com/api'; 
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
-// Recebe 'id' (da coluna ID da tabela usuario_sistema) e 'cargo'
 export default function HistoricoMateriais({ id, cargo }) {
   const [idObra, setIdObra] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+  const [statusRdo, setStatusRdo] = useState('');
+  const [idGestorFiltro, setIdGestorFiltro] = useState('');
+  
   const [obras, setObras] = useState([]);
+  const [gestores, setGestores] = useState([]);
   const [listaDiarios, setListaDiarios] = useState([]);
   const [diarioSelecionado, setDiarioSelecionado] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // 🛠️ Busca amarrada ao ID único do usuário (Focada em trazer dados incluindo os materiais)
+  const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+  const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'ADMIN' || cargoUpper === 'RH';
+
+  // 🛠️ Busca de histórico
   const buscarHistoricoMateriais = useCallback(async () => {
-    if (!id) return;
+  if (!id) return;
 
-    setLoading(true);
-    try {
-      const res = await axios.get(`${API_URL}/gestor/historico-diarios`, {
-        params: { 
-          id: id,                  
-          cargo: cargo,            
-          id_obra: idObra || undefined, 
-          data_inicio: dataInicio || undefined, 
-          data_fim: dataFim || undefined 
-        }
-      });
-      
-      setListaDiarios(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Erro ao buscar histórico de materiais do banco:", err);
-      setListaDiarios([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, cargo, idObra, dataInicio, dataFim]);
+  setLoading(true);
+  try {
+    const res = await axios.get(`${API_URL}/gestor/historico-diarios`, {
+      params: { 
+        id: id,                  
+        cargo: cargo,            
+        id_obra: idObra || undefined, 
+        data_inicio: dataInicio || undefined, 
+        data_fim: dataFim || undefined,
+        status_rdo: statusRdo || undefined,
+        // Envia os dois formatos para garantir que o backend reconheça
+        id_gestor_filtro: idGestorFiltro || undefined,
+        id_gestor: idGestorFiltro || undefined
+      }
+    });
+    
+    setListaDiarios(Array.isArray(res.data) ? res.data : []);
+  } catch (err) {
+    console.error("Erro ao buscar histórico de materiais do banco:", err);
+    setListaDiarios([]);
+  } finally {
+    setLoading(false);
+  }
+}, [id, cargo, idObra, dataInicio, dataFim, statusRdo, idGestorFiltro]);
 
-
-  // Effect para carregar as obras do filtro
+  // Carregar lista de obras ativas
   useEffect(() => {
     const carregarObrasFiltro = async () => {
       try {
@@ -70,13 +79,30 @@ export default function HistoricoMateriais({ id, cargo }) {
     if (id) carregarObrasFiltro();
   }, [id, cargo]);
 
-  // Gatilho inicial ao validar o ID
+  // Carregar lista de gestores se o perfil for Master/Admin/RH
   useEffect(() => {
-    if (id) {
-      buscarHistoricoMateriais();
+    const carregarGestores = async () => {
+      try {
+        // ✅ Corrigido para chamar o endpoint /gestores mantendo compatibilidade com as rotas do backend
+        const res = await axios.get(`${API_URL}/gestores`);
+        setGestores(res.data || []);
+      } catch (e) {
+        console.error("Erro ao carregar gestores para filtro:", e);
+      }
+    };
+
+    if (isMaster) {
+      carregarGestores();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]); 
+  }, [isMaster]);
+
+  // Gatilho inicial
+  // Gatilho que atualiza a busca automaticamente ao mudar os filtros
+useEffect(() => {
+  if (id) {
+    buscarHistoricoMateriais();
+  }
+}, [id, idObra, statusRdo, idGestorFiltro, buscarHistoricoMateriais]);
 
   const formatarDataExibicao = (dataRaw) => {
     if (!dataRaw) return '--/--/----';
@@ -145,22 +171,49 @@ export default function HistoricoMateriais({ id, cargo }) {
       
       {/* SEÇÃO DE FILTROS */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           
-          <div style={{ flex: '1', minWidth: '200px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>FILTRAR POR OBRA VINCULADA</label>
+          {isMaster && (
+            <div style={{ flex: '1', minWidth: '180px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>GESTOR / ENCARREGADO</label>
+              <select 
+                value={idGestorFiltro} 
+                onChange={e => setIdGestorFiltro(e.target.value)} 
+                style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }}
+              >
+                <option value="">-- Todos os Gestores --</option>
+                {gestores.map(g => (
+                  <option key={g.id_usuario || g.id} value={g.id_usuario || g.id}>
+                    {g.nome_gestor || g.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div style={{ flex: '1', minWidth: '180px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>OBRA VINCULADA</label>
             <select value={idObra} onChange={e => setIdObra(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }}>
-              <option value="">-- Todas as Minhas Obras --</option>
+              <option value="">-- Todas as Obras --</option>
               {obras.map(o => <option key={o.id} value={o.id}>[{o.codigo_obra || 'ID: '+o.id}] {o.nome_obra}</option>)}
             </select>
           </div>
 
           <div style={{ width: '140px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>STATUS DO RDO</label>
+            <select value={statusRdo} onChange={e => setStatusRdo(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }}>
+              <option value="">-- Todos --</option>
+              <option value="PENDENTE">PENDENTE</option>
+              <option value="FINALIZADO">FINALIZADO</option>
+            </select>
+          </div>
+
+          <div style={{ width: '130px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>DATA INICIAL</label>
             <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
           </div>
 
-          <div style={{ width: '140px' }}>
+          <div style={{ width: '130px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>DATA FINAL</label>
             <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
           </div>
@@ -171,7 +224,7 @@ export default function HistoricoMateriais({ id, cargo }) {
         </div>
       </div>
 
-      {/* PAINEL DO GRÁFICO DE CONSUMO DE MATERIAIS */}
+      {/* GRÁFICO */}
       {listaDiarios.length > 0 && chartData.labels.length > 0 ? (
         <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', color: '#1e293b' }}>
@@ -201,7 +254,7 @@ export default function HistoricoMateriais({ id, cargo }) {
         </div>
       )}
 
-      {/* TABELA PRINCIPAL DE MATERIAIS */}
+      {/* TABELA PRINCIPAL */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <div style={{ backgroundColor: '#f8fafc', padding: '10px 14px', fontWeight: 'bold', borderBottom: '1px solid #cbd5e1', color: '#1e293b' }}>
           HISTÓRICO DE MATERIAIS UTILIZADOS POR APONTAMENTO (RDO)
@@ -211,61 +264,117 @@ export default function HistoricoMateriais({ id, cargo }) {
             <thead>
               <tr style={{ backgroundColor: '#f1f5f9' }}>
                 <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>DATA</th>
-                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>EQUIPE</th> 
-                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>RESPONSÁVEL</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>EQUIPE</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>STATUS RDO</th>
                 <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>CÓD. OBRA</th>
                 <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>NOME DA OBRA</th>
-                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>MATERIAIS CONSUMIDOS (ITENS)</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>EFETIVO ATIVO</th>
+                <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>MATERIAIS RELATADOS</th>
                 <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center', width: '80px' }}>VER</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b' }}>Consultando dados de materiais aplicados...</td></tr>
+                <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b' }}>Consultando dados de materiais aplicados...</td></tr>
               ) : listaDiarios.length === 0 ? (
-                <tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum lançamento de material localizado com as configurações atuais.</td></tr>
+                <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum lançamento de material localizado com as configurações atuais.</td></tr>
               ) : (
-                listaDiarios.map((rdo, index) => (
-                  <tr key={rdo.id || index} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '10px', whiteSpace: 'nowrap', fontWeight: 'bold', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</td>
-                    
-                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#475569' }}>
-                      <span style={{ backgroundColor: '#f1f5f9', padding: '3px 6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-                        {rdo.equipe || 'Geral'}
-                      </span>
-                    </td>
+                listaDiarios.map((rdo, index) => {
+                  const isFinalizado = String(rdo.status_rdo).toUpperCase() === 'FINALIZADO';
+                  const totalEfetivo = rdo.total_efetivo || 0;
+                  return (
+                    <tr key={rdo.id || index} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      
+                      {/* DATA */}
+                      <td style={{ padding: '10px', whiteSpace: 'nowrap', fontWeight: 'bold', color: '#0f172a' }}>
+                        {formatarDataExibicao(rdo.data_diario)}
+                      </td>
+                      
+                      {/* EQUIPE */}
+                      <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          backgroundColor: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          color: '#334155',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontWeight: 'bold',
+                          fontSize: '11px',
+                          display: 'inline-block'
+                        }}>
+                          {rdo.equipe || 'GERAL'}
+                        </span>
+                      </td>
 
-                    <td style={{ padding: '10px', color: '#334155', fontWeight: '500' }}>
-                      {rdo.nome_gestor || rdo.gestor || 'Não informado'}
-                    </td>
+                      {/* STATUS RDO */}
+                      <td style={{ padding: '10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          padding: '3px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 'bold',
+                          display: 'inline-block',
+                          backgroundColor: isFinalizado ? '#f0fdf4' : '#fffbeb',
+                          color: isFinalizado ? '#059669' : '#d97706',
+                          border: `1px solid ${isFinalizado ? '#4ade80' : '#fcd34d'}`
+                        }}>
+                          {rdo.status_rdo || 'PENDENTE'}
+                        </span>
+                      </td>
 
-                    <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>{rdo.codigo_obra}</td>
-                    <td style={{ padding: '10px', fontWeight: '500' }}>{rdo.nome_obra}</td>
-                    
-                    <td style={{ padding: '10px', color: '#ea580c', fontSize: '11px', fontWeight: '500' }}>
-                      {rdo.materiais_resumo || rdo.servicos_resumo_materials ? (
-                        <div style={{ whiteSpace: 'pre-line', lineHeight: '1.4' }}>
-                          {rdo.materiais_resumo || rdo.servicos_resumo_materials}
-                        </div>
-                      ) : (
-                        <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>Sem materiais descritos</span>
-                      )}
-                    </td>
-                    
-                    <td style={{ padding: '10px', textAlign: 'center' }}>
-                      <button onClick={() => setDiarioSelecionado(rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <Eye style={{ width: '14px', color: '#ea580c' }} /> Detalhes
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      {/* CÓD. OBRA */}
+                      <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>
+                        {rdo.codigo_obra}
+                      </td>
+
+                      {/* NOME DA OBRA */}
+                      <td style={{ padding: '10px', fontWeight: '500' }}>
+                        {rdo.nome_obra}
+                      </td>
+
+                      {/* EFETIVO ATIVO */}
+                      <td style={{ padding: '10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          backgroundColor: '#e0f2fe',
+                          color: '#0369a1',
+                          padding: '4px 10px',
+                          borderRadius: '8px',
+                          fontWeight: 'bold',
+                          fontSize: '11px',
+                          display: 'inline-block'
+                        }}>
+                          {totalEfetivo} {totalEfetivo === 1 ? 'Colaborador' : 'Colaboradores'}
+                        </span>
+                      </td>
+
+                      {/* MATERIAIS RELATADOS */}
+                      <td style={{ padding: '10px', color: '#ea580c', fontSize: '11px', fontWeight: '500' }}>
+                        {rdo.materiais_resumo || rdo.servicos_resumo_materials ? (
+                          <div style={{ whiteSpace: 'pre-line', lineHeight: '1.4' }}>
+                            {rdo.materiais_resumo || rdo.servicos_resumo_materials}
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>Sem materiais descritos</span>
+                        )}
+                      </td>
+
+                      {/* VER */}
+                      <td style={{ padding: '10px', textAlign: 'center' }}>
+                        <button onClick={() => setDiarioSelecionado(rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Eye style={{ width: '14px', color: '#ea580c' }} /> Detalhes
+                        </button>
+                      </td>
+
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* MODAL DE VISUALIZAÇÃO EXPANDIDA DE MATERIAIS */}
+      {/* MODAL DE VISUALIZAÇÃO */}
       {diarioSelecionado && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '20px' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '6px', width: '100%', maxWidth: '600px', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #94a3b8' }}>
@@ -274,7 +383,22 @@ export default function HistoricoMateriais({ id, cargo }) {
               <button onClick={() => setDiarioSelecionado(null)} style={{ backgroundColor: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
             </div>
             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div><strong>Obra Vinculada:</strong> [{diarioSelecionado.codigo_obra}] {diarioSelecionado.nome_obra}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div><strong>Obra Vinculada:</strong> [{diarioSelecionado.codigo_obra}] {diarioSelecionado.nome_obra}</div>
+                <span style={{
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  backgroundColor: String(diarioSelecionado.status_rdo).toUpperCase() === 'FINALIZADO' ? '#f0fdf4' : '#fffbeb',
+                  color: String(diarioSelecionado.status_rdo).toUpperCase() === 'FINALIZADO' ? '#059669' : '#d97706',
+                  border: `1px solid ${String(diarioSelecionado.status_rdo).toUpperCase() === 'FINALIZADO' ? '#4ade80' : '#fcd34d'}`
+                }}>
+                  {diarioSelecionado.status_rdo || 'PENDENTE'}
+                </span>
+              </div>
+
+              <div><strong>Responsável/Gestor:</strong> {diarioSelecionado.nome_gestor || diarioSelecionado.gestor || 'Não informado'}</div>
               <div><strong>Equipe Responsável:</strong> {diarioSelecionado.equipe || 'Geral'}</div>
 
               {/* SEÇÃO: COLABORADORES DA EQUIPE */}

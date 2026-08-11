@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Search, Eye, BarChart3, Users } from 'lucide-react';
+import { Eye, BarChart3, Users } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -18,30 +18,39 @@ const API_URL = 'http://localhost:3001/api';
 //const API_URL = 'https://controle-equipes.onrender.com/api'; 
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
-// Recebe 'id' (da coluna ID da tabela usuario_sistema) e 'cargo'
 export default function HistoricoDiarios({ id, cargo }) {
   const [idObra, setIdObra] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+  const [statusFiltro, setStatusFiltro] = useState(''); 
+  const [idGestorFiltro, setIdGestorFiltro] = useState(''); 
+
   const [obras, setObras] = useState([]);
+  const [gestores, setGestores] = useState([]); 
   const [listaDiarios, setListaDiarios] = useState([]);
   const [diarioSelecionado, setDiarioSelecionado] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // 🛠️ Busca amarrada ao ID único do usuário
-  // 1️⃣ FUNÇÃO DO HISTÓRICO
+  // Verificação do perfil MASTER / ADMIN / RH
+  const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+  const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'ADMIN' || cargoUpper === 'RH';
+
+  // 1️⃣ FUNÇÃO PRINCIPAL DE BUSCA DO HISTÓRICO
   const buscarHistorico = useCallback(async () => {
-    if (!id) return; // 'id' numérico vindo do App.jsx
+    if (!id) return;
 
     setLoading(true);
     try {
       const res = await axios.get(`${API_URL}/gestor/historico-diarios`, {
         params: { 
-          id: id,                  // O número que veio da prop 'id'
-          cargo: cargo,            // O cargo ("GESTOR")
+          id: id,                  
+          cargo: cargo,            
           id_obra: idObra || undefined, 
           data_inicio: dataInicio || undefined, 
-          data_fim: dataFim || undefined 
+          data_fim: dataFim || undefined,
+          status_rdo: statusFiltro || undefined,
+          id_gestor_filtro: idGestorFiltro || undefined,
+          id_gestor: idGestorFiltro || undefined
         }
       });
       
@@ -52,52 +61,47 @@ export default function HistoricoDiarios({ id, cargo }) {
     } finally {
       setLoading(false);
     }
-  }, [id, cargo, idObra, dataInicio, dataFim]);
+  }, [id, cargo, idObra, dataInicio, dataFim, statusFiltro, idGestorFiltro]);
 
-
-  // 2️⃣ EFFECT DAS OBRAS DO FILTRO
+  // 2️⃣ EFFECT PARA OBRAS DO FILTRO
   useEffect(() => {
     const carregarObrasFiltro = async () => {
+      if (!id) return;
       try {
         const res = await axios.get(`${API_URL}/gestor/obras-ativas`, {
-          params: { 
-            id: id,     
-            cargo: cargo 
-          }
+          params: { id: id, cargo: cargo }
         });
-        setObras(res.data || []);
+        setObras(Array.isArray(res.data) ? res.data : []);
       } catch (e) {
         console.error("Erro ao carregar obras para filtro:", e);
       }
     };
-    
-    if (id) carregarObrasFiltro();
+
+    carregarObrasFiltro();
   }, [id, cargo]);
 
-  // Carrega as obras usando a variável correta 'id'
+  // 3️⃣ EFFECT PARA CARREGAR GESTORES (SOMENTE PERFIL MASTER/ADMIN/RH)
   useEffect(() => {
-    const carregarObras = async () => {
-      if (!id) return;
+    const carregarGestores = async () => {
       try {
-        const res = await axios.get(`${API_URL}/gestor/obras-ativas`, { 
-          params: { id: id, cargo }
-        });
-        setObras(Array.isArray(res.data) ? res.data : []);
-      } catch (err) {
-        console.error("Erro ao inicializar obras:", err);
+        const res = await axios.get(`${API_URL}/gestores`);
+        setGestores(res.data || []);
+      } catch (e) {
+        console.error("Erro ao carregar gestores para filtro:", e);
       }
     };
 
-    carregarObras();
-  }, [id, cargo]);
+    if (isMaster) {
+      carregarGestores();
+    }
+  }, [isMaster]);
 
-  // Gatilho inicial ao validar o ID
+  // ✅ Gatilho automático de busca
   useEffect(() => {
     if (id) {
       buscarHistorico();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]); 
+  }, [id, idObra, statusFiltro, idGestorFiltro, dataInicio, dataFim, buscarHistorico]); 
 
   const formatarDataExibicao = (dataRaw) => {
     if (!dataRaw) return '--/--/----';
@@ -159,34 +163,110 @@ export default function HistoricoDiarios({ id, cargo }) {
     scales: { y: { beginAtZero: true } }
   };
 
+  // Renderização estilizada dos badges de status RDO
+  const renderizarBadgeStatus = (statusRdo) => {
+    const st = statusRdo ? String(statusRdo).toUpperCase().trim() : 'PENDENTE';
+    
+    if (st === 'FINALIZADO' || st === 'CONCLUIDO' || st === 'CONCLUÍDO') {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac' }}>
+          FINALIZADO
+        </span>
+      );
+    }
+
+    return (
+      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fffbe3', color: '#b45309', border: '1px solid #fde047' }}>
+        PENDENTE
+      </span>
+    );
+  };
+
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
       
-      {/* SEÇÃO DE FILTROS */}
+      {/* SEÇÃO DE FILTROS IDÊNTICA À IMAGEM */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           
-          <div style={{ flex: '1', minWidth: '200px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>FILTRAR POR OBRA VINCULADA</label>
-            <select value={idObra} onChange={e => setIdObra(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }}>
-              <option value="">-- Todas as Minhas Obras --</option>
+          {/* Filtro Gestor / Encarregado */}
+          {isMaster && (
+            <div style={{ flex: '2', minWidth: '220px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
+                GESTOR / ENCARREGADO
+              </label>
+              <select 
+                value={idGestorFiltro} 
+                onChange={e => setIdGestorFiltro(e.target.value)} 
+                style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#334155', fontSize: '12px', outline: 'none' }}
+              >
+                <option value="">-- Todos os Gestores --</option>
+                {gestores.map(g => (
+                  <option key={g.id_usuario || g.id} value={g.id_usuario || g.id}>
+                    {g.nome_gestor || g.nome || g.nome_usuario || `Gestor ID: ${g.id_usuario || g.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Filtro Obra Vinculada */}
+          <div style={{ flex: '2', minWidth: '220px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
+              OBRA VINCULADA
+            </label>
+            <select 
+              value={idObra} 
+              onChange={e => setIdObra(e.target.value)} 
+              style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#334155', fontSize: '12px', outline: 'none' }}
+            >
+              <option value="">-- Todas as Obras --</option>
               {obras.map(o => <option key={o.id} value={o.id}>[{o.codigo_obra || 'ID: '+o.id}] {o.nome_obra}</option>)}
             </select>
           </div>
 
-          <div style={{ width: '140px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>DATA INICIAL</label>
-            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
+          {/* Filtro Status do RDO */}
+          <div style={{ flex: '1', minWidth: '150px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
+              STATUS DO RDO
+            </label>
+            <select 
+              value={statusFiltro} 
+              onChange={e => setStatusFiltro(e.target.value)} 
+              style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#334155', fontSize: '12px', outline: 'none' }}
+            >
+              <option value="">-- Todos --</option>
+              <option value="FINALIZADO">FINALIZADO</option>
+              <option value="PENDENTE">PENDENTE</option>
+            </select>
           </div>
 
-          <div style={{ width: '140px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>DATA FINAL</label>
-            <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
+          {/* Data Inicial */}
+          <div style={{ flex: '1', minWidth: '140px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
+              DATA INICIAL
+            </label>
+            <input 
+              type="date" 
+              value={dataInicio} 
+              onChange={e => setDataInicio(e.target.value)} 
+              style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', color: '#334155', fontSize: '12px', outline: 'none', backgroundColor: '#fff' }} 
+            />
           </div>
 
-          <button onClick={buscarHistorico} style={{ height: '32px', padding: '0 16px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Search style={{ width: '14px' }} /> Filtrar
-          </button>
+          {/* Data Final */}
+          <div style={{ flex: '1', minWidth: '140px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
+              DATA FINAL
+            </label>
+            <input 
+              type="date" 
+              value={dataFim} 
+              onChange={e => setDataFim(e.target.value)} 
+              style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', color: '#334155', fontSize: '12px', outline: 'none', backgroundColor: '#fff' }} 
+            />
+          </div>
+
         </div>
       </div>
 
@@ -243,11 +323,9 @@ export default function HistoricoDiarios({ id, cargo }) {
               {loading ? (
                 <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b' }}>Buscando registros no banco de dados...</td></tr>
               ) : listaDiarios.length === 0 ? (
-                <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum RDO encontrado para este gestor ou filtros aplicados.</td></tr>
+                <tr><td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum RDO encontrado para os filtros aplicados.</td></tr>
               ) : (
                 listaDiarios.map((rdo, index) => {
-                  const isPendente = rdo.status_rdo === 'PENDENTE' || !rdo.status_rdo;
-
                   return (
                     <tr key={rdo.id || index} style={{ borderBottom: '1px solid #e2e8f0' }}>
                       <td style={{ padding: '10px', whiteSpace: 'nowrap', fontWeight: 'bold', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</td>
@@ -258,19 +336,8 @@ export default function HistoricoDiarios({ id, cargo }) {
                         </span>
                       </td>
 
-                      {/* COLUNA STATUS RDO ADICIONADA */}
                       <td style={{ padding: '10px', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          fontSize: '10px',
-                          fontWeight: 'bold',
-                          backgroundColor: isPendente ? '#fef2f2' : '#f0fdf4',
-                          color: isPendente ? '#ef4444' : '#16a34a',
-                          border: `1px solid ${isPendente ? '#fca5a5' : '#86efac'}`
-                        }}>
-                          {isPendente ? 'SEM RDO' : 'CONCLUÍDO'}
-                        </span>
+                        {renderizarBadgeStatus(rdo.status_rdo)}
                       </td>
 
                       <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>{rdo.codigo_obra}</td>
@@ -300,22 +367,24 @@ export default function HistoricoDiarios({ id, cargo }) {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '20px' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '6px', width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #94a3b8', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
             
-            {/* Cabeçalho do Modal */}
             <div style={{ padding: '12px 16px', backgroundColor: '#0f172a', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 'bold', fontSize: '13px' }}>RDO DETALHADO — {formatarDataExibicao(diarioSelecionado.data_diario)}</span>
               <button onClick={() => setDiarioSelecionado(null)} style={{ backgroundColor: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>✕</button>
             </div>
             
-            {/* Conteúdo Interno Organizado */}
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '18px', backgroundColor: '#ffffff' }}>
               
-              {/* Informações Superiores */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '14px', color: '#1e293b' }}>
                 <div><strong>Obra Vinculada:</strong> <span style={{ color: '#2563eb', fontWeight: 'bold' }}>[{diarioSelecionado.codigo_obra || '100'}]</span> {diarioSelecionado.nome_obra}</div>
                 <div><strong>Equipe Responsável:</strong> <span style={{ fontWeight: 'bold' }}>{diarioSelecionado.equipe || 'A'}</span></div>
+                <div>
+                  <strong>Gestor Responsável:</strong>{' '}
+                  <span style={{ fontWeight: 'bold', color: '#0369a1' }}>
+                    {diarioSelecionado.nome_gestor || diarioSelecionado.gestor || diarioSelecionado.nome_usuario || 'Não informado'}
+                  </span>
+                </div>
               </div>
 
-              {/* CARD 1: Colaboradores na Equipe */}
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
                 <div style={{ backgroundColor: '#f0f4f8', padding: '10px 14px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Users style={{ width: '15px', height: '15px', color: '#475569' }} /> Colaboradores na Equipe ({diarioSelecionado.total_efetivo || 0})
@@ -338,7 +407,6 @@ export default function HistoricoDiarios({ id, cargo }) {
                 </div>
               </div>
 
-              {/* CARD 2: Listagem de Materiais e Insumos / Atividades */}
               <div style={{ border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
                 <div style={{ backgroundColor: '#fef3c7', padding: '10px 14px', fontWeight: 'bold', color: '#92400e', fontSize: '13px' }}>
                   Listagem do Serviço (Resumo do RDO):
@@ -352,7 +420,6 @@ export default function HistoricoDiarios({ id, cargo }) {
                 </div>
               </div>
 
-              {/* CARD 3: Observações Gerais do RDO */}
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
                 <div style={{ backgroundColor: '#f0f4f8', padding: '10px 14px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px' }}>
                   Observações Gerais do RDO:
@@ -368,7 +435,6 @@ export default function HistoricoDiarios({ id, cargo }) {
 
             </div>
 
-            {/* Rodapé do Modal */}
             <div style={{ padding: '10px 16px', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setDiarioSelecionado(null)} style={{ padding: '6px 14px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Fechar</button>
             </div>
