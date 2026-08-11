@@ -2,7 +2,7 @@ import express from 'express';
 const router = express.Router();
 
 // Caminho para a estrutura real do banco
-import db from '../../db.js';
+import db from '../../../db.js';
 
 // Função utilitária para tratar datas vindas do frontend
 // Função utilitária para tratar datas vindas do frontend removendo o formato ISO (T00:00:00...)

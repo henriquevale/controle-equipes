@@ -2,7 +2,7 @@ import express from 'express';
 const router = express.Router();
 
 // Caminho para a estrutura real do banco
-import db from '../../db.js';
+import db from '../../../db.js';
 
 
 // ========================================================
@@ -172,52 +172,56 @@ router.get('/gestor/diario-efetivo', async (req, res) => {
 });
 
 // ========================================================
-// 5. POST: SALVAR / ATUALIZAR APONTAMENTOS (OTIMIZADO)
+// 5. POST: SALVAR / ATUALIZAR APONTAMENTOS (DIÁRIO EFETIVO - ESCALA)
 // ========================================================
 router.post('/gestor/diario-efetivo', async (req, res) => {
   const { data_diario, id_obra, equipe } = req.body;
   const listaFuncionarios = req.body.funcionarios || req.body.efetivo || []; 
   
-  if (!data_diario || !id_obra || !Array.isArray(listaFuncionarios)) {
-    return res.status(400).json({ error: "Dados incompletos ou inválidos." });
+  if (!data_diario || !id_obra || !equipe) {
+    return res.status(400).json({ error: "Dados incompletos. O nome da 'equipe' é obrigatório para isolar o status." });
   }
 
-  const equipeTratada = equipe ? String(equipe).trim().toUpperCase() : null;
+  const equipeTratada = String(equipe).trim().toUpperCase();
   const connection = await db.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    // 1. Recupera os veículos anteriores
-    let queryVeiculosAnteriores = "SELECT DISTINCT id_veiculo FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND id_veiculo IS NOT NULL";
-    let paramsVeiculosAnteriores = [data_diario, parseInt(id_obra)];
+    // 1. Coleta IDs dos funcionários enviados
+    const idsFuncionariosNovos = listaFuncionarios
+      .map(f => parseInt(f.id_funcionario))
+      .filter(id => !isNaN(id));
 
-    if (equipeTratada) {
-      queryVeiculosAnteriores += " AND UPPER(TRIM(equipe)) = ?";
-      paramsVeiculosAnteriores.push(equipeTratada);
+    // 2. Recupera veículos alocados anteriormente para a equipe
+    const queryVeiculosAnteriores = "SELECT DISTINCT id_veiculo FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ? AND id_veiculo IS NOT NULL";
+    const [veiculosRemovidos] = await connection.execute(queryVeiculosAnteriores, [data_diario, parseInt(id_obra), equipeTratada]);
+
+    // 3. LIMPEZA RESTRITA APENAS À EQUIPE ATUAL
+    // Deleta os membros antigos APENAS da equipe que está sendo salva no momento
+    await connection.execute(
+      "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?", 
+      [data_diario, parseInt(id_obra), equipeTratada]
+    );
+
+    // Remove esses funcionários de qualquer lugar que estivessem antes para não duplicar no dia
+    if (idsFuncionariosNovos.length > 0) {
+      const placeholdersFunc = idsFuncionariosNovos.map(() => '?').join(',');
+      await connection.execute(
+        `DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND id_funcionario IN (${placeholdersFunc})`,
+        [data_diario, parseInt(id_obra), ...idsFuncionariosNovos]
+      );
     }
 
-    const [veiculosRemovidos] = await connection.execute(queryVeiculosAnteriores, paramsVeiculosAnteriores);
-
-    // 2. Apaga a escala anterior da equipe/obra
-    if (equipeTratada) {
-      await connection.execute(
-        "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?", 
-        [data_diario, parseInt(id_obra), equipeTratada]
-      );
-    } else {
-      await connection.execute(
-        "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ?", 
-        [data_diario, parseInt(id_obra)]
-      );
-    }
-    
-    // 3. Insere em massa (Bulk Insert) se houver colaboradores
+    // 4. Insere as novas alocações vinculando estritamente à equipeTratada
     const veiculosAlocadosAtualmente = new Set();
 
     if (listaFuncionarios.length > 0) {
-      const valoresParaInserir = [];
-      const paramsInsercao = [];
+      const sqlInsert = `
+        INSERT INTO diario_efetivo 
+        (data_diario, id_obra, id_funcionario, id_gestor, nome, cargo, matricula, turno, status_presenca, observacao, equipe, id_veiculo) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
 
       for (const f of listaFuncionarios) {
         const idFuncionario = parseInt(f.id_funcionario);
@@ -230,15 +234,10 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
           statusCru = 'FOLGA';
         }
 
-        const equipeFuncionario = f.equipe ? String(f.equipe).trim().toUpperCase() : (equipeTratada || 'GERAL');
         const idVeiculoValido = f.id_veiculo ? parseInt(f.id_veiculo) : null;
+        if (idVeiculoValido) veiculosAlocadosAtualmente.add(idVeiculoValido);
 
-        if (idVeiculoValido) {
-          veiculosAlocadosAtualmente.add(idVeiculoValido);
-        }
-
-        valoresParaInserir.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        paramsInsercao.push(
+        await connection.execute(sqlInsert, [
           data_diario,
           parseInt(id_obra),
           idFuncionario,
@@ -249,23 +248,25 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
           f.turno || 'DIURNO', 
           statusCru, 
           f.observacao && f.observacao.trim() !== '' ? String(f.observacao) : null,
-          equipeFuncionario,
+          equipeTratada, // 👈 Força a gravar no nome da equipe que veio na requisição
           idVeiculoValido
-        );
-      }
-
-      // Executa tudo em uma única query otimizada
-      if (valoresParaInserir.length > 0) {
-        const sqlInsert = `
-          INSERT INTO diario_efetivo 
-          (data_diario, id_obra, id_funcionario, id_gestor, nome, cargo, matricula, turno, status_presenca, observacao, equipe, id_veiculo) 
-          VALUES ${valoresParaInserir.join(', ')}
-        `;
-        await connection.execute(sqlInsert, paramsInsercao);
+        ]);
       }
     }
 
-    // 4. Libera veículos desvinculados
+    // 5. ATUALIZA O STATUS 'PENDENTE' EXCLUSIVAMENTE PARA A EQUIPE RECEBIDA
+    await connection.execute(
+      `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo, atualizado_em)
+       VALUES (?, ?, ?, 'PENDENTE', NOW())
+       ON DUPLICATE KEY UPDATE status_rdo = 'PENDENTE', atualizado_em = NOW()`,
+      [
+        data_diario,
+        parseInt(id_obra),
+        equipeTratada
+      ]
+    );
+
+    // 6. Liberação de veículos
     for (const row of veiculosRemovidos) {
       const idVeicAntigo = row.id_veiculo;
       if (idVeicAntigo && !veiculosAlocadosAtualmente.has(idVeicAntigo)) {
@@ -284,7 +285,8 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
     }
 
     await connection.commit();
-    res.status(200).json({ success: true, message: "Efetivo e status de veículos gravados com sucesso!" });
+    res.status(200).json({ success: true, message: `Efetivo da equipe '${equipeTratada}' salvo com sucesso!` });
+
   } catch (err) {
     await connection.rollback();
     console.error("Erro crítico na transação:", err);
@@ -293,9 +295,8 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
     connection.release();
   }
 });
-
 // ========================================================
-// 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO (PRODUÇÃO + MATERIAIS) ✅ ALINHADO E SEGURO
+// 6. POST: SALVAR / SUBSTITUIR RDO COMPLETO DA EQUIPE (PRODUÇÃO + MATERIAIS)
 // ========================================================
 router.post('/gestor/salvar-diario-completo', async (req, res) => {
   const { 
@@ -310,16 +311,20 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     status 
   } = req.body;
 
-  // Validação inicial rigorosa para impedir que valores nulos quebrem o banco
   if (!data_diario || !id_obra || !id_gestor || !equipe) {
     return res.status(400).json({ error: "Dados obrigatórios ausentes para salvar o diário." });
   }
 
-  // Tratamentos de segurança contra valores inválidos
   const gestorIdValido = parseInt(id_gestor) || null;
   const obraIdValida = parseInt(id_obra) || null;
   const equipeMaiuscula = String(equipe).trim().toUpperCase();
-  const statusTratadoDiario = status && String(status).trim() !== '' ? String(status).trim().toUpperCase() : 'SALVO';
+  
+  let statusTratadoDiario = status && String(status).trim() !== '' 
+    ? String(status).trim().toUpperCase() 
+    : 'FINALIZADO';
+  
+  // Limitação de segurança para evitar erro de truncamento na coluna do MySQL
+  statusTratadoDiario = statusTratadoDiario.substring(0, 50);
 
   if (!gestorIdValido || !obraIdValida) {
     return res.status(400).json({ error: "IDs de obra ou gestor são inválidos." });
@@ -330,9 +335,9 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     await connection.beginTransaction();
     await connection.execute('SET FOREIGN_KEY_CHECKS = 0');
 
-    // 1. Busca se já existe um cabeçalho técnico mestre para esta Obra, Data e Equipe[cite: 1]
+    // 1. Atualiza/Insere mestre diario_obra APENAS desta equipe
     const [existenteMestre] = await connection.execute(
-      'SELECT id FROM diario_obra WHERE id_obra = ? AND data_diario = ? AND equipe = ?',
+      'SELECT id FROM diario_obra WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
     );
 
@@ -343,13 +348,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         'UPDATE diario_obra SET observacoes = ?, id_gestor = ?, status = ? WHERE id = ?',
         [observacoes || null, gestorIdValido, statusTratadoDiario, diarioId]
       );
-
-      await connection.execute(
-        `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo) 
-         VALUES (?, ?, ?, 'FINALIZADO') 
-         ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO'`,
-        [data_diario, obraIdValida, equipeMaiuscula]
-      );
     } else {
       const [resultadoInsereMestre] = await connection.execute(
         'INSERT INTO diario_obra (id_obra, data_diario, observacoes, id_gestor, equipe, status) VALUES (?, ?, ?, ?, ?, ?)',
@@ -358,17 +356,25 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       diarioId = resultadoInsereMestre.insertId;
     }
 
-    // 🌟 SEGURO DE VEÍCULOS: Recupera os veículos antes da limpeza para evitar remoções indesejadas[cite: 1]
+    // 2. Grava/Atualiza o status como FINALIZADO APENAS para esta equipe
+    await connection.execute(
+      `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo) 
+       VALUES (?, ?, ?, ?) 
+       ON DUPLICATE KEY UPDATE status_rdo = VALUES(status_rdo)`,
+      [data_diario, obraIdValida, equipeMaiuscula, statusTratadoDiario]
+    );
+
+    // 3. Preserva veículos alocados anteriormente para esta equipe
     const [veiculosAtuais] = await connection.execute(
-      'SELECT id_funcionario, id_veiculo FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND equipe = ?',
+      'SELECT id_funcionario, id_veiculo FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
     );
     const mapaVeiculos = new Map(veiculosAtuais.map(v => [v.id_funcionario, v.id_veiculo]));
 
-    // 2. Limpa e reinsere o Efetivo Confirmado[cite: 1]
+    // 4. Limpa e substitui APENAS o Efetivo desta equipe
     await connection.execute('DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?', [diarioId]);
     await connection.execute(
-      'DELETE FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND equipe = ?', 
+      'DELETE FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?', 
       [obraIdValida, data_diario, equipeMaiuscula]
     );
 
@@ -379,7 +385,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
       
-      // Reinserido a coluna id_veiculo para manter a integridade com o banco original[cite: 1]
       const sqlDiarioEfetivo = `
         INSERT INTO diario_efetivo 
         (nome, data_diario, id_obra, id_funcionario, cargo, matricula, turno, status_presenca, observacao, equipe, id_gestor, id_veiculo) 
@@ -394,17 +399,10 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         if (statusTratado === 'FERIAS') statusTratado = 'FÉRIAS';
         if (statusTratado === 'INTEGRACAO') statusTratado = 'INTEGRAÇÃO';
 
-        // Preserva o veículo recuperado no mapa[cite: 1]
         const idVeiculoPreservado = f.id_veiculo ? parseInt(f.id_veiculo) : (mapaVeiculos.get(fid) || null);
 
         await connection.execute(sqlConfirmado, [
-          diarioId, 
-          fid, 
-          statusTratado, 
-          0, 
-          equipeMaiuscula, 
-          data_diario, 
-          obraIdValida
+          diarioId, fid, statusTratado, 0, equipeMaiuscula, data_diario, obraIdValida
         ]);
         
         await connection.execute(sqlDiarioEfetivo, [
@@ -424,7 +422,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 3. Limpa e reinsere as Atividades[cite: 1]
+    // 5. Limpa e substitui APENAS as Atividades do RDO desta equipe
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
       const sqlAtividade = `INSERT INTO diario_atividades (id_diario, tipo_servico, quantidade) VALUES (?, ?, ?)`;
@@ -433,42 +431,38 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         if (!nomeServico) continue;
         
         await connection.execute(sqlAtividade, [
-          diarioId, 
-          String(nomeServico).trim(), 
-          parseFloat(l.quantidade) || 0.00
+          diarioId, String(nomeServico).trim(), parseFloat(l.quantidade) || 0.00
         ]);
       }
     }
 
-    // 4. Limpa e reinsere os Materiais Apontados[cite: 1]
+    // 6. Limpa e substitui APENAS os Materiais do RDO desta equipe
     await connection.execute('DELETE FROM diario_materiais_apontados WHERE id_diario = ?', [diarioId]);
     if (materials_apontados && materials_apontados.length > 0) {
       const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, material_nome, quantidade) VALUES (?, ?, ?)`;
       
       for (const m of materials_apontados) {
-        const materialNome = m.material || m.nome;
+        const materialNome = m.material || m.nome || m.material_nome;
         if (!materialNome) continue; 
         
         await connection.execute(sqlMaterial, [
-          diarioId, 
-          String(materialNome).trim(), 
-          parseFloat(m.quantidade) || 0.00
+          diarioId, String(materialNome).trim(), parseFloat(m.quantidade) || 0.00
         ]);
-        console.log(`[Sucesso] Material Salvo no BD: ${materialNome}`);
       }
     }
 
     await connection.execute('SET FOREIGN_KEY_CHECKS = 1');
     await connection.commit();
-    res.status(200).json({ success: true, message: `RDO da equipe '${equipeMaiuscula}' salvo com sucesso!` });
+    res.status(200).json({ 
+      success: true, 
+      message: `RDO da equipe '${equipeMaiuscula}' salvo e atualizado com sucesso!`,
+      status: statusTratadoDiario
+    });
 
   } catch (err) {
     try { await connection.execute('SET FOREIGN_KEY_CHECKS = 1'); } catch(e){}
     await connection.rollback();
-    
-    // Log estendido de erro no console para expor qualquer quebra de sintaxe ou coluna ausente[cite: 1]
     console.error("❌ ERRO DETALHADO NO BACKEND:", err);
-    
     res.status(500).json({ 
       error: "Erro interno no banco de dados ao salvar o RDO completo.",
       detalhes: err.message 
@@ -477,7 +471,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     connection.release();
   }
 });
-
 // ========================================================
 // 6-B. GET: RECUPERAR DIÁRIO TÉCNICO COMPLETO (POR EQUIPE)
 // ========================================================
