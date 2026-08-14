@@ -138,9 +138,9 @@ router.post('/master/usuarios', async (req, res) => {
 });
 
 // ========================================================
-// 9. GET: LISTAR TODOS OS USUÁRIOS (MASTER) - Mantém a listagem completa intacta
+// 9. GET: LISTAR TODOS OS USUÁRIOS (MASTER e ALIAS /usuarios)
 // ========================================================
-router.get('/master/usuarios', async (req, res) => {
+router.get(['/master/usuarios', '/usuarios'], async (req, res) => {
   try {
     const sql = `
       SELECT 
@@ -219,7 +219,6 @@ router.put('/master/usuarios/:id', async (req, res) => {
       }
     }
 
-    // 🌟 AQUI ESTÁ A ALTERAÇÃO: Forçando o id_obra como NULL para o banco aceitar
     await connection.execute('DELETE FROM gestor_funcionarios WHERE id_usuario = ?', [id]);
     if (cargo === 'GESTOR' && Array.isArray(ids_funcionarios)) {
       const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
@@ -229,7 +228,7 @@ router.put('/master/usuarios/:id', async (req, res) => {
     }
 
     await connection.commit();
-    res.json({ success: true, message: "Usuário updated com sucesso!" });
+    res.json({ success: true, message: "Usuário atualizado com sucesso!" });
   } catch (err) {
     await connection.rollback();
     console.error("ERRO REAL DO BANCO:", err);
@@ -247,7 +246,6 @@ router.put('/master/usuarios/:id', async (req, res) => {
 // ========================================================
 router.get(['/master/funcionarios-todos', '/funcionarios'], async (req, res) => {
   try {
-    // 💡 Traz TODOS os funcionários e busca o último gestor vinculado (se houver)
     const sql = `
       SELECT 
         f.id, 
@@ -261,7 +259,6 @@ router.get(['/master/funcionarios-todos', '/funcionarios'], async (req, res) => 
         u.nome AS gestor
       FROM funcionarios f
       LEFT JOIN (
-        -- Agrupa por funcionário pegando apenas a última inserção de vínculo
         SELECT gf_inner.*
         FROM gestor_funcionarios gf_inner
         INNER JOIN (
@@ -283,7 +280,7 @@ router.get(['/master/funcionarios-todos', '/funcionarios'], async (req, res) => 
 });
 
 // ========================================================
-// 12-B. GET: LISTAR APENAS FUNCIONÁRIOS DISPONÍVEIS (EXCLUSIVO PARA CRIAR/EDITAR USUÁRIOS)
+// 12-B. GET: LISTAR APENAS FUNCIONÁRIOS DISPONÍVEIS
 // ========================================================
 router.get('/master/funcionarios-disponiveis', async (req, res) => {
   const { id_usuario_editando } = req.query;
@@ -291,8 +288,6 @@ router.get('/master/funcionarios-disponiveis', async (req, res) => {
   try {
     const paramIdUsuario = id_usuario_editando ? parseInt(id_usuario_editando) : -1;
     
-    // 💡 Regra cirúrgica: Esconde quem já está com outro gestor, 
-    // mas mantém os do próprio gestor caso seja uma edição.
     const sql = `
       SELECT id, matricula, nome, cargo, ativo, observacoes
       FROM funcionarios 
@@ -313,7 +308,7 @@ router.get('/master/funcionarios-disponiveis', async (req, res) => {
 });
 
 // ========================================================
-// 12-B. GET: LISTAR OBRAS DISPONÍVEIS NO FORMULÁRIO
+// 12-C. GET: LISTAR OBRAS DISPONÍVEIS NO FORMULÁRIO
 // ========================================================
 router.get('/master/obras-todas', async (req, res) => {
   const { id_editando } = req.query;
@@ -341,7 +336,7 @@ router.get('/master/obras-todas', async (req, res) => {
 });
 
 // ========================================================
-// 13. ROTAS DE MATERIAIS (CADASTRO, LISTAGEM, EDIÇÃO, EXCLUSÃO)
+// 13. ROTAS DE MATERIAIS (DESCRICAO, UNIDADE_MEDIDA, TIPO)
 // ========================================================
 
 // 13-A. GET: Listar todos os materiais
@@ -356,7 +351,7 @@ router.get('/materiais', async (req, res) => {
   }
 });
 
-// 13-B. POST: Cadastrar novo material (TUDO EM MAIÚSCULO)
+// 13-B. POST: Cadastrar novo material
 router.post('/materiais', async (req, res) => {
   const { descricao, unidade_medida, tipo, quantidade_atual } = req.body;
 
@@ -367,7 +362,6 @@ router.post('/materiais', async (req, res) => {
   try {
     const sql = 'INSERT INTO materiais (descricao, unidade_medida, tipo, quantidade_atual) VALUES (?, ?, ?, ?)';
     
-    // Convertendo todos os textos para MAIÚSCULAS antes de salvar
     const descMaiuscula = descricao.trim().toUpperCase();
     const unidadeMaiuscula = unidade_medida ? unidade_medida.trim().toUpperCase() : 'UN';
     const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
@@ -386,7 +380,7 @@ router.post('/materiais', async (req, res) => {
   }
 });
 
-// 13-C. PUT: Atualizar material existente (TUDO EM MAIÚSCULO)
+// 13-C. PUT: Atualizar material existente
 router.put('/materiais/:id', async (req, res) => {
   const { id } = req.params;
   const { descricao, unidade_medida, tipo, quantidade_atual } = req.body;
@@ -398,7 +392,6 @@ router.put('/materiais/:id', async (req, res) => {
   try {
     const sql = 'UPDATE materiais SET descricao = ?, unidade_medida = ?, tipo = ?, quantidade_atual = ? WHERE id = ?';
     
-    // Convertendo todos os textos para MAIÚSCULAS antes de atualizar
     const descMaiuscula = descricao.trim().toUpperCase();
     const unidadeMaiuscula = unidade_medida ? unidade_medida.trim().toUpperCase() : 'UN';
     const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
@@ -431,7 +424,12 @@ router.delete('/materiais/:id', async (req, res) => {
     res.status(500).json({ error: 'Erro ao remover o material do banco de dados.' });
   }
 });
-// 14-A. GET: Listar Fornecedores com seus Materiais vinculados
+
+// ========================================================
+// 14. ROTAS DE FORNECEDORES E VÍNCULOS DE MATERIAIS
+// ========================================================
+
+// 14-A. GET: Listar Fornecedores
 router.get('/fornecedores', async (req, res) => {
   try {
     const sql = `
@@ -445,7 +443,6 @@ router.get('/fornecedores', async (req, res) => {
     `;
     const [rows] = await db.execute(sql);
     
-    // Converte a string "1,2,3" em um Array de Números [1, 2, 3]
     const resultado = rows.map(item => ({
       ...item,
       ids_materiais: item.ids_materiais ? item.ids_materiais.split(',').map(Number) : []
@@ -458,7 +455,19 @@ router.get('/fornecedores', async (req, res) => {
   }
 });
 
-// POST: Cadastrar Fornecedor e seus Materiais
+// 14-B. GET: Listar Relação de Fornecedor x Materiais (Auxiliar para Frontend)
+router.get('/fornecedor-materiais', async (req, res) => {
+  try {
+    const sql = 'SELECT id_fornecedor, id_material FROM fornecedor_materiais';
+    const [rows] = await db.execute(sql);
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar vinculos fornecedor-materiais:', err);
+    res.status(500).json({ error: 'Erro ao buscar vinculos de fornecedor x materiais.' });
+  }
+});
+
+// 14-C. POST: Cadastrar Fornecedor
 router.post('/fornecedores', async (req, res) => {
   const { nome_fantasia, razao_social, cnpj, telefone, email, ids_materiais } = req.body;
 
@@ -481,7 +490,6 @@ router.post('/fornecedores', async (req, res) => {
 
     const idFornecedor = result.insertId;
 
-    // Inserir vinculos de materiais
     if (Array.isArray(ids_materiais) && ids_materiais.length > 0) {
       const sqlMat = 'INSERT INTO fornecedor_materiais (id_fornecedor, id_material) VALUES (?, ?)';
       for (const idMat of ids_materiais) {
@@ -500,7 +508,7 @@ router.post('/fornecedores', async (req, res) => {
   }
 });
 
-// PUT: Atualizar Fornecedor
+// 14-D. PUT: Atualizar Fornecedor
 router.put('/fornecedores/:id', async (req, res) => {
   const { id } = req.params;
   const { nome_fantasia, razao_social, cnpj, telefone, email, ids_materiais } = req.body;
@@ -519,7 +527,6 @@ router.put('/fornecedores/:id', async (req, res) => {
       parseInt(id)
     ]);
 
-    // Recria os vínculos de materiais
     await connection.execute('DELETE FROM fornecedor_materiais WHERE id_fornecedor = ?', [id]);
 
     if (Array.isArray(ids_materiais) && ids_materiais.length > 0) {
@@ -540,7 +547,7 @@ router.put('/fornecedores/:id', async (req, res) => {
   }
 });
 
-// DELETE: Excluir Fornecedor
+// 14-E. DELETE: Excluir Fornecedor
 router.delete('/fornecedores/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -551,13 +558,11 @@ router.delete('/fornecedores/:id', async (req, res) => {
     res.status(500).json({ error: 'Erro ao excluir fornecedor.' });
   }
 });
-
 // ========================================================
-// ROTAS DE FATURAMENTO DIRETO (PADRONIZADAS E CORRIGIDAS)
+// 15. ROTAS DE FATURAMENTO DIRETO (INCLUINDO ITENS COM CAPACIDADE DE USO)
 // ========================================================
 
-// 1. GET - Listar faturamentos trazendo o NOME do gestor
-// ✅ CÓDIGO CORRIGIDO (PLURAL + LEFT JOIN DO GESTOR)
+// 15-A. GET: Listar Faturamentos Diretos com Gestor e Itens
 router.get('/faturamento-direto', async (req, res) => {
   try {
     const sql = `
@@ -568,15 +573,33 @@ router.get('/faturamento-direto', async (req, res) => {
       LEFT JOIN usuarios_sistema u ON fd.id_gestor = u.id
       ORDER BY fd.id DESC
     `;
-    const [rows] = await db.query(sql);
-    res.json(rows);
+    const [faturamentos] = await db.query(sql);
+
+    try {
+      // Traz os itens incluindo capacidade_uso e nome do material
+      const [itens] = await db.query(`
+        SELECT fi.*, m.descricao AS nome_material 
+        FROM faturamento_itens fi
+        LEFT JOIN materiais m ON fi.material_id = m.id
+      `);
+
+      const faturamentosComItens = faturamentos.map(fat => ({
+        ...fat,
+        itens: itens.filter(it => String(it.faturamento_id) === String(fat.id))
+      }));
+
+      return res.json(faturamentosComItens);
+    } catch {
+      return res.json(faturamentos);
+    }
+
   } catch (error) {
     console.error('Erro ao buscar faturamentos:', error);
     res.status(500).json({ error: 'Erro ao buscar faturamentos' });
   }
 });
 
-// 2. POST - Criar novo faturamento (recebendo id_gestor)
+// 15-B. POST: Criar Faturamento Trata Erros de Tipo
 router.post('/faturamento-direto', async (req, res) => {
   const { 
     obra_id, 
@@ -589,42 +612,95 @@ router.post('/faturamento-direto', async (req, res) => {
     status, 
     id_gestor,
     data_solicitacao,
-    observacao 
+    observacao,
+    data_envio,
+    url_email,
+    itens 
   } = req.body;
 
+  const connection = await db.getConnection();
   try {
+    await connection.beginTransaction();
+
+    // Tratamento de segurança para tipos
     const boletimFormatado = boletim_medicao 
       ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() 
       : null;
 
+    const pedidoObraValido = (numero_pedido_obra && String(numero_pedido_obra).trim() !== '') 
+      ? parseInt(numero_pedido_obra) 
+      : 0;
+
+    const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
+    const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
+    const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
+
+    const dataNfValida = (data_nota_fiscal && String(data_nota_fiscal).trim() !== '') ? data_nota_fiscal : null;
+    const dataSolicitacaoValida = (data_solicitacao && String(data_solicitacao).trim() !== '') ? data_solicitacao : null;
+    const dataEnvioValida = (data_envio && String(data_envio).trim() !== '') ? data_envio : null;
+
+    const valorNfValido = (valor_nota_fiscal !== undefined && valor_nota_fiscal !== '' && valor_nota_fiscal !== null)
+      ? parseFloat(valor_nota_fiscal) 
+      : 0;
+
     const sql = `
       INSERT INTO faturamentos_diretos 
-      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, status, id_gestor, data_solicitacao, observacao) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, status, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    const [result] = await db.query(sql, [
-      obra_id || null, 
-      numero_pedido_obra || null, 
+    const [result] = await connection.query(sql, [
+      obraIdValida, 
+      pedidoObraValido, 
       boletimFormatado, 
-      fornecedor_id || null, 
-      numero_nota_fiscal || null, 
-      data_nota_fiscal || null,
-      valor_nota_fiscal || 0, 
+      fornecedorIdValido, 
+      numero_nota_fiscal || '', 
+      dataNfValida,
+      valorNfValido, 
       status || 'Solicitado', 
-      id_gestor || null,
-      data_solicitacao || null,
-      observacao ? observacao.trim() : null
+      gestorIdValido,
+      dataSolicitacaoValida,
+      observacao ? observacao.trim() : '',
+      dataEnvioValida,
+      url_email ? url_email.trim() : null
     ]);
 
-    res.status(201).json({ id: result.insertId, message: 'Faturamento criado com sucesso' });
+    const idFaturamento = result.insertId;
+
+    // Gravação dos Itens
+    if (Array.isArray(itens) && itens.length > 0) {
+      const sqlItem = `
+        INSERT INTO faturamento_itens 
+        (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario) 
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      
+      for (const item of itens) {
+        if (item.material_id && String(item.material_id).trim() !== '') {
+          await connection.query(sqlItem, [
+            idFaturamento,
+            parseInt(item.material_id),
+            parseFloat(item.quantidade) || 0,
+            item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
+            parseFloat(item.valor_unitario) || 0
+          ]);
+        }
+      }
+    }
+
+    await connection.commit();
+    res.status(201).json({ id: idFaturamento, message: 'Faturamento criado com sucesso!' });
   } catch (error) {
-    console.error('Erro ao inserir faturamento:', error);
-    res.status(500).json({ error: 'Erro ao cadastrar faturamento' });
+    await connection.rollback();
+    // Exibe o erro real do MySQL no terminal do servidor Node
+    console.error('ERRO REAL NO BANCO DE DADOS:', error);
+    res.status(500).json({ error: 'Erro ao cadastrar faturamento', detalhe: error.message });
+  } finally {
+    connection.release();
   }
 });
 
-// 3. PUT - Atualizar faturamento existente
+// 15-C. PUT: Atualizar Faturamento e Reescrever Itens + Capacidade de Uso
 router.put('/faturamento-direto/:id', async (req, res) => {
   const { id } = req.params;
   const { 
@@ -638,13 +714,23 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     status, 
     id_gestor,
     data_solicitacao,
-    observacao 
+    observacao,
+    data_envio,
+    url_email,
+    itens 
   } = req.body;
 
+  const connection = await db.getConnection();
   try {
+    await connection.beginTransaction();
+
     const boletimFormatado = boletim_medicao 
       ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() 
-      : null;
+      : '';
+
+    const pedidoObraValido = (numero_pedido_obra !== undefined && numero_pedido_obra !== '' && numero_pedido_obra !== null)
+      ? parseInt(numero_pedido_obra) 
+      : 0;
 
     const sql = `
       UPDATE faturamentos_diretos SET 
@@ -658,41 +744,80 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         status = ?, 
         id_gestor = ?,
         data_solicitacao = ?,
-        observacao = ? 
+        observacao = ?,
+        data_envio = ?,
+        url_email = ? 
       WHERE id = ?
     `;
 
-    await db.query(sql, [
-      obra_id || null, 
-      numero_pedido_obra || null, 
+    await connection.query(sql, [
+      (obra_id && obra_id !== '') ? parseInt(obra_id) : null, 
+      pedidoObraValido, 
       boletimFormatado, 
-      fornecedor_id || null, 
-      numero_nota_fiscal || null, 
+      (fornecedor_id && fornecedor_id !== '') ? parseInt(fornecedor_id) : null, 
+      numero_nota_fiscal || '', 
       data_nota_fiscal || null,
-      valor_nota_fiscal || 0, 
+      parseFloat(valor_nota_fiscal) || 0, 
       status || 'Solicitado', 
-      id_gestor || null,
+      (id_gestor && id_gestor !== '') ? parseInt(id_gestor) : null,
       data_solicitacao || null, 
-      observacao ? observacao.trim() : null,
-      id
+      observacao ? observacao.trim() : '',
+      data_envio || null,
+      url_email ? url_email.trim() : null,
+      parseInt(id)
     ]);
 
-    res.json({ message: 'Faturamento atualizado com sucesso' });
+    // Atualiza os itens (Apaga os antigos e insere os novos com capacidade_uso)
+    if (Array.isArray(itens)) {
+      await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [id]);
+      
+      if (itens.length > 0) {
+        const sqlItem = `
+          INSERT INTO faturamento_itens 
+          (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario) 
+          VALUES (?, ?, ?, ?, ?)
+        `;
+        
+        for (const item of itens) {
+          if (item.material_id) {
+            await connection.query(sqlItem, [
+              parseInt(id),
+              parseInt(item.material_id),
+              parseFloat(item.quantidade) || 0,
+              item.capacidade_uso ? item.capacidade_uso.trim() : null,
+              parseFloat(item.valor_unitario) || 0
+            ]);
+          }
+        }
+      }
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: 'Faturamento atualizado com sucesso!' });
   } catch (error) {
+    await connection.rollback();
     console.error('Erro ao atualizar faturamento:', error);
-    res.status(500).json({ error: 'Erro ao atualizar faturamento' });
+    res.status(500).json({ error: 'Erro interno ao atualizar faturamento no banco' });
+  } finally {
+    connection.release();
   }
 });
-
 // 4. DELETE - Remover faturamento
 router.delete('/faturamento-direto/:id', async (req, res) => {
   const { id } = req.params;
+  
   try {
-    await db.query('DELETE FROM faturamentos_diretos WHERE id = ?', [id]);
-    res.json({ message: 'Faturamento excluído com sucesso' });
+    const [result] = await db.query('DELETE FROM faturamentos_diretos WHERE id = ?', [id]);
+
+    // Boa prática: Verificar se algum registro foi realmente afetado/excluído
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Registro não encontrado para exclusão' });
+    }
+
+    return res.json({ message: 'Faturamento excluído com sucesso' });
   } catch (error) {
     console.error('Erro ao deletar faturamento:', error);
-    res.status(500).json({ error: 'Erro ao excluir faturamento' });
+    return res.status(500).json({ error: 'Erro ao excluir faturamento' });
   }
 });
 export default router;
