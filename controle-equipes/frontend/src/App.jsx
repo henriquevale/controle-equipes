@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios'; 
-import { LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, FileText, Boxes, BarChart3, TrendingUp } from 'lucide-react';
-
+import { LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, FileText, Boxes, BarChart3, TrendingUp, Building2 } from 'lucide-react';
 // Imports dos Componentes Existentes
 import DiarioEfetivo from './assets/DiarioEfetivo.jsx';
 import DiarioObraTecnico from './assets/DiarioObraTecnico.jsx'; 
@@ -18,7 +17,9 @@ import DiasPendentes from './assets/DiasPendentes.jsx';
 import CadastroVeiculo from './assets/CadastroVeiculo';
 import CadastroMateriais from './assets/CadastroMateriais';
 import CadastroFornecedores from './assets/CadastroFornecedores';
-import FaturamentoDireto from './assets/FaturamentoDireto.jsx'; // CORRIGIDO: Adicionada extensão .jsx
+import FaturamentoDireto from './assets/FaturamentoDireto.jsx'; 
+import Base from './assets/Base.jsx'; 
+import EstoqueMovimentacoes from './assets/EstoqueMovimentacoes.jsx';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -54,7 +55,12 @@ export default function App() {
     { id: 'CADASTRO_MATERIAIS', label: 'Cadastrar Materiais', icon: Package, cargos: ['MASTER'] },
     { id: 'CADASTRO_FORNECEDORES', label: 'Cadastrar Fornecedores', icon: Truck, cargos: ['MASTER'] },
     { id: 'FATURAMENTO_DIRETO', label: 'Faturamento Direto', icon: FileText, cargos: ['MASTER'] },
+    
+    
+    { id: 'BASE', label: 'Gerenciar Bases', icon: Building2, cargos: ['MASTER'] },
+    
     { id: 'ESTOQUE', label: 'Estoque', icon: Boxes, cargos: ['MASTER'] },
+    { id: 'ESTOQUE_MOVIMENTACOES', label: 'Movimentações', icon: TrendingUp, cargos: ['MASTER'] },
     { id: 'RELATORIO_COMPRAS', label: 'Relatório de Compras', icon: BarChart3, cargos: ['MASTER'] },
     { id: 'RELATORIO_MOVIMENTACAO', label: 'Relatório de Movimentação', icon: TrendingUp, cargos: ['MASTER'] },
   ];
@@ -305,9 +311,23 @@ export default function App() {
             <FaturamentoDireto API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
           )}
 
-          {abaAtiva === 'ESTOQUE' && usuarioLogado.cargo === 'MASTER' && (
-            <div>Módulo de Estoque em desenvolvimento...</div>
+          {abaAtiva === 'BASE' && usuarioLogado.cargo === 'MASTER' && (
+            <Base API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
           )}
+
+          {abaAtiva === 'ESTOQUE_MOVIMENTACOES' && usuarioLogado.cargo === 'MASTER' && (
+              <EstoqueMovimentacoes 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+                usuarioLogado={usuarioLogado} 
+              />
+            )}
+
+          {abaAtiva === 'ESTOQUE' && usuarioLogado.cargo === 'MASTER' && (
+                        <div>Relatório de Compras em desenvolvimento...</div>
+
+          )}
+
           {abaAtiva === 'RELATORIO_COMPRAS' && usuarioLogado.cargo === 'MASTER' && (
             <div>Relatório de Compras em desenvolvimento...</div>
           )}

@@ -820,4 +820,262 @@ router.delete('/faturamento-direto/:id', async (req, res) => {
     return res.status(500).json({ error: 'Erro ao excluir faturamento' });
   }
 });
+// GET: Listar todas as bases com suas obras associadas
+router.get('/bases', async (req, res) => {
+  try {
+    const [bases] = await db.query('SELECT * FROM bases ORDER BY nome ASC');
+    
+    // Busca as relações com as obras na tabela intermediária
+    const [vinculos] = await db.query(`
+      SELECT bo.base_id, bo.obra_id, o.nome_obra 
+      FROM base_obras bo
+      JOIN obras o ON o.id = bo.obra_id
+    `);
+
+    // Monta a estrutura com o array de IDs e Nomes de Obras para cada Base
+    const resultado = bases.map(b => ({
+      ...b,
+      obras_ids: vinculos.filter(v => v.base_id === b.id).map(v => v.obra_id),
+      obras_nomes: vinculos.filter(v => v.base_id === b.id).map(v => v.nome_obra)
+    }));
+
+    res.json(resultado);
+  } catch (error) {
+    console.error("Erro ao buscar bases:", error);
+    res.status(500).json({ error: "Erro ao buscar bases" });
+  }
+});
+
+// POST: Criar nova Base e vincular com as Obras selecionadas
+router.post('/bases', async (req, res) => {
+  const { nome, endereco, obras_ids } = req.body;
+  if (!nome) return res.status(400).json({ error: "O nome da base é obrigatório." });
+
+  try {
+    const [resBase] = await db.query(
+      'INSERT INTO bases (nome, endereco) VALUES (?, ?)',
+      [nome, endereco || '']
+    );
+    const baseId = resBase.insertId;
+
+    // Se foram selecionadas obras, cria os vínculos na tabela 'base_obras'
+    if (Array.isArray(obras_ids) && obras_ids.length > 0) {
+      const valores = obras_ids.map(obraId => [baseId, obraId]);
+      await db.query('INSERT INTO base_obras (base_id, obra_id) VALUES ?', [valores]);
+    }
+
+    res.status(201).json({ message: "Base criada com sucesso!", id: baseId });
+  } catch (error) {
+    console.error("Erro ao criar base:", error);
+    res.status(500).json({ error: "Erro ao cadastrar base" });
+  }
+});
+
+// PUT: Atualizar Base e recriar vínculos das Obras
+router.put('/bases/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nome, endereco, obras_ids } = req.body;
+
+  try {
+    await db.query('UPDATE bases SET nome = ?, endereco = ? WHERE id = ?', [nome, endereco || '', id]);
+
+    // Limpa os vínculos antigos e cadastra os novos selecionados
+    await db.query('DELETE FROM base_obras WHERE base_id = ?', [id]);
+
+    if (Array.isArray(obras_ids) && obras_ids.length > 0) {
+      const valores = obras_ids.map(obraId => [id, obraId]);
+      await db.query('INSERT INTO base_obras (base_id, obra_id) VALUES ?', [valores]);
+    }
+
+    res.json({ message: "Base atualizada com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao atualizar base:", error);
+    res.status(500).json({ error: "Erro ao atualizar base" });
+  }
+});
+
+// DELETE: Remover Base
+router.delete('/bases/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query('DELETE FROM bases WHERE id = ?', [id]);
+    res.json({ message: "Base excluída com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao excluir base:", error);
+    res.status(500).json({ error: "Erro ao excluir base" });
+  }
+});
+
+// GET: Listar movimentações com nome do Material e nome do Usuário
+router.get('/master/movimentacoes', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        em.*,
+        m.descricao AS material_nome,
+        m.unidade_medida,
+        u.nome AS usuario_nome
+      FROM estoque_movimentacoes em
+      LEFT JOIN materiais m ON m.id = em.material_id
+      LEFT JOIN usuarios_sistema u ON u.id = em.id_usuario
+      ORDER BY em.id DESC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro ao buscar movimentações:", error);
+    res.status(500).json({ error: "Erro ao buscar movimentações." });
+  }
+});
+
+// POST: Criar movimentação usando as colunas exatas do banco
+router.post('/master/movimentacoes', async (req, res) => {
+  const { 
+    tipo_movimentacao, 
+    origem_tipo, 
+    origem_id, 
+    destino_tipo, 
+    destino_id, 
+    material_id, 
+    quantidade, 
+    faturamento_id, 
+    rdo_id,
+    id_usuario, 
+    observacao 
+  } = req.body;
+
+  if (!material_id || !quantidade || !destino_id) {
+    return res.status(400).json({ error: "Campos obrigatórios ausentes." });
+  }
+
+  try {
+    const [result] = await db.query(
+      `INSERT INTO estoque_movimentacoes 
+       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, rdo_id, data_movimentacao, id_usuario, observacao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
+      [
+        tipo_movimentacao || 'TRANSFERENCIA_SAIDA',
+        origem_tipo || 'BASE',
+        (origem_id && String(origem_id).trim() !== '') ? parseInt(origem_id) : 0,
+        destino_tipo || 'OBRA',
+        parseInt(destino_id),
+        parseInt(material_id),
+        parseFloat(quantidade),
+        faturamento_id ? parseInt(faturamento_id) : null,
+        rdo_id ? parseInt(rdo_id) : null,
+        id_usuario ? parseInt(id_usuario) : 1,
+        observacao ? observacao.trim() : ''
+      ]
+    );
+
+    res.status(201).json({ message: "Movimentação registrada com sucesso!", id: result.insertId });
+  } catch (error) {
+    console.error("Erro ao criar movimentação:", error);
+    res.status(500).json({ error: "Erro ao registrar movimentação.", detalhe: error.message });
+  }
+});
+
+// POST: Criar movimentação -> URL: POST /api/master/movimentacoes
+router.post('/movimentacoes', async (req, res) => {
+  const { 
+    tipo_movimentacao, 
+    origem_tipo, 
+    origem_id, 
+    destino_tipo, 
+    destino_id, 
+    material_id, 
+    quantidade, 
+    faturamento_id, 
+    id_usuario, 
+    observacao 
+  } = req.body;
+
+  if (!material_id || !quantidade || !destino_id) {
+    return res.status(400).json({ error: "Campos obrigatórios ausentes." });
+  }
+
+  // Tratamento dos valores numéricos para evitar erro de SQL no MySQL
+  const origemIdValido = (origem_id && String(origem_id).trim() !== '') ? parseInt(origem_id) : 0;
+  const destinoIdValido = parseInt(destino_id);
+  const materialIdValido = parseInt(material_id);
+  const quantidadeValida = parseFloat(quantidade);
+
+  try {
+    const [result] = await db.query(
+      `INSERT INTO estoque_movimentacoes 
+       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, status, id_usuario, observacao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDENTE', ?, ?)`,
+      [
+        tipo_movimentacao || 'TRANSFERENCIA',
+        origem_tipo || 'BASE',
+        origemIdValido,
+        destino_tipo || 'OBRA',
+        destinoIdValido,
+        materialIdValido,
+        quantidadeValida,
+        faturamento_id ? parseInt(faturamento_id) : null,
+        id_usuario ? parseInt(id_usuario) : null,
+        observacao ? observacao.trim() : ''
+      ]
+    );
+
+    res.status(201).json({ message: "Movimentação criada como PENDENTE!", id: result.insertId });
+  } catch (error) {
+    console.error("ERRO REAL NO BANCO DE DADOS:", error);
+    res.status(500).json({ error: "Erro ao registrar movimentação.", detalhe: error.message });
+  }
+});
+
+// PUT: Confirmar Recebimento -> URL: PUT /api/master/movimentacoes/:id/confirmar
+router.put('/movimentacoes/:id/confirmar', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
+    if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
+
+    const mov = movs[0];
+    if (mov.status === 'CONFIRMADO') {
+      return res.status(400).json({ error: "Movimentação já foi confirmada anteriormente." });
+    }
+
+    await db.query('UPDATE estoque_movimentacoes SET status = "CONFIRMADO" WHERE id = ?', [id]);
+
+    await db.query(
+      'UPDATE materiais SET quantidade_atual = quantidade_atual + ? WHERE id = ?',
+      [mov.quantidade, mov.material_id]
+    );
+
+    res.json({ message: "Recebimento confirmado e saldo de estoque atualizado!" });
+  } catch (error) {
+    console.error("Erro ao confirmar movimentação:", error);
+    res.status(500).json({ error: "Erro ao confirmar recebimento." });
+  }
+});
+
+// DELETE: Excluir Movimentação -> URL: DELETE /api/master/movimentacoes/:id
+router.delete('/movimentacoes/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
+    if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
+
+    const mov = movs[0];
+
+    if (mov.status === 'CONFIRMADO') {
+      await db.query(
+        'UPDATE materiais SET quantidade_atual = GREATEST(0, quantidade_atual - ?) WHERE id = ?',
+        [mov.quantidade, mov.material_id]
+      );
+    }
+
+    await db.query('DELETE FROM estoque_movimentacoes WHERE id = ?', [id]);
+
+    res.json({ message: "Movimentação excluída com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao excluir movimentação:", error);
+    res.status(500).json({ error: "Erro ao excluir movimentação." });
+  }
+});
+
 export default router;
