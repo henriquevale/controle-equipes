@@ -906,27 +906,97 @@ router.delete('/bases/:id', async (req, res) => {
   }
 });
 
-// GET: Listar movimentações com nome do Material e nome do Usuário
+// ========================================================
+// ROTA DE MATERIAIS (Mantenha apenas ESTA versão unificada no backend)
+// ========================================================
+router.get('/materiais', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        m.id,
+        m.descricao,
+        m.unidade_medida,
+        m.quantidade_atual,
+        m.tipo,
+        GROUP_CONCAT(fm.id_fornecedor) AS fornecedores_ids
+      FROM materiais m
+      LEFT JOIN fornecedor_materiais fm ON m.id = fm.id_material
+      GROUP BY m.id
+      ORDER BY m.descricao ASC
+    `;
+    const [materiais] = await db.query(query);
+    
+    const formatados = materiais.map(mat => ({
+      ...mat,
+      fornecedores_ids: mat.fornecedores_ids 
+        ? mat.fornecedores_ids.split(',').map(Number) 
+        : []
+    }));
+
+    res.json(formatados);
+  } catch (error) {
+    console.error("Erro ao buscar materiais:", error);
+    res.status(500).json({ error: "Erro ao buscar materiais." });
+  }
+});
+
+// ========================================================
+// ROTA DE GESTORES (Ajustada para incluir MASTER e tratar vazios)
+// ========================================================
+router.get('/gestores', async (req, res) => {
+  try {
+    const [gestores] = await db.query(`
+      SELECT id, nome, usuario, cargo 
+      FROM usuarios_sistema 
+      WHERE cargo IS NOT NULL 
+        AND (
+          LOWER(cargo) LIKE '%gestor%' 
+          OR LOWER(cargo) LIKE '%gerente%'
+          OR LOWER(cargo) LIKE '%admin%'
+          OR LOWER(cargo) LIKE '%master%'
+        )
+      ORDER BY nome ASC
+    `);
+
+    // Se não encontrar gestores específicos, retorna todos os usuários cadastrados
+    if (gestores.length === 0) {
+      const [todosUsuarios] = await db.query(`SELECT id, nome, usuario, cargo FROM usuarios_sistema ORDER BY nome ASC`);
+      return res.json(todosUsuarios);
+    }
+
+    res.json(gestores);
+  } catch (error) {
+    console.error("Erro ao buscar gestores:", error);
+    res.status(500).json({ error: "Erro ao buscar gestores." });
+  }
+});
+// ========================================================
+// GET: LISTAR MOVIMENTAÇÕES COM JUNÇÃO DE NOMES
+// ========================================================
 router.get('/master/movimentacoes', async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const sql = `
       SELECT 
         em.*,
         m.descricao AS material_nome,
         m.unidade_medida,
-        u.nome AS usuario_nome
+        u_envia.nome AS quem_envia_nome,
+        u_pede.nome AS quem_pede_nome,
+        u_reg.nome AS usuario_nome
       FROM estoque_movimentacoes em
-      LEFT JOIN materiais m ON m.id = em.material_id
-      LEFT JOIN usuarios_sistema u ON u.id = em.id_usuario
+      LEFT JOIN materiais m ON em.material_id = m.id
+      LEFT JOIN usuarios_sistema u_envia ON em.quem_envia_id = u_envia.id
+      LEFT JOIN usuarios_sistema u_pede ON em.quem_pede_id = u_pede.id
+      LEFT JOIN usuarios_sistema u_reg ON em.id_usuario = u_reg.id
       ORDER BY em.id DESC
-    `);
+    `;
+    const [rows] = await db.query(sql);
     res.json(rows);
-  } catch (error) {
-    console.error("Erro ao buscar movimentações:", error);
-    res.status(500).json({ error: "Erro ao buscar movimentações." });
+  } catch (err) {
+    console.error("Erro ao buscar movimentações:", err);
+    res.status(500).json({ error: "Erro ao buscar histórico de movimentações." });
   }
 });
-
 // POST: Criar movimentação usando as colunas exatas do banco
 router.post('/master/movimentacoes', async (req, res) => {
   const { 
@@ -940,6 +1010,8 @@ router.post('/master/movimentacoes', async (req, res) => {
     faturamento_id, 
     rdo_id,
     id_usuario, 
+    quem_envia_id,
+    quem_pede_id,
     observacao 
   } = req.body;
 
@@ -950,8 +1022,8 @@ router.post('/master/movimentacoes', async (req, res) => {
   try {
     const [result] = await db.query(
       `INSERT INTO estoque_movimentacoes 
-       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, rdo_id, data_movimentacao, id_usuario, observacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
+       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, rdo_id, data_movimentacao, id_usuario, quem_envia_id, quem_pede_id, observacao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
       [
         tipo_movimentacao || 'TRANSFERENCIA_SAIDA',
         origem_tipo || 'BASE',
@@ -963,6 +1035,8 @@ router.post('/master/movimentacoes', async (req, res) => {
         faturamento_id ? parseInt(faturamento_id) : null,
         rdo_id ? parseInt(rdo_id) : null,
         id_usuario ? parseInt(id_usuario) : 1,
+        quem_envia_id ? parseInt(quem_envia_id) : null,
+        quem_pede_id ? parseInt(quem_pede_id) : null,
         observacao ? observacao.trim() : ''
       ]
     );
@@ -974,7 +1048,7 @@ router.post('/master/movimentacoes', async (req, res) => {
   }
 });
 
-// POST: Criar movimentação -> URL: POST /api/master/movimentacoes
+// POST: Criar movimentação pendente -> URL: POST /api/movimentacoes
 router.post('/movimentacoes', async (req, res) => {
   const { 
     tipo_movimentacao, 
@@ -986,6 +1060,8 @@ router.post('/movimentacoes', async (req, res) => {
     quantidade, 
     faturamento_id, 
     id_usuario, 
+    quem_envia_id,
+    quem_pede_id,
     observacao 
   } = req.body;
 
@@ -993,7 +1069,6 @@ router.post('/movimentacoes', async (req, res) => {
     return res.status(400).json({ error: "Campos obrigatórios ausentes." });
   }
 
-  // Tratamento dos valores numéricos para evitar erro de SQL no MySQL
   const origemIdValido = (origem_id && String(origem_id).trim() !== '') ? parseInt(origem_id) : 0;
   const destinoIdValido = parseInt(destino_id);
   const materialIdValido = parseInt(material_id);
@@ -1002,8 +1077,8 @@ router.post('/movimentacoes', async (req, res) => {
   try {
     const [result] = await db.query(
       `INSERT INTO estoque_movimentacoes 
-       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, status, id_usuario, observacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDENTE', ?, ?)`,
+       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, status, id_usuario, quem_envia_id, quem_pede_id, observacao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDENTE', ?, ?, ?, ?)`,
       [
         tipo_movimentacao || 'TRANSFERENCIA',
         origem_tipo || 'BASE',
@@ -1014,6 +1089,8 @@ router.post('/movimentacoes', async (req, res) => {
         quantidadeValida,
         faturamento_id ? parseInt(faturamento_id) : null,
         id_usuario ? parseInt(id_usuario) : null,
+        quem_envia_id ? parseInt(quem_envia_id) : null,
+        quem_pede_id ? parseInt(quem_pede_id) : null,
         observacao ? observacao.trim() : ''
       ]
     );
@@ -1025,8 +1102,65 @@ router.post('/movimentacoes', async (req, res) => {
   }
 });
 
-// PUT: Confirmar Recebimento -> URL: PUT /api/master/movimentacoes/:id/confirmar
-router.put('/movimentacoes/:id/confirmar', async (req, res) => {
+// 1. PUT: Atualizar Movimentação (Edição genérica)
+router.put('/master/movimentacoes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { 
+    quem_envia_id, material_id, quantidade, tipo_movimentacao, 
+    quem_pede_id, origem_tipo, origem_id, destino_tipo, destino_id, observacao 
+  } = req.body;
+
+  try {
+    const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
+    if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
+
+    await db.query(`
+      UPDATE estoque_movimentacoes 
+      SET quem_envia_id = ?, material_id = ?, quantidade = ?, tipo_movimentacao = ?, 
+          quem_pede_id = ?, origem_tipo = ?, origem_id = ?, destino_tipo = ?, 
+          destino_id = ?, observacao = ?
+      WHERE id = ?
+    `, [
+      quem_envia_id, material_id, quantidade, tipo_movimentacao, 
+      quem_pede_id, origem_tipo, origem_id, destino_tipo, 
+      destino_id, observacao, id
+    ]);
+
+    res.json({ message: "Movimentação atualizada com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao atualizar movimentação:", error);
+    res.status(500).json({ error: "Erro ao atualizar movimentação." });
+  }
+});
+
+// 2. DELETE: Excluir Movimentação (Ajustado com /master)
+router.delete('/master/movimentacoes/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
+    if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
+
+    const mov = movs[0];
+
+    if (mov.status === 'CONFIRMADO') {
+      await db.query(
+        'UPDATE materiais SET quantidade_atual = GREATEST(0, quantidade_atual - ?) WHERE id = ?',
+        [mov.quantidade, mov.material_id]
+      );
+    }
+
+    await db.query('DELETE FROM estoque_movimentacoes WHERE id = ?', [id]);
+
+    res.json({ message: "Movimentação excluída com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao excluir movimentação:", error);
+    res.status(500).json({ error: "Erro ao excluir movimentação." });
+  }
+});
+
+// 3. PUT: Confirmar Recebimento (Ajustado com /master)
+router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -1052,30 +1186,297 @@ router.put('/movimentacoes/:id/confirmar', async (req, res) => {
   }
 });
 
-// DELETE: Excluir Movimentação -> URL: DELETE /api/master/movimentacoes/:id
-router.delete('/movimentacoes/:id', async (req, res) => {
-  const { id } = req.params;
-
+// GET: Saldo de Estoque Consolidado + Movimentações
+router.get('/master/estoque/saldos', async (req, res) => {
   try {
-    const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
-    if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
+    const query = `
+      SELECT 
+        m.id AS material_id,
+        m.descricao AS material_nome,
+        m.unidade_medida,
+        m.tipo AS material_tipo,
+        m.quantidade_atual AS saldo_cadastrado,
+        COALESCE(SUM(
+          CASE 
+            WHEN e.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE') THEN e.quantidade
+            WHEN e.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -e.quantidade
+            ELSE 0
+          END
+        ), 0) AS total_movimentado,
+        (m.quantidade_atual + COALESCE(SUM(
+          CASE 
+            WHEN e.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE') THEN e.quantidade
+            WHEN e.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -e.quantidade
+            ELSE 0
+          END
+        ), 0)) AS saldo_total
+      FROM materiais m
+      LEFT JOIN estoque_movimentacoes e ON m.id = e.material_id 
+        AND (e.status IS NULL OR e.status = 'CONFIRMADO' OR e.status = '')
+      GROUP BY m.id, m.descricao, m.unidade_medida, m.tipo, m.quantidade_atual
+      ORDER BY m.descricao ASC;
+    `;
 
-    const mov = movs[0];
-
-    if (mov.status === 'CONFIRMADO') {
-      await db.query(
-        'UPDATE materiais SET quantidade_atual = GREATEST(0, quantidade_atual - ?) WHERE id = ?',
-        [mov.quantidade, mov.material_id]
-      );
-    }
-
-    await db.query('DELETE FROM estoque_movimentacoes WHERE id = ?', [id]);
-
-    res.json({ message: "Movimentação excluída com sucesso!" });
+    const [saldos] = await db.query(query);
+    res.json(saldos);
   } catch (error) {
-    console.error("Erro ao excluir movimentação:", error);
-    res.status(500).json({ error: "Erro ao excluir movimentação." });
+    console.error("Erro ao buscar saldos de estoque:", error);
+    res.status(500).json({ error: "Erro ao carregar saldos de estoque." });
   }
 });
 
+// GET: Relatório Avançado de Movimentações
+router.get('/master/relatorios/movimentacoes', async (req, res) => {
+  const { data_inicio, data_fim, tipo_movimentacao, material_id, origem_tipo, destino_tipo } = req.query;
+
+  try {
+    let query = `
+      SELECT 
+        e.id,
+        e.tipo_movimentacao,
+        e.origem_tipo,
+        e.origem_id,
+        e.destino_tipo,
+        e.destino_id,
+        e.quantidade,
+        e.status,
+        e.data_movimentacao,
+        e.observacao,
+        m.descricao AS material_nome,
+        m.unidade_medida,
+        CASE 
+          WHEN e.origem_tipo = 'BASE' THEN b_origem.nome
+          WHEN e.origem_tipo = 'OBRA' THEN o_origem.nome_obra
+          WHEN e.origem_tipo = 'FORNECEDOR' THEN 'Fornecedor'
+        END AS origem_nome,
+        CASE 
+          WHEN e.destino_tipo = 'BASE' THEN b_destino.nome
+          WHEN e.destino_tipo = 'OBRA' THEN o_destino.nome_obra
+        END AS destino_nome
+      FROM estoque_movimentacoes e
+      INNER JOIN materiais m ON m.id = e.material_id
+      LEFT JOIN bases b_origem ON e.origem_tipo = 'BASE' AND b_origem.id = e.origem_id
+      LEFT JOIN obras o_origem ON e.origem_tipo = 'OBRA' AND o_origem.id = e.origem_id
+      LEFT JOIN bases b_destino ON e.destino_tipo = 'BASE' AND b_destino.id = e.destino_id
+      LEFT JOIN obras o_destino ON e.destino_tipo = 'OBRA' AND o_destino.id = e.destino_id
+      WHERE 1=1
+    `;
+
+    const params = [];
+
+    if (data_inicio) {
+      query += ` AND e.data_movimentacao >= ?`;
+      params.push(`${data_inicio} 00:00:00`);
+    }
+    if (data_fim) {
+      query += ` AND e.data_movimentacao <= ?`;
+      params.push(`${data_fim} 23:59:59`);
+    }
+    if (tipo_movimentacao) {
+      query += ` AND e.tipo_movimentacao = ?`;
+      params.push(tipo_movimentacao);
+    }
+    if (material_id) {
+      query += ` AND e.material_id = ?`;
+      params.push(material_id);
+    }
+    if (origem_tipo) {
+      query += ` AND e.origem_tipo = ?`;
+      params.push(origem_tipo);
+    }
+    if (destino_tipo) {
+      query += ` AND e.destino_tipo = ?`;
+      params.push(destino_tipo);
+    }
+
+    query += ` ORDER BY e.data_movimentacao DESC, e.id DESC`;
+
+    const [movimentacoes] = await db.query(query, params);
+    res.json(movimentacoes);
+  } catch (error) {
+    console.error("Erro ao gerar relatório de movimentações:", error);
+    res.status(500).json({ error: "Erro ao carregar relatório." });
+  }
+});
+
+// ========================================================
+// 16. ROTAS DE RELATÓRIO DE COMPRAS (MÉTRICAS, ORDENAÇÃO & OBRAS)
+// ========================================================
+
+// Helper para definir a cláusula ORDER BY dinâmica com base na ordenação solicitada
+function getOrderBySql(ordenacao, tipoRelatorio) {
+  switch (ordenacao) {
+    case 'maior_gasto':
+      return 'valor_total_gasto DESC';
+    case 'menor_gasto':
+      return 'valor_total_gasto ASC';
+    case 'maior_qtd':
+      return tipoRelatorio === 'material' ? 'quantidade_total_comprada DESC' : 'total_pedidos DESC';
+    case 'menor_qtd':
+      return tipoRelatorio === 'material' ? 'quantidade_total_comprada ASC' : 'total_pedidos ASC';
+    case 'ultima_compra':
+      return 'ultima_compra DESC';
+    case 'primeira_compra':
+      return 'primeira_compra ASC';
+    default:
+      return 'valor_total_gasto DESC';
+  }
+}
+
+// 16-A. GET: Relatório por Produto / Material
+router.get('/relatorios/compras-por-material', async (req, res) => {
+  const { data_inicio, data_fim, fornecedor_id, obra_id, ordenacao } = req.query;
+
+  try {
+    let sql = `
+      SELECT 
+        m.id AS material_id,
+        m.descricao AS material_nome,
+        m.unidade_medida,
+        m.tipo AS material_tipo,
+        COUNT(DISTINCT fd.id) AS total_pedidos,
+        SUM(fi.quantidade) AS quantidade_total_comprada,
+        SUM(fi.quantidade * fi.valor_unitario) AS valor_total_gasto,
+        AVG(fi.valor_unitario) AS preco_medio_unitario,
+        MIN(fi.valor_unitario) AS menor_preco_unitario,
+        MAX(fi.valor_unitario) AS maior_preco_unitario,
+        MAX(fd.data_solicitacao) AS ultima_compra,
+        MIN(fd.data_solicitacao) AS primeira_compra
+      FROM faturamento_itens fi
+      INNER JOIN faturamentos_diretos fd ON fi.faturamento_id = fd.id
+      INNER JOIN materiais m ON fi.material_id = m.id
+      WHERE fd.status != 'Cancelado'
+    `;
+
+    const params = [];
+
+    if (data_inicio) {
+      sql += ` AND fd.data_solicitacao >= ?`;
+      params.push(data_inicio);
+    }
+    if (data_fim) {
+      sql += ` AND fd.data_solicitacao <= ?`;
+      params.push(data_fim);
+    }
+    if (fornecedor_id) {
+      sql += ` AND fd.fornecedor_id = ?`;
+      params.push(fornecedor_id);
+    }
+    if (obra_id) {
+      sql += ` AND fd.obra_id = ?`;
+      params.push(obra_id);
+    }
+
+    sql += ` GROUP BY m.id, m.descricao, m.unidade_medida, m.tipo`;
+    sql += ` ORDER BY ${getOrderBySql(ordenacao, 'material')}`;
+
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro no relatório por material:", error);
+    res.status(500).json({ error: "Erro ao gerar relatório por material." });
+  }
+});
+
+// 16-B. GET: Relatório por Fornecedor
+router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
+  const { data_inicio, data_fim, material_id, obra_id, ordenacao } = req.query;
+
+  try {
+    let sql = `
+      SELECT 
+        f.id AS fornecedor_id,
+        f.nome_fantasia,
+        f.razao_social,
+        f.cnpj,
+        COUNT(DISTINCT fd.id) AS total_pedidos,
+        SUM(fi.quantidade * fi.valor_unitario) AS valor_total_gasto,
+        COUNT(DISTINCT fi.material_id) AS diversidade_produtos,
+        MAX(fd.data_solicitacao) AS ultima_compra,
+        MIN(fd.data_solicitacao) AS primeira_compra
+      FROM faturamentos_diretos fd
+      INNER JOIN fornecedores f ON fd.fornecedor_id = f.id
+      INNER JOIN faturamento_itens fi ON fi.faturamento_id = fd.id
+      WHERE fd.status != 'Cancelado'
+    `;
+
+    const params = [];
+
+    if (data_inicio) {
+      sql += ` AND fd.data_solicitacao >= ?`;
+      params.push(data_inicio);
+    }
+    if (data_fim) {
+      sql += ` AND fd.data_solicitacao <= ?`;
+      params.push(data_fim);
+    }
+    if (material_id) {
+      sql += ` AND fi.material_id = ?`;
+      params.push(material_id);
+    }
+    if (obra_id) {
+      sql += ` AND fd.obra_id = ?`;
+      params.push(obra_id);
+    }
+
+    sql += ` GROUP BY f.id, f.nome_fantasia, f.razao_social, f.cnpj`;
+    sql += ` ORDER BY ${getOrderBySql(ordenacao, 'fornecedor')}`;
+
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro no relatório por fornecedor:", error);
+    res.status(500).json({ error: "Erro ao gerar relatório por fornecedor." });
+  }
+});
+
+// 16-C. GET: Relatório por Obra (Demandante de Compras)
+router.get('/relatorios/compras-por-obra', async (req, res) => {
+  const { data_inicio, data_fim, fornecedor_id, material_id, ordenacao } = req.query;
+
+  try {
+    let sql = `
+      SELECT 
+        o.id AS obra_id,
+        o.nome_obra AS obra_nome,
+        COUNT(DISTINCT fd.id) AS total_pedidos,
+        SUM(fi.quantidade * fi.valor_unitario) AS valor_total_gasto,
+        COUNT(DISTINCT fi.material_id) AS diversidade_produtos,
+        MAX(fd.data_solicitacao) AS ultima_compra,
+        MIN(fd.data_solicitacao) AS primeira_compra
+      FROM faturamentos_diretos fd
+      INNER JOIN obras o ON fd.obra_id = o.id
+      INNER JOIN faturamento_itens fi ON fi.faturamento_id = fd.id
+      WHERE fd.status != 'Cancelado'
+    `;
+
+    const params = [];
+
+    if (data_inicio) {
+      sql += ` AND fd.data_solicitacao >= ?`;
+      params.push(data_inicio);
+    }
+    if (data_fim) {
+      sql += ` AND fd.data_solicitacao <= ?`;
+      params.push(data_fim);
+    }
+    if (fornecedor_id) {
+      sql += ` AND fd.fornecedor_id = ?`;
+      params.push(fornecedor_id);
+    }
+    if (material_id) {
+      sql += ` AND fi.material_id = ?`;
+      params.push(material_id);
+    }
+
+    sql += ` GROUP BY o.id, o.nome_obra`;
+    sql += ` ORDER BY ${getOrderBySql(ordenacao, 'obra')}`;
+
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro no relatório por obra:", error);
+    res.status(500).json({ error: "Erro ao gerar relatório por obra." });
+  }
+});
 export default router;

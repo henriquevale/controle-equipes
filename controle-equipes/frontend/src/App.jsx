@@ -20,6 +20,9 @@ import CadastroFornecedores from './assets/CadastroFornecedores';
 import FaturamentoDireto from './assets/FaturamentoDireto.jsx'; 
 import Base from './assets/Base.jsx'; 
 import EstoqueMovimentacoes from './assets/EstoqueMovimentacoes.jsx';
+import EstoqueSaldos from './assets/EstoqueSaldos.jsx';
+import RelatorioMovimentacao from './assets/RelatorioMovimentacoes.jsx';
+import RelatorioCompras from './assets/RelatorioCompras.jsx';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -324,15 +327,14 @@ export default function App() {
             )}
 
           {abaAtiva === 'ESTOQUE' && usuarioLogado.cargo === 'MASTER' && (
-                        <div>Relatório de Compras em desenvolvimento...</div>
-
+            <EstoqueSaldos API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
           )}
 
           {abaAtiva === 'RELATORIO_COMPRAS' && usuarioLogado.cargo === 'MASTER' && (
-            <div>Relatório de Compras em desenvolvimento...</div>
+            <RelatorioCompras API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
           )}
           {abaAtiva === 'RELATORIO_MOVIMENTACAO' && usuarioLogado.cargo === 'MASTER' && (
-            <div>Relatório de Movimentação em desenvolvimento...</div>
+            <RelatorioMovimentacao API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
           )}
 
         </div>
