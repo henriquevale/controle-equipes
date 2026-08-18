@@ -9,10 +9,10 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
   const [editandoId, setEditandoId] = useState(null);
 
   const [form, setForm] = useState({
+    codigo: '',
     descricao: '',
     unidade_medida: 'UN',
-    tipo: 'HORIZONTAL',
-    quantidade_atual: 0
+    tipo: 'HORIZONTAL'
   });
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
         mostrarMensagem('Material cadastrado com sucesso!', 'sucesso');
       }
 
-      setForm({ descricao: '', unidade_medida: 'UN', tipo: 'HORIZONTAL', quantidade_atual: 0 });
+      setForm({ codigo: '', descricao: '', unidade_medida: 'UN', tipo: 'HORIZONTAL' });
       setEditandoId(null);
       carregarMateriais();
     } catch (e) {
@@ -54,10 +54,10 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
   const handleEditar = (mat) => {
     setEditandoId(mat.id);
     setForm({
+      codigo: mat.codigo || '',
       descricao: mat.descricao || '',
       unidade_medida: mat.unidade_medida || 'UN',
-      tipo: mat.tipo || 'HORIZONTAL',
-      quantidade_atual: mat.quantidade_atual || 0
+      tipo: mat.tipo || 'HORIZONTAL'
     });
   };
 
@@ -80,10 +80,10 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
     }
 
     let csvContent = 'data:text/csv;charset=utf-8,\uFEFF';
-    csvContent += 'DESCRICAO;UNIDADE_MEDIDA;TIPO;QUANTIDADE_ATUAL\n';
+    csvContent += 'CODIGO;DESCRICAO;UNIDADE_MEDIDA;TIPO\n';
 
     materiaisFiltrados.forEach((m) => {
-      const linha = `"${m.descricao || ''}";"${m.unidade_medida || ''}";"${m.tipo || ''}";"${m.quantidade_atual || 0}"`;
+      const linha = `"${m.codigo || ''}";"${m.descricao || ''}";"${m.unidade_medida || ''}";"${m.tipo || ''}"`;
       csvContent += linha + '\n';
     });
 
@@ -97,7 +97,8 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
   };
 
   const materiaisFiltrados = materiais.filter(m => {
-    const atendeBusca = m.descricao?.toLowerCase().includes(termoBusca.toLowerCase());
+    const termo = termoBusca.toLowerCase();
+    const atendeBusca = m.descricao?.toLowerCase().includes(termo) || m.codigo?.toLowerCase().includes(termo);
     const atendeTipo = filtroTipo ? m.tipo === filtroTipo : true;
     return atendeBusca && atendeTipo;
   });
@@ -112,8 +113,20 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
           {editandoId ? 'Editar Material' : 'Cadastrar Novo Material'}
         </h3>
 
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
-          <div style={{ flex: 2 }}>
+        <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', alignItems: 'end' }}>
+          
+          <div>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>CÓDIGO</label>
+            <input 
+              type="text" 
+              placeholder="Ex: MAT-001" 
+              value={form.codigo} 
+              onChange={e => setForm({ ...form, codigo: e.target.value.toUpperCase() })}
+              style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div style={{ gridColumn: 'span 2' }}>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>DESCRIÇÃO DO MATERIAL</label>
             <input 
               type="text" 
@@ -155,24 +168,13 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
             </select>
           </div>
 
-          <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>QTD INICIAL</label>
-            <input 
-              type="number" 
-              step="0.01"
-              value={form.quantidade_atual} 
-              onChange={e => setForm({ ...form, quantidade_atual: parseFloat(e.target.value) || 0 })}
-              style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }}
-            />
-          </div>
-
           <div style={{ display: 'flex', gap: '6px' }}>
             <button type="submit" style={{ height: '32px', flex: 1, backgroundColor: editandoId ? '#0284c7' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
               <Plus style={{ width: '14px', height: '14px' }} />
               {editandoId ? 'Atualizar' : 'Salvar'}
             </button>
             {editandoId && (
-              <button type="button" onClick={() => { setEditandoId(null); setForm({ descricao: '', unidade_medida: 'UN', tipo: 'HORIZONTAL', quantidade_atual: 0 }); }} style={{ height: '32px', padding: '0 10px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>
+              <button type="button" onClick={() => { setEditandoId(null); setForm({ codigo: '', descricao: '', unidade_medida: 'UN', tipo: 'HORIZONTAL' }); }} style={{ height: '32px', padding: '0 10px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>
                 Cancelar
               </button>
             )}
@@ -191,7 +193,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
               <Search style={{ position: 'absolute', left: '8px', width: '14px', height: '14px', color: '#94a3b8' }} />
               <input 
                 type="text" 
-                placeholder="Pesquisar material..." 
+                placeholder="Pesquisar por código ou descrição..." 
                 value={termoBusca} 
                 onChange={e => setTermoBusca(e.target.value)}
                 style={{ width: '100%', height: '30px', paddingLeft: '28px', paddingRight: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }}
@@ -228,10 +230,10 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
+                <th style={{ padding: '8px 12px' }}>Código</th>
                 <th style={{ padding: '8px 12px' }}>Descrição</th>
                 <th style={{ padding: '8px 12px' }}>Unidade</th>
                 <th style={{ padding: '8px 12px' }}>Tipo</th>
-                <th style={{ padding: '8px 12px' }}>Qtd. Atual</th>
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
@@ -243,6 +245,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
               ) : (
                 materiaisFiltrados.map((mat) => (
                   <tr key={mat.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '8px 12px', fontWeight: 'bold', color: '#2563eb' }}>{mat.codigo || '-'}</td>
                     <td style={{ padding: '8px 12px', fontWeight: 'bold' }}>{mat.descricao}</td>
                     <td style={{ padding: '8px 12px' }}>{mat.unidade_medida}</td>
                     <td style={{ padding: '8px 12px' }}>
@@ -250,7 +253,6 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
                         {mat.tipo || 'HORIZONTAL'}
                       </span>
                     </td>
-                    <td style={{ padding: '8px 12px', fontWeight: 'bold', color: '#0f172a' }}>{mat.quantidade_atual}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                       <button onClick={() => handleEditar(mat)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', marginRight: '8px' }} title="Editar">
                         <Edit2 style={{ width: '14px', height: '14px' }} />

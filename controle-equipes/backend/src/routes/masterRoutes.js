@@ -336,15 +336,35 @@ router.get('/master/obras-todas', async (req, res) => {
 });
 
 // ========================================================
-// 13. ROTAS DE MATERIAIS (DESCRICAO, UNIDADE_MEDIDA, TIPO)
+// 13. ROTAS DE MATERIAIS (CODIGO, DESCRICAO, UNIDADE_MEDIDA, TIPO)
 // ========================================================
 
 // 13-A. GET: Listar todos os materiais
 router.get('/materiais', async (req, res) => {
   try {
-    const sql = 'SELECT id, descricao, unidade_medida, tipo, quantidade_atual FROM materiais ORDER BY descricao ASC';
+    const sql = `
+      SELECT 
+        m.id, 
+        m.codigo, 
+        m.descricao, 
+        m.unidade_medida, 
+        m.tipo,
+        GROUP_CONCAT(fm.id_fornecedor) AS fornecedores_ids
+      FROM materiais m
+      LEFT JOIN fornecedor_materiais fm ON m.id = fm.id_material
+      GROUP BY m.id, m.codigo, m.descricao, m.unidade_medida, m.tipo
+      ORDER BY m.descricao ASC
+    `;
     const [rows] = await db.execute(sql);
-    res.json(rows);
+    
+    const formatados = rows.map(mat => ({
+      ...mat,
+      fornecedores_ids: mat.fornecedores_ids 
+        ? mat.fornecedores_ids.split(',').map(Number) 
+        : []
+    }));
+
+    res.json(formatados);
   } catch (err) {
     console.error('Erro ao buscar materiais:', err);
     res.status(500).json({ error: 'Erro ao carregar lista de materiais.' });
@@ -353,24 +373,25 @@ router.get('/materiais', async (req, res) => {
 
 // 13-B. POST: Cadastrar novo material
 router.post('/materiais', async (req, res) => {
-  const { descricao, unidade_medida, tipo, quantidade_atual } = req.body;
+  const { codigo, descricao, unidade_medida, tipo } = req.body;
 
   if (!descricao) {
     return res.status(400).json({ error: 'A descrição é obrigatória.' });
   }
 
   try {
-    const sql = 'INSERT INTO materiais (descricao, unidade_medida, tipo, quantidade_atual) VALUES (?, ?, ?, ?)';
+    const sql = 'INSERT INTO materiais (codigo, descricao, unidade_medida, tipo) VALUES (?, ?, ?, ?)';
     
+    const codigoValido = codigo && codigo.trim() !== '' ? codigo.trim().toUpperCase() : null;
     const descMaiuscula = descricao.trim().toUpperCase();
     const unidadeMaiuscula = unidade_medida ? unidade_medida.trim().toUpperCase() : 'UN';
     const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
 
     const [result] = await db.execute(sql, [
+      codigoValido,
       descMaiuscula,
       unidadeMaiuscula,
-      tipoMaiusculo,
-      quantidade_atual || 0
+      tipoMaiusculo
     ]);
 
     res.status(201).json({ success: true, message: 'Material cadastrado com sucesso!', id: result.insertId });
@@ -383,24 +404,25 @@ router.post('/materiais', async (req, res) => {
 // 13-C. PUT: Atualizar material existente
 router.put('/materiais/:id', async (req, res) => {
   const { id } = req.params;
-  const { descricao, unidade_medida, tipo, quantidade_atual } = req.body;
+  const { codigo, descricao, unidade_medida, tipo } = req.body;
 
   if (!descricao) {
     return res.status(400).json({ error: 'A descrição é obrigatória.' });
   }
 
   try {
-    const sql = 'UPDATE materiais SET descricao = ?, unidade_medida = ?, tipo = ?, quantidade_atual = ? WHERE id = ?';
+    const sql = 'UPDATE materiais SET codigo = ?, descricao = ?, unidade_medida = ?, tipo = ? WHERE id = ?';
     
+    const codigoValido = codigo && codigo.trim() !== '' ? codigo.trim().toUpperCase() : null;
     const descMaiuscula = descricao.trim().toUpperCase();
     const unidadeMaiuscula = unidade_medida ? unidade_medida.trim().toUpperCase() : 'UN';
     const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
 
     await db.execute(sql, [
+      codigoValido,
       descMaiuscula,
       unidadeMaiuscula,
       tipoMaiusculo,
-      quantidade_atual || 0,
       parseInt(id)
     ]);
 
@@ -411,6 +433,20 @@ router.put('/materiais/:id', async (req, res) => {
   }
 });
 
+// 13-D. DELETE: Excluir material
+router.delete('/materiais/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const sql = 'DELETE FROM materiais WHERE id = ?';
+    await db.execute(sql, [parseInt(id)]);
+
+    res.json({ success: true, message: 'Material excluído com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao excluir material:', err);
+    res.status(500).json({ error: 'Erro ao excluir o material. Verifique se ele não possui vínculos atrelados.' });
+  }
+});
 // 13-D. DELETE: Excluir material
 router.delete('/materiais/:id', async (req, res) => {
   const { id } = req.params;
@@ -558,6 +594,7 @@ router.delete('/fornecedores/:id', async (req, res) => {
     res.status(500).json({ error: 'Erro ao excluir fornecedor.' });
   }
 });
+
 // ========================================================
 // 15. ROTAS DE FATURAMENTO DIRETO (INCLUINDO ITENS COM CAPACIDADE DE USO)
 // ========================================================
@@ -576,7 +613,6 @@ router.get('/faturamento-direto', async (req, res) => {
     const [faturamentos] = await db.query(sql);
 
     try {
-      // Traz os itens incluindo capacidade_uso e nome do material
       const [itens] = await db.query(`
         SELECT fi.*, m.descricao AS nome_material 
         FROM faturamento_itens fi
@@ -622,7 +658,6 @@ router.post('/faturamento-direto', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // Tratamento de segurança para tipos
     const boletimFormatado = boletim_medicao 
       ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() 
       : null;
@@ -667,7 +702,6 @@ router.post('/faturamento-direto', async (req, res) => {
 
     const idFaturamento = result.insertId;
 
-    // Gravação dos Itens
     if (Array.isArray(itens) && itens.length > 0) {
       const sqlItem = `
         INSERT INTO faturamento_itens 
@@ -692,7 +726,6 @@ router.post('/faturamento-direto', async (req, res) => {
     res.status(201).json({ id: idFaturamento, message: 'Faturamento criado com sucesso!' });
   } catch (error) {
     await connection.rollback();
-    // Exibe o erro real do MySQL no terminal do servidor Node
     console.error('ERRO REAL NO BANCO DE DADOS:', error);
     res.status(500).json({ error: 'Erro ao cadastrar faturamento', detalhe: error.message });
   } finally {
@@ -767,7 +800,6 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       parseInt(id)
     ]);
 
-    // Atualiza os itens (Apaga os antigos e insere os novos com capacidade_uso)
     if (Array.isArray(itens)) {
       await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [id]);
       
@@ -802,14 +834,14 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     connection.release();
   }
 });
-// 4. DELETE - Remover faturamento
+
+// DELETE - Remover faturamento
 router.delete('/faturamento-direto/:id', async (req, res) => {
   const { id } = req.params;
   
   try {
     const [result] = await db.query('DELETE FROM faturamentos_diretos WHERE id = ?', [id]);
 
-    // Boa prática: Verificar se algum registro foi realmente afetado/excluído
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Registro não encontrado para exclusão' });
     }
@@ -820,19 +852,18 @@ router.delete('/faturamento-direto/:id', async (req, res) => {
     return res.status(500).json({ error: 'Erro ao excluir faturamento' });
   }
 });
+
 // GET: Listar todas as bases com suas obras associadas
 router.get('/bases', async (req, res) => {
   try {
     const [bases] = await db.query('SELECT * FROM bases ORDER BY nome ASC');
     
-    // Busca as relações com as obras na tabela intermediária
     const [vinculos] = await db.query(`
       SELECT bo.base_id, bo.obra_id, o.nome_obra 
       FROM base_obras bo
       JOIN obras o ON o.id = bo.obra_id
     `);
 
-    // Monta a estrutura com o array de IDs e Nomes de Obras para cada Base
     const resultado = bases.map(b => ({
       ...b,
       obras_ids: vinculos.filter(v => v.base_id === b.id).map(v => v.obra_id),
@@ -858,7 +889,6 @@ router.post('/bases', async (req, res) => {
     );
     const baseId = resBase.insertId;
 
-    // Se foram selecionadas obras, cria os vínculos na tabela 'base_obras'
     if (Array.isArray(obras_ids) && obras_ids.length > 0) {
       const valores = obras_ids.map(obraId => [baseId, obraId]);
       await db.query('INSERT INTO base_obras (base_id, obra_id) VALUES ?', [valores]);
@@ -879,7 +909,6 @@ router.put('/bases/:id', async (req, res) => {
   try {
     await db.query('UPDATE bases SET nome = ?, endereco = ? WHERE id = ?', [nome, endereco || '', id]);
 
-    // Limpa os vínculos antigos e cadastra os novos selecionados
     await db.query('DELETE FROM base_obras WHERE base_id = ?', [id]);
 
     if (Array.isArray(obras_ids) && obras_ids.length > 0) {
@@ -907,40 +936,6 @@ router.delete('/bases/:id', async (req, res) => {
 });
 
 // ========================================================
-// ROTA DE MATERIAIS (Mantenha apenas ESTA versão unificada no backend)
-// ========================================================
-router.get('/materiais', async (req, res) => {
-  try {
-    const query = `
-      SELECT 
-        m.id,
-        m.descricao,
-        m.unidade_medida,
-        m.quantidade_atual,
-        m.tipo,
-        GROUP_CONCAT(fm.id_fornecedor) AS fornecedores_ids
-      FROM materiais m
-      LEFT JOIN fornecedor_materiais fm ON m.id = fm.id_material
-      GROUP BY m.id
-      ORDER BY m.descricao ASC
-    `;
-    const [materiais] = await db.query(query);
-    
-    const formatados = materiais.map(mat => ({
-      ...mat,
-      fornecedores_ids: mat.fornecedores_ids 
-        ? mat.fornecedores_ids.split(',').map(Number) 
-        : []
-    }));
-
-    res.json(formatados);
-  } catch (error) {
-    console.error("Erro ao buscar materiais:", error);
-    res.status(500).json({ error: "Erro ao buscar materiais." });
-  }
-});
-
-// ========================================================
 // ROTA DE GESTORES (Ajustada para incluir MASTER e tratar vazios)
 // ========================================================
 router.get('/gestores', async (req, res) => {
@@ -958,7 +953,6 @@ router.get('/gestores', async (req, res) => {
       ORDER BY nome ASC
     `);
 
-    // Se não encontrar gestores específicos, retorna todos os usuários cadastrados
     if (gestores.length === 0) {
       const [todosUsuarios] = await db.query(`SELECT id, nome, usuario, cargo FROM usuarios_sistema ORDER BY nome ASC`);
       return res.json(todosUsuarios);
@@ -970,6 +964,7 @@ router.get('/gestores', async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar gestores." });
   }
 });
+
 // ========================================================
 // GET: LISTAR MOVIMENTAÇÕES COM JUNÇÃO DE NOMES
 // ========================================================
@@ -997,6 +992,7 @@ router.get('/master/movimentacoes', async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar histórico de movimentações." });
   }
 });
+
 // POST: Criar movimentação usando as colunas exatas do banco
 router.post('/master/movimentacoes', async (req, res) => {
   const { 
@@ -1133,22 +1129,13 @@ router.put('/master/movimentacoes/:id', async (req, res) => {
   }
 });
 
-// 2. DELETE: Excluir Movimentação (Ajustado com /master)
+// 2. DELETE: Excluir Movimentação
 router.delete('/master/movimentacoes/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
     const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
     if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
-
-    const mov = movs[0];
-
-    if (mov.status === 'CONFIRMADO') {
-      await db.query(
-        'UPDATE materiais SET quantidade_atual = GREATEST(0, quantidade_atual - ?) WHERE id = ?',
-        [mov.quantidade, mov.material_id]
-      );
-    }
 
     await db.query('DELETE FROM estoque_movimentacoes WHERE id = ?', [id]);
 
@@ -1159,7 +1146,7 @@ router.delete('/master/movimentacoes/:id', async (req, res) => {
   }
 });
 
-// 3. PUT: Confirmar Recebimento (Ajustado com /master)
+// 3. PUT: Confirmar Recebimento
 router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
   const { id } = req.params;
 
@@ -1174,54 +1161,95 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
 
     await db.query('UPDATE estoque_movimentacoes SET status = "CONFIRMADO" WHERE id = ?', [id]);
 
-    await db.query(
-      'UPDATE materiais SET quantidade_atual = quantidade_atual + ? WHERE id = ?',
-      [mov.quantidade, mov.material_id]
-    );
-
-    res.json({ message: "Recebimento confirmado e saldo de estoque atualizado!" });
+    res.json({ message: "Recebimento confirmado com sucesso!" });
   } catch (error) {
     console.error("Erro ao confirmar movimentação:", error);
     res.status(500).json({ error: "Erro ao confirmar recebimento." });
   }
 });
 
-// GET: Saldo de Estoque Consolidado + Movimentações
+// GET: Locais (Bases e Obras)
+router.get('/master/locais', async (req, res) => {
+  try {
+    const [bases] = await db.query('SELECT id, nome FROM bases ORDER BY nome ASC');
+    
+    // Corrigido: aspas simples em 'ATIVA'
+    const [obras] = await db.query("SELECT id, nome_obra AS nome, codigo_obra FROM obras WHERE status = 'ATIVA' ORDER BY nome_obra ASC");
+    
+    const [baseObras] = await db.query('SELECT base_id, obra_id FROM base_obras');
+
+    res.json({ bases, obras, baseObras });
+  } catch (error) {
+    console.error("Erro ao buscar locais:", error);
+    res.status(500).json({ error: "Erro interno do servidor" });
+  }
+});
+
+// GET: Saldo de Estoque Consolidado por Local
 router.get('/master/estoque/saldos', async (req, res) => {
   try {
+    const { data_inicio, data_fim, tipo_local, id_local } = req.query;
+
+    const queryParams = [
+      tipo_local || null, id_local || null,
+      tipo_local || null, id_local || null,
+      tipo_local || null,
+      data_inicio || null, data_inicio || null,
+      data_fim || null, data_fim || null,
+      tipo_local || null, id_local || null,
+      tipo_local || null, id_local || null,
+      tipo_local || null
+    ];
+
     const query = `
       SELECT 
         m.id AS material_id,
-        m.descricao AS material_nome,
+        m.codigo,
+        m.descricao AS nome,
         m.unidade_medida,
-        m.tipo AS material_tipo,
-        m.quantidade_atual AS saldo_cadastrado,
+        m.tipo,
         COALESCE(SUM(
           CASE 
-            WHEN e.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE') THEN e.quantidade
-            WHEN e.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -e.quantidade
-            ELSE 0
+            WHEN mov.destino_tipo = ? AND mov.destino_id = ? THEN mov.quantidade
+            WHEN mov.origem_tipo = ? AND mov.origem_id = ? THEN -mov.quantidade
+            WHEN ? IS NULL THEN 
+              CASE 
+                WHEN mov.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA') THEN mov.quantidade 
+                WHEN mov.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -mov.quantidade 
+                ELSE 0 
+              END
+            ELSE 0 
           END
-        ), 0) AS total_movimentado,
-        (m.quantidade_atual + COALESCE(SUM(
+        ), 0) AS saldo_atual,
+        COALESCE(SUM(
           CASE 
-            WHEN e.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE') THEN e.quantidade
-            WHEN e.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -e.quantidade
-            ELSE 0
+            WHEN (? IS NULL OR mov.data_movimentacao >= ?) 
+             AND (? IS NULL OR mov.data_movimentacao <= ?) THEN
+              CASE 
+                WHEN mov.destino_tipo = ? AND mov.destino_id = ? THEN mov.quantidade
+                WHEN mov.origem_tipo = ? AND mov.origem_id = ? THEN -mov.quantidade
+                WHEN ? IS NULL THEN 
+                  CASE 
+                    WHEN mov.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA') THEN mov.quantidade 
+                    WHEN mov.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -mov.quantidade 
+                    ELSE 0 
+                  END
+                ELSE 0 
+              END
+            ELSE 0 
           END
-        ), 0)) AS saldo_total
+        ), 0) AS total_movimentado
       FROM materiais m
-      LEFT JOIN estoque_movimentacoes e ON m.id = e.material_id 
-        AND (e.status IS NULL OR e.status = 'CONFIRMADO' OR e.status = '')
-      GROUP BY m.id, m.descricao, m.unidade_medida, m.tipo, m.quantidade_atual
-      ORDER BY m.descricao ASC;
+      LEFT JOIN estoque_movimentacoes mov ON m.id = mov.material_id
+      GROUP BY m.id, m.codigo, m.descricao, m.unidade_medida, m.tipo
+      ORDER BY m.descricao ASC
     `;
 
-    const [saldos] = await db.query(query);
-    res.json(saldos);
+    const [rows] = await db.query(query, queryParams);
+    res.json(rows);
   } catch (error) {
-    console.error("Erro ao buscar saldos de estoque:", error);
-    res.status(500).json({ error: "Erro ao carregar saldos de estoque." });
+    console.error("Erro na rota /master/estoque/saldos:", error);
+    res.status(500).json({ error: "Erro interno do servidor", details: error.message });
   }
 });
 
@@ -1300,10 +1328,9 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
 });
 
 // ========================================================
-// 16. ROTAS DE RELATÓRIO DE COMPRAS (MÉTRICAS, ORDENAÇÃO & OBRAS)
+// 16. ROTAS DE RELATÓRIO DE COMPRAS
 // ========================================================
 
-// Helper para definir a cláusula ORDER BY dinâmica com base na ordenação solicitada
 function getOrderBySql(ordenacao, tipoRelatorio) {
   switch (ordenacao) {
     case 'maior_gasto':
@@ -1430,7 +1457,7 @@ router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
   }
 });
 
-// 16-C. GET: Relatório por Obra (Demandante de Compras)
+// 16-C. GET: Relatório por Obra
 router.get('/relatorios/compras-por-obra', async (req, res) => {
   const { data_inicio, data_fim, fornecedor_id, material_id, ordenacao } = req.query;
 
@@ -1479,4 +1506,5 @@ router.get('/relatorios/compras-por-obra', async (req, res) => {
     res.status(500).json({ error: "Erro ao gerar relatório por obra." });
   }
 });
+
 export default router;
