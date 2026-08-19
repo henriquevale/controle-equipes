@@ -993,7 +993,9 @@ router.get('/master/movimentacoes', async (req, res) => {
   }
 });
 
-// POST: Criar movimentação usando as colunas exatas do banco
+// ========================================================
+// POST: CRIAR MOVIMENTAÇÃO (COM STATUS PENDENTE)
+// ========================================================
 router.post('/master/movimentacoes', async (req, res) => {
   const { 
     tipo_movimentacao, 
@@ -1005,6 +1007,7 @@ router.post('/master/movimentacoes', async (req, res) => {
     quantidade, 
     faturamento_id, 
     rdo_id,
+    data_solicitada,
     id_usuario, 
     quem_envia_id,
     quem_pede_id,
@@ -1018,8 +1021,8 @@ router.post('/master/movimentacoes', async (req, res) => {
   try {
     const [result] = await db.query(
       `INSERT INTO estoque_movimentacoes 
-       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, rdo_id, data_movimentacao, id_usuario, quem_envia_id, quem_pede_id, observacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
+       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, rdo_id, data_movimentacao, data_solicitada, status, id_usuario, quem_envia_id, quem_pede_id, observacao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'PENDENTE', ?, ?, ?, ?)`,
       [
         tipo_movimentacao || 'TRANSFERENCIA_SAIDA',
         origem_tipo || 'BASE',
@@ -1030,9 +1033,10 @@ router.post('/master/movimentacoes', async (req, res) => {
         parseFloat(quantidade),
         faturamento_id ? parseInt(faturamento_id) : null,
         rdo_id ? parseInt(rdo_id) : null,
+        data_solicitada || null,
         id_usuario ? parseInt(id_usuario) : 1,
-        quem_envia_id ? parseInt(quem_envia_id) : null,
-        quem_pede_id ? parseInt(quem_pede_id) : null,
+        (quem_envia_id && String(quem_envia_id).trim() !== '') ? parseInt(quem_envia_id) : null,
+        (quem_pede_id && String(quem_pede_id).trim() !== '') ? parseInt(quem_pede_id) : null,
         observacao ? observacao.trim() : ''
       ]
     );
@@ -1044,66 +1048,14 @@ router.post('/master/movimentacoes', async (req, res) => {
   }
 });
 
-// POST: Criar movimentação pendente -> URL: POST /api/movimentacoes
-router.post('/movimentacoes', async (req, res) => {
-  const { 
-    tipo_movimentacao, 
-    origem_tipo, 
-    origem_id, 
-    destino_tipo, 
-    destino_id, 
-    material_id, 
-    quantidade, 
-    faturamento_id, 
-    id_usuario, 
-    quem_envia_id,
-    quem_pede_id,
-    observacao 
-  } = req.body;
-
-  if (!material_id || !quantidade || !destino_id) {
-    return res.status(400).json({ error: "Campos obrigatórios ausentes." });
-  }
-
-  const origemIdValido = (origem_id && String(origem_id).trim() !== '') ? parseInt(origem_id) : 0;
-  const destinoIdValido = parseInt(destino_id);
-  const materialIdValido = parseInt(material_id);
-  const quantidadeValida = parseFloat(quantidade);
-
-  try {
-    const [result] = await db.query(
-      `INSERT INTO estoque_movimentacoes 
-       (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, status, id_usuario, quem_envia_id, quem_pede_id, observacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDENTE', ?, ?, ?, ?)`,
-      [
-        tipo_movimentacao || 'TRANSFERENCIA',
-        origem_tipo || 'BASE',
-        origemIdValido,
-        destino_tipo || 'OBRA',
-        destinoIdValido,
-        materialIdValido,
-        quantidadeValida,
-        faturamento_id ? parseInt(faturamento_id) : null,
-        id_usuario ? parseInt(id_usuario) : null,
-        quem_envia_id ? parseInt(quem_envia_id) : null,
-        quem_pede_id ? parseInt(quem_pede_id) : null,
-        observacao ? observacao.trim() : ''
-      ]
-    );
-
-    res.status(201).json({ message: "Movimentação criada como PENDENTE!", id: result.insertId });
-  } catch (error) {
-    console.error("ERRO REAL NO BANCO DE DADOS:", error);
-    res.status(500).json({ error: "Erro ao registrar movimentação.", detalhe: error.message });
-  }
-});
-
-// 1. PUT: Atualizar Movimentação (Edição genérica)
+// ========================================================
+// PUT: EDITAR MOVIMENTAÇÃO
+// ========================================================
 router.put('/master/movimentacoes/:id', async (req, res) => {
   const { id } = req.params;
   const { 
     quem_envia_id, material_id, quantidade, tipo_movimentacao, 
-    quem_pede_id, origem_tipo, origem_id, destino_tipo, destino_id, observacao 
+    quem_pede_id, origem_tipo, origem_id, destino_tipo, destino_id, data_solicitada, observacao 
   } = req.body;
 
   try {
@@ -1114,22 +1066,33 @@ router.put('/master/movimentacoes/:id', async (req, res) => {
       UPDATE estoque_movimentacoes 
       SET quem_envia_id = ?, material_id = ?, quantidade = ?, tipo_movimentacao = ?, 
           quem_pede_id = ?, origem_tipo = ?, origem_id = ?, destino_tipo = ?, 
-          destino_id = ?, observacao = ?
+          destino_id = ?, data_solicitada = ?, observacao = ?
       WHERE id = ?
     `, [
-      quem_envia_id, material_id, quantidade, tipo_movimentacao, 
-      quem_pede_id, origem_tipo, origem_id, destino_tipo, 
-      destino_id, observacao, id
+      (quem_envia_id && String(quem_envia_id).trim() !== '') ? parseInt(quem_envia_id) : null,
+      parseInt(material_id),
+      parseFloat(quantidade),
+      tipo_movimentacao,
+      (quem_pede_id && String(quem_pede_id).trim() !== '') ? parseInt(quem_pede_id) : null,
+      origem_tipo,
+      (origem_id && String(origem_id).trim() !== '') ? parseInt(origem_id) : 0,
+      destino_tipo,
+      parseInt(destino_id),
+      data_solicitada || null,
+      observacao ? observacao.trim() : '',
+      id
     ]);
 
     res.json({ message: "Movimentação atualizada com sucesso!" });
   } catch (error) {
     console.error("Erro ao atualizar movimentação:", error);
-    res.status(500).json({ error: "Erro ao atualizar movimentação." });
+    res.status(500).json({ error: "Erro ao atualizar movimentação.", detalhe: error.message });
   }
 });
 
-// 2. DELETE: Excluir Movimentação
+// ========================================================
+// DELETE: EXCLUIR MOVIMENTAÇÃO
+// ========================================================
 router.delete('/master/movimentacoes/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -1146,13 +1109,17 @@ router.delete('/master/movimentacoes/:id', async (req, res) => {
   }
 });
 
-// 3. PUT: Confirmar Recebimento
+// ========================================================
+// PUT: CONFIRMAR RECEBIMENTO
+// ========================================================
 router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
   const { id } = req.params;
 
   try {
     const [movs] = await db.query('SELECT * FROM estoque_movimentacoes WHERE id = ?', [id]);
-    if (movs.length === 0) return res.status(404).json({ error: "Movimentação não encontrada." });
+    if (!movs || movs.length === 0) {
+      return res.status(404).json({ error: "Movimentação não encontrada." });
+    }
 
     const mov = movs[0];
     if (mov.status === 'CONFIRMADO') {
@@ -1164,10 +1131,9 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
     res.json({ message: "Recebimento confirmado com sucesso!" });
   } catch (error) {
     console.error("Erro ao confirmar movimentação:", error);
-    res.status(500).json({ error: "Erro ao confirmar recebimento." });
+    res.status(500).json({ error: "Erro ao confirmar recebimento.", detalhe: error.message });
   }
 });
-
 // GET: Locais (Bases e Obras)
 router.get('/master/locais', async (req, res) => {
   try {

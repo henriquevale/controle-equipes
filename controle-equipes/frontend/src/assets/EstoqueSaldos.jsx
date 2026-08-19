@@ -119,21 +119,25 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     setHistoricoMaterial([]);
   };
 
-// Obtém a lista única de categorias
-const tiposDisponiveis = Array.from(
-  new Set(saldos.map(s => s.tipo || s.material_tipo).filter(Boolean))
-);
+  // Obtém a lista única de categorias
+  const tiposDisponiveis = Array.from(
+    new Set(saldos.map(s => s.tipo || s.material_tipo).filter(Boolean))
+  );
 
-// Filtro de busca e tipo
-const saldosFiltrados = saldos.filter(item => {
-  const nome = String(item.nome || item.material_nome || item.descricao || '').toLowerCase();
-  const busca = termoBusca.toLowerCase();
-  const categoria = String(item.tipo || item.material_tipo || '');
-  
-  if (busca && !nome.includes(busca)) return false;
-  if (filtroTipo && categoria.toUpperCase() !== filtroTipo.toUpperCase()) return false;
-  return true;
-});
+  // Filtro de busca, tipo e saldos maiores que zero
+  const saldosFiltrados = saldos.filter(item => {
+    const nome = String(item.nome || item.material_nome || item.descricao || '').toLowerCase();
+    const busca = termoBusca.toLowerCase();
+    const categoria = String(item.tipo || item.material_tipo || '');
+    const saldo = Number(item.saldo_atual || item.saldo_total || 0);
+
+    // Oculta itens sem saldo
+    if (saldo === 0) return false;
+
+    if (busca && !nome.includes(busca)) return false;
+    if (filtroTipo && categoria.toUpperCase() !== filtroTipo.toUpperCase()) return false;
+    return true;
+  });
 
   const inputStyle = {
     height: '36px', padding: '0 8px', border: '1px solid #cbd5e1',

@@ -18,7 +18,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
   const [filtroTipoMov, setFiltroTipoMov] = useState('');
   const [filtroObraDestino, setFiltroObraDestino] = useState('');
 
-  // Seleções para Cascata (3, 4, 5)
+  // Seleções para Cascata
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('');
   const [editandoId, setEditandoId] = useState(null);
@@ -33,6 +33,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
     origem_id: '',
     destino_tipo: 'OBRA',
     destino_id: '',
+    data_solicitada: '',
     observacao: ''
   };
 
@@ -173,6 +174,12 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
 
   const handleEditar = (m) => {
     setEditandoId(m.id);
+    
+    let dataSolicitadaFormatada = '';
+    if (m.data_solicitada) {
+      dataSolicitadaFormatada = m.data_solicitada.split('T')[0];
+    }
+
     setForm({
       quem_envia_id: m.quem_envia_id || '',
       material_id: m.material_id || '',
@@ -183,6 +190,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
       origem_id: m.origem_id || '',
       destino_tipo: m.destino_tipo || 'OBRA',
       destino_id: m.destino_id || '',
+      data_solicitada: dataSolicitadaFormatada,
       observacao: m.observacao || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -232,7 +240,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
     return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : new Date(dataIso).toLocaleDateString('pt-BR');
   };
 
-  const movsFiltradas = movimentacoes.filter(m => {
+const movsFiltradas = movimentacoes.filter(m => {
     const matNome = String(m.material_nome || m.descricao || '').toLowerCase();
     const busca = termoBusca.toLowerCase();
     if (busca && !matNome.includes(busca)) {
@@ -241,10 +249,14 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
     if (filtroTipoMov && m.tipo_movimentacao !== filtroTipoMov) return false;
     if (filtroObraDestino && String(m.destino_id) !== String(filtroObraDestino)) return false;
 
-    if (m.data_movimentacao) {
-      const dataMov = m.data_movimentacao.split('T')[0];
-      if (filtroDataInicio && dataMov < filtroDataInicio) return false;
-      if (filtroDataFim && dataMov > filtroDataFim) return false;
+    // Filtra pela DATA DE SOLICITAÇÃO
+    if (m.data_solicitada) {
+      const dataSolicitada = m.data_solicitada.split('T')[0];
+      if (filtroDataInicio && dataSolicitada < filtroDataInicio) return false;
+      if (filtroDataFim && dataSolicitada > filtroDataFim) return false;
+    } else if (filtroDataInicio || filtroDataFim) {
+      // Oculta registros que não possuem data solicitada se houver filtro ativo
+      return false;
     }
 
     return true;
@@ -255,7 +267,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
       return mostrarMensagem('Nenhum dado para exportar.', 'erro');
     }
 
-    const cabecalho = ['Material', 'Quantidade', 'Unidade', 'Tipo', 'Quem Envia', 'Origem', 'Quem Pede', 'Destino', 'Registrado Por', 'Data'];
+    const cabecalho = ['Material', 'Quantidade', 'Unidade', 'Tipo', 'Quem Envia', 'Origem', 'Quem Pede', 'Destino', 'Data Solicitada', 'Registrado Por', 'Data Lançamento'];
     const linhas = movsFiltradas.map(m => [
       `"${(m.material_nome || m.descricao || '').replace(/"/g, '""')}"`,
       m.quantidade,
@@ -265,6 +277,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
       `"${getNomeEntidade(m.origem_tipo, m.origem_id)}"`,
       `"${m.quem_pede_nome || '-'}"`,
       `"${getNomeEntidade(m.destino_tipo, m.destino_id)}"`,
+      formatarData(m.data_solicitada),
       `"${m.usuario_nome || '-'}"`,
       formatarData(m.data_movimentacao)
     ]);
@@ -440,8 +453,18 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
               </select>
             </div>
 
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={labelStyle}>11. Observação</label>
+            <div>
+              <label style={labelStyle}>11. Data Solicitada</label>
+              <input 
+                type="date" 
+                value={form.data_solicitada} 
+                onChange={e => setForm({ ...form, data_solicitada: e.target.value })} 
+                style={inputStyle} 
+              />
+            </div>
+
+            <div style={{ gridColumn: 'span 4' }}>
+              <label style={labelStyle}>12. Observação</label>
               <input type="text" placeholder="Observações adicionais..." value={form.observacao} onChange={e => setForm({ ...form, observacao: e.target.value })} style={inputStyle} />
             </div>
 
@@ -490,13 +513,13 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
         </div>
 
         <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
-          <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA INÍCIO</label>
+      <div>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA SOLICITAÇÃO INÍCIO</label>
             <input type="date" value={filtroDataInicio} onChange={e => setFiltroDataInicio(e.target.value)} style={{ ...inputStyle, height: '32px' }} />
           </div>
 
           <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA FIM</label>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA SOLICITAÇÃO FIM</label>
             <input type="date" value={filtroDataFim} onChange={e => setFiltroDataFim(e.target.value)} style={{ ...inputStyle, height: '32px' }} />
           </div>
 
@@ -531,8 +554,8 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
           </div>
         </div>
 
-        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '600px' }}>
+<div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '800px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                 <th style={{ padding: '10px 12px' }}>Material</th>
@@ -540,15 +563,16 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                 <th style={{ padding: '10px 12px' }}>Tipo</th>
                 <th style={{ padding: '10px 12px' }}>Quem Envia / Origem</th>
                 <th style={{ padding: '10px 12px' }}>Quem Pede / Destino</th>
+                <th style={{ padding: '10px 12px' }}>Observação</th>
                 <th style={{ padding: '10px 12px' }}>Registrado Por</th>
-                <th style={{ padding: '10px 12px' }}>Data</th>
+                <th style={{ padding: '10px 12px' }}>Data Solicitada</th>
                 <th style={{ padding: '10px 12px', textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {movsFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                  <td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
                     Nenhuma movimentação encontrada com os filtros selecionados.
                   </td>
                 </tr>
@@ -574,11 +598,14 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                       <div>{m.quem_pede_nome ? <strong>{m.quem_pede_nome}</strong> : '-'}</div>
                       <div style={{ fontSize: '10px', color: '#94a3b8' }}>{getNomeEntidade(m.destino_tipo, m.destino_id)}</div>
                     </td>
+                    <td style={{ padding: '10px 12px', color: '#64748b', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.observacao || ''}>
+                      {m.observacao || '-'}
+                    </td>
                     <td style={{ padding: '10px 12px', color: '#64748b' }}>
                       {m.usuario_nome || `Usuário #${m.id_usuario}`}
                     </td>
-                    <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                      {formatarData(m.data_movimentacao)}
+                    <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#d97706' }}>
+                      {formatarData(m.data_solicitada)}
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
