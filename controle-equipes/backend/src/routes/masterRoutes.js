@@ -97,6 +97,7 @@ router.post('/master/usuarios', async (req, res) => {
     const [resultadoUser] = await connection.execute(sqlUser, [nome.trim(), usuario.trim(), String(senha).trim(), cargo]);
     const idNovoUsuario = resultadoUser.insertId;
 
+    // VÍNCULOS DO GESTOR (Regra original mantida)
     if (cargo === 'GESTOR' && Array.isArray(ids_obras)) {
       for (const idObra of ids_obras) {
         const [emUso] = await connection.execute(
@@ -119,11 +120,18 @@ router.post('/master/usuarios', async (req, res) => {
       }
     }
 
+    // NEW: VÍNCULOS DA ENGENHARIA
+    if (cargo === 'ENGENHARIA' && Array.isArray(ids_obras)) {
+      const sqlEng = 'INSERT INTO engenharia_obras (id_usuario, id_obra) VALUES (?, ?)';
+      for (const idObra of ids_obras) {
+        await connection.execute(sqlEng, [idNovoUsuario, idObra]);
+      }
+    }
+
     await connection.commit();
     res.status(201).json({ success: true, message: "Usuário gravado com sucesso!", id: idNovoUsuario });
   } catch (err) {
     await connection.rollback();
-    
     if (err.customMessage) {
       return res.status(400).json({ error: err.customMessage });
     }
@@ -145,13 +153,25 @@ router.get(['/master/usuarios', '/usuarios'], async (req, res) => {
     const sql = `
       SELECT 
         u.id, u.nome, u.usuario, u.senha, u.cargo,
-        IFNULL(GROUP_CONCAT(DISTINCT o.id SEPARATOR ','), '') AS id_obras,
+        IFNULL(
+          CASE 
+            WHEN u.cargo = 'ENGENHARIA' THEN GROUP_CONCAT(DISTINCT eo.id_obra SEPARATOR ',')
+            ELSE GROUP_CONCAT(DISTINCT go.id_obra SEPARATOR ',')
+          END, ''
+        ) AS id_obras,
         IFNULL(GROUP_CONCAT(DISTINCT f.id SEPARATOR ','), '') AS id_funcionarios,
-        IFNULL(GROUP_CONCAT(DISTINCT o.nome_obra SEPARATOR ', '), 'Nenhuma') AS obras,
+        IFNULL(
+          CASE 
+            WHEN u.cargo = 'ENGENHARIA' THEN GROUP_CONCAT(DISTINCT o_eng.nome_obra SEPARATOR ', ')
+            ELSE GROUP_CONCAT(DISTINCT o_gestor.nome_obra SEPARATOR ', ')
+          END, 'Nenhuma'
+        ) AS obras,
         IFNULL(GROUP_CONCAT(DISTINCT f.nome SEPARATOR ', '), 'Nenhum') AS funcionarios
       FROM usuarios_sistema u
       LEFT JOIN gestor_obras go ON u.id = go.id_usuario
-      LEFT JOIN obras o ON go.id_obra = o.id
+      LEFT JOIN obras o_gestor ON go.id_obra = o_gestor.id
+      LEFT JOIN engenharia_obras eo ON u.id = eo.id_usuario
+      LEFT JOIN obras o_eng ON eo.id_obra = o_eng.id
       LEFT JOIN gestor_funcionarios gf ON u.id = gf.id_usuario
       LEFT JOIN funcionarios f ON gf.id_funcionario = f.id
       GROUP BY u.id, u.nome, u.usuario, u.senha, u.cargo
@@ -174,6 +194,7 @@ router.delete('/master/usuarios/:id', async (req, res) => {
   try {
     await connection.beginTransaction();
     await connection.execute('DELETE FROM gestor_obras WHERE id_usuario = ?', [id]);
+    await connection.execute('DELETE FROM engenharia_obras WHERE id_usuario = ?', [id]);
     await connection.execute('DELETE FROM gestor_funcionarios WHERE id_usuario = ?', [id]);
     await connection.execute('DELETE FROM usuarios_sistema WHERE id = ?', [id]);
     await connection.commit();
@@ -211,19 +232,32 @@ router.put('/master/usuarios/:id', async (req, res) => {
     }
     await connection.execute(sqlUpdateUser, paramsUpdateUser);
 
+    // Limpa vínculos anteriores de obras e funcionários
     await connection.execute('DELETE FROM gestor_obras WHERE id_usuario = ?', [id]);
-    if (cargo === 'GESTOR' && Array.isArray(ids_obras)) {
-      const sqlVinculoObra = 'INSERT INTO gestor_obras (id_usuario, id_obra) VALUES (?, ?)';
-      for (const idObra of ids_obras) {
-        await connection.execute(sqlVinculoObra, [id, idObra]);
+    await connection.execute('DELETE FROM engenharia_obras WHERE id_usuario = ?', [id]);
+    await connection.execute('DELETE FROM gestor_funcionarios WHERE id_usuario = ?', [id]);
+
+    // Trata novos vínculos do Gestor
+    if (cargo === 'GESTOR') {
+      if (Array.isArray(ids_obras)) {
+        const sqlVinculoObra = 'INSERT INTO gestor_obras (id_usuario, id_obra) VALUES (?, ?)';
+        for (const idObra of ids_obras) {
+          await connection.execute(sqlVinculoObra, [id, idObra]);
+        }
+      }
+      if (Array.isArray(ids_funcionarios)) {
+        const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
+        for (const idFunc of ids_funcionarios) {
+          await connection.execute(sqlVinculoFunc, [id, idFunc]);
+        }
       }
     }
 
-    await connection.execute('DELETE FROM gestor_funcionarios WHERE id_usuario = ?', [id]);
-    if (cargo === 'GESTOR' && Array.isArray(ids_funcionarios)) {
-      const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
-      for (const idFunc of ids_funcionarios) {
-        await connection.execute(sqlVinculoFunc, [id, idFunc]);
+    // Trata novos vínculos da Engenharia
+    if (cargo === 'ENGENHARIA' && Array.isArray(ids_obras)) {
+      const sqlVinculoEng = 'INSERT INTO engenharia_obras (id_usuario, id_obra) VALUES (?, ?)';
+      for (const idObra of ids_obras) {
+        await connection.execute(sqlVinculoEng, [id, idObra]);
       }
     }
 
@@ -311,11 +345,19 @@ router.get('/master/funcionarios-disponiveis', async (req, res) => {
 // 12-C. GET: LISTAR OBRAS DISPONÍVEIS NO FORMULÁRIO
 // ========================================================
 router.get('/master/obras-todas', async (req, res) => {
-  const { id_editando } = req.query;
+  const { id_editando, cargo } = req.query;
   
   try {
     const paramId = id_editando ? parseInt(id_editando) : -1;
 
+    // Se for perfil ENGENHARIA, retorna todas as obras ativas para ele associar
+    if (cargo === 'ENGENHARIA') {
+      const sql = `SELECT id, codigo_obra, nome_obra FROM obras WHERE status = 'ATIVA' ORDER BY nome_obra ASC`;
+      const [rows] = await db.execute(sql);
+      return res.json(rows);
+    }
+
+    // Regra padrão para GESTOR (Obras ativas que não estão com outros gestores)
     const sql = `
       SELECT id, codigo_obra, nome_obra 
       FROM obras 
