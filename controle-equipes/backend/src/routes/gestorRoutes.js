@@ -16,24 +16,42 @@ router.get('/gestor/obras-ativas', async (req, res) => {
       return res.status(400).json({ error: "ID do usuário não foi fornecido." });
     }
 
-    // Permitir trazer todas as obras se for MASTER ou RH
-    let trazerTodas = incluirInativas === 'true' || cargo === 'MASTER' || cargo === 'RH';
-    let sql = trazerTodas ? `SELECT * FROM obras` : `SELECT * FROM obras WHERE status = 'ATIVA'`;
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+    const apenasAtivas = incluirInativas !== 'true';
     const params = [];
 
-    if (cargo !== 'MASTER' && cargo !== 'RH') {
-      if (trazerTodas) {
-        sql = `
-          SELECT o.* FROM obras o
-          INNER JOIN gestor_obras go ON o.id = go.id_obra
-          WHERE go.id_usuario = ?
-        `;
-      } else {
-        sql = `
-          SELECT o.* FROM obras o
-          INNER JOIN gestor_obras go ON o.id = go.id_obra
-          WHERE go.id_usuario = ? AND o.status = 'ATIVA'
-        `;
+    let sql = '';
+
+    // 1. Perfil MASTER ou RH visualizam todas as obras do sistema
+    if (cargoUpper === 'MASTER' || cargoUpper === 'RH') {
+      sql = `SELECT * FROM obras`;
+      if (apenasAtivas) {
+        sql += ` WHERE status = 'ATIVA'`;
+      }
+    } 
+    // 2. Perfil ENGENHARIA (Filtra na tabela engenharia_obras)
+    else if (cargoUpper === 'ENGENHARIA') {
+      sql = `
+        SELECT DISTINCT o.* 
+        FROM obras o
+        INNER JOIN engenharia_obras eo ON o.id = eo.id_obra
+        WHERE eo.id_usuario = ?
+      `;
+      if (apenasAtivas) {
+        sql += ` AND o.status = 'ATIVA'`;
+      }
+      params.push(Number(id));
+    } 
+    // 3. Demais perfis (Ex: GESTOR - Filtra na tabela gestor_obras)
+    else {
+      sql = `
+        SELECT DISTINCT o.* 
+        FROM obras o
+        INNER JOIN gestor_obras go ON o.id = go.id_obra
+        WHERE go.id_usuario = ?
+      `;
+      if (apenasAtivas) {
+        sql += ` AND o.status = 'ATIVA'`;
       }
       params.push(Number(id));
     }
@@ -803,7 +821,11 @@ router.get('/gestor/historico-diarios', async (req, res) => {
 
     // 🔒 REGRAS DE PERMISSÃO / FILTRO POR PERFIL
     if (!isMaster) {
-      if (data_inicio && data_fim) {
+      if (cargoUpper === 'ENGENHARIA') {
+        // 🎯 Se for ENGENHARIA, restringe a busca às obras atribuídas na tabela engenharia_obras
+        sql += ` AND r.id_obra IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?) `;
+        params.push(Number(id));
+      } else if (data_inicio && data_fim) {
         sql += ` AND r.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?) `;
         params.push(Number(id));
       } else {
@@ -1099,8 +1121,14 @@ router.get('/gestor/historico-materiais', async (req, res) => {
 
     const params = [];
 
-    if (cargo !== 'MASTER') {
-      if (data_inicio && data_fim) {
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+
+    if (cargoUpper !== 'MASTER' && cargoUpper !== 'RH') {
+      if (cargoUpper === 'ENGENHARIA') {
+        // 🎯 Se for ENGENHARIA, restringe a busca de materiais às obras em engenharia_obras
+        sql += ` AND r.id_obra IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?) `;
+        params.push(Number(id));
+      } else if (data_inicio && data_fim) {
         sql += ` AND r.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?) `;
         params.push(Number(id));
       } else {

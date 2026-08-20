@@ -641,18 +641,43 @@ router.delete('/fornecedores/:id', async (req, res) => {
 // 15. ROTAS DE FATURAMENTO DIRETO (INCLUINDO ITENS COM CAPACIDADE DE USO)
 // ========================================================
 
-// 15-A. GET: Listar Faturamentos Diretos com Gestor e Itens
+// 15-A. GET: Listar Faturamentos Diretos com Gestor e Itens (Filtrado por Vínculo de Obra em engenharia_obras)
 router.get('/faturamento-direto', async (req, res) => {
   try {
-    const sql = `
+    const { usuario_id, id, cargo, id_obra } = req.query;
+    const idUsuario = usuario_id || id;
+
+    let sql = `
       SELECT 
         fd.*,
         u.nome AS gestor_nome
       FROM faturamentos_diretos fd
       LEFT JOIN usuarios_sistema u ON fd.id_gestor = u.id
-      ORDER BY fd.id DESC
+      WHERE 1=1
     `;
-    const [faturamentos] = await db.query(sql);
+    const params = [];
+
+    // 🔒 RESTRIÇÃO DE ACESSO VIA TABELA ENGENHARIA_OBRAS
+    if (idUsuario) {
+      const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+      const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
+
+      if (!isMaster) {
+        // Filtra sempre pela tabela engenharia_obras para não-masters
+        sql += ` AND fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)`;
+        params.push(Number(idUsuario));
+      }
+    }
+
+    // Filtro adicional por obra específica
+    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
+      sql += ` AND fd.obra_id = ?`;
+      params.push(Number(id_obra));
+    }
+
+    sql += ` ORDER BY fd.id DESC`;
+
+    const [faturamentos] = await db.query(sql, params);
 
     try {
       const [itens] = await db.query(`
@@ -677,11 +702,12 @@ router.get('/faturamento-direto', async (req, res) => {
   }
 });
 
-// 15-B. POST: Criar Faturamento Trata Erros de Tipo
+// 15-B. POST: Criar Faturamento Trata Erros de Tipo e Valida Permissão na Tabela engenharia_obras
 router.post('/faturamento-direto', async (req, res) => {
   const { 
     obra_id, 
     numero_pedido_obra, 
+    numero_pedido_concessionaria,
     boletim_medicao, 
     fornecedor_id, 
     numero_nota_fiscal, 
@@ -693,28 +719,48 @@ router.post('/faturamento-direto', async (req, res) => {
     observacao,
     data_envio,
     url_email,
-    itens 
+    itens,
+    id_usuario,
+    cargo
   } = req.body;
 
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
+    const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
+    const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
+    const usuarioAcaoId = id_usuario || gestorIdValido;
+
+    // 🔒 Validação de Permissão por Obra na tabela engenharia_obras
+    if (usuarioAcaoId && obraIdValida) {
+      const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+      if (cargoUpper !== 'MASTER' && cargoUpper !== 'RH') {
+        const [vinculo] = await connection.query(
+          `SELECT id FROM engenharia_obras WHERE id_usuario = ? AND id_obra = ?`,
+          [Number(usuarioAcaoId), Number(obraIdValida)]
+        );
+
+        if (vinculo.length === 0) {
+          await connection.rollback();
+          return res.status(403).json({ error: 'Você não possui permissão para cadastrar lançamentos nesta obra.' });
+        }
+      }
+    }
+
     const boletimFormatado = boletim_medicao 
       ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() 
       : null;
 
-    const pedidoObraValido = (numero_pedido_obra && String(numero_pedido_obra).trim() !== '') 
-      ? parseInt(numero_pedido_obra) 
+    const pedidoRaw = numero_pedido_obra ?? numero_pedido_concessionaria;
+    const pedidoObraValido = (pedidoRaw !== undefined && pedidoRaw !== '' && pedidoRaw !== null)
+      ? parseInt(pedidoRaw) 
       : 0;
 
-    const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
     const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
-    const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
 
-    const dataNfValida = (data_nota_fiscal && String(data_nota_fiscal).trim() !== '') ? data_nota_fiscal : null;
-    const dataSolicitacaoValida = (data_solicitacao && String(data_solicitacao).trim() !== '') ? data_solicitacao : null;
-    const dataEnvioValida = (data_envio && String(data_envio).trim() !== '') ? data_envio : null;
+    // Helper para converter datas vazias em null
+    const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
 
     const valorNfValido = (valor_nota_fiscal !== undefined && valor_nota_fiscal !== '' && valor_nota_fiscal !== null)
       ? parseFloat(valor_nota_fiscal) 
@@ -731,15 +777,15 @@ router.post('/faturamento-direto', async (req, res) => {
       pedidoObraValido, 
       boletimFormatado, 
       fornecedorIdValido, 
-      numero_nota_fiscal || '', 
-      dataNfValida,
+      numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
+      parseDate(data_nota_fiscal),
       valorNfValido, 
       status || 'Solicitado', 
       gestorIdValido,
-      dataSolicitacaoValida,
-      observacao ? observacao.trim() : '',
-      dataEnvioValida,
-      url_email ? url_email.trim() : null
+      parseDate(data_solicitacao),
+      observacao ? String(observacao).trim() : '',
+      parseDate(data_envio),
+      url_email ? String(url_email).trim() : null
     ]);
 
     const idFaturamento = result.insertId;
@@ -781,6 +827,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
   const { 
     obra_id, 
     numero_pedido_obra, 
+    numero_pedido_concessionaria,
     boletim_medicao, 
     fornecedor_id, 
     numero_nota_fiscal, 
@@ -803,9 +850,12 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() 
       : '';
 
-    const pedidoObraValido = (numero_pedido_obra !== undefined && numero_pedido_obra !== '' && numero_pedido_obra !== null)
-      ? parseInt(numero_pedido_obra) 
+    const pedidoRaw = numero_pedido_obra ?? numero_pedido_concessionaria;
+    const pedidoObraValido = (pedidoRaw !== undefined && pedidoRaw !== '' && pedidoRaw !== null)
+      ? parseInt(pedidoRaw) 
       : 0;
+
+    const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
 
     const sql = `
       UPDATE faturamentos_diretos SET 
@@ -826,24 +876,24 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     `;
 
     await connection.query(sql, [
-      (obra_id && obra_id !== '') ? parseInt(obra_id) : null, 
+      (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null, 
       pedidoObraValido, 
       boletimFormatado, 
-      (fornecedor_id && fornecedor_id !== '') ? parseInt(fornecedor_id) : null, 
-      numero_nota_fiscal || '', 
-      data_nota_fiscal || null,
+      (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null, 
+      numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
+      parseDate(data_nota_fiscal),
       parseFloat(valor_nota_fiscal) || 0, 
       status || 'Solicitado', 
-      (id_gestor && id_gestor !== '') ? parseInt(id_gestor) : null,
-      data_solicitacao || null, 
-      observacao ? observacao.trim() : '',
-      data_envio || null,
-      url_email ? url_email.trim() : null,
+      (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null,
+      parseDate(data_solicitacao), 
+      observacao ? String(observacao).trim() : '',
+      parseDate(data_envio),
+      url_email ? String(url_email).trim() : null,
       parseInt(id)
     ]);
 
     if (Array.isArray(itens)) {
-      await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [id]);
+      await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [parseInt(id)]);
       
       if (itens.length > 0) {
         const sqlItem = `
@@ -858,7 +908,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
               parseInt(id),
               parseInt(item.material_id),
               parseFloat(item.quantidade) || 0,
-              item.capacidade_uso ? item.capacidade_uso.trim() : null,
+              item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
               parseFloat(item.valor_unitario) || 0
             ]);
           }

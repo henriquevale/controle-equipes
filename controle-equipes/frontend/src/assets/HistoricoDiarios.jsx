@@ -15,7 +15,6 @@ import {
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function HistoricoDiarios({ id, cargo }) {

@@ -30,7 +30,6 @@ import RelatorioMovimentacao from './assets/RelatorioMovimentacoes.jsx';
 import RelatorioCompras from './assets/RelatorioCompras.jsx';
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function App() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
@@ -39,10 +38,9 @@ export default function App() {
   const [abaAtiva, setAbaAtiva] = useState('EQUIPE'); 
   const [mensagem, setMensagem] = useState({ texto: '', tipo: '' });
   
-  // Controle para ocultar/exibir a barra lateral inteira
-  const [sidebarAberto, setSidebarAberto] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [sidebarAberto, setSidebarAberto] = useState(window.innerWidth >= 768);
 
-  // GRUPOS INICIAM OCULTOS/FECHADOS POR PADRÃO (RESPONSIVIDADE E ORGANIZAÇÃO)
   const [gruposAbertos, setGruposAbertos] = useState({
     ADMIN: false,
     OBRAS: false,
@@ -56,7 +54,16 @@ export default function App() {
   const [listaFuncionarios, setListaFuncionarios] = useState([]);
   const [usuarioSendoEditado, setUsuarioSendoEditado] = useState(null);
 
-  // ESTRUTURA DOS GRUPOS DO MENU
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSidebarAberto(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const estruturaMenu = [
     {
       idGrupo: 'ADMIN',
@@ -73,11 +80,11 @@ export default function App() {
       titulo: 'Campo & Produção',
       icone: HardHat,
       itens: [
-        { id: 'FATURAMENTO_DIRETO', label: 'Faturamento Direto', icon: FileText, cargos: ['MASTER', 'ENGENHARIA'] },
         { id: 'EQUIPE', label: 'Agendamento de Obra', icon: CalendarX, cargos: ['MASTER', 'GESTOR'] },
         { id: 'DIARIO_TECNICO', label: 'Diário de Obra', icon: ClipboardList, cargos: ['MASTER', 'GESTOR'] },
-        { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['MASTER', 'GESTOR', 'ENGENHARIA'] },
-        { id: 'DIAS_PENDENTES', label: 'Diários Pendentes', icon: CalendarX, cargos: ['MASTER', 'GESTOR', 'ENGENHARIA'] },
+        { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
+        { id: 'DIAS_PENDENTES', label: 'Diários Pendentes', icon: CalendarX, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
+        { id: 'HISTORICO_MATERIAIS', label: 'Histórico de Materiais', icon: TrendingUp, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
       ]
     },
     {
@@ -85,11 +92,11 @@ export default function App() {
       titulo: 'Materiais & Estoque',
       icone: Boxes,
       itens: [
-        { id: 'HISTORICO_MATERIAIS', label: 'Histórico de Materiais', icon: TrendingUp, cargos: ['MASTER', 'GESTOR', 'ENGENHARIA'] },
-        { id: 'CADASTRO_MATERIAIS', label: 'Cadastrar Materiais', icon: Package, cargos: ['MASTER', 'ENGENHARIA'] },
-        { id: 'CADASTRO_FORNECEDORES', label: 'Cadastrar Fornecedores', icon: Truck, cargos: ['MASTER', 'ENGENHARIA'] },
-        { id: 'BASE', label: 'Gerenciar Bases', icon: Building2, cargos: ['MASTER', 'ENGENHARIA'] },
-        { id: 'ESTOQUE', label: 'Estoque Saldos', icon: Boxes, cargos: ['MASTER', 'ENGENHARIA'] },
+        { id: 'FATURAMENTO_DIRETO', label: 'Faturamento Direto', icon: FileText, cargos: ['ENGENHARIA', 'MASTER'] },
+        { id: 'CADASTRO_MATERIAIS', label: 'Cadastrar Materiais', icon: Package, cargos: ['ENGENHARIA', 'MASTER'] },
+        { id: 'CADASTRO_FORNECEDORES', label: 'Cadastrar Fornecedores', icon: Truck, cargos: ['ENGENHARIA', 'MASTER'] },
+        { id: 'BASE', label: 'Gerenciar Bases', icon: Building2, cargos: ['ENGENHARIA', 'MASTER'] },
+        { id: 'ESTOQUE', label: 'Estoque Saldos', icon: Boxes, cargos: ['ENGENHARIA', 'MASTER'] },
         { id: 'ESTOQUE_MOVIMENTACOES', label: 'Movimentações Estoque', icon: TrendingUp, cargos: ['MASTER'] },
         { id: 'RELATORIO_COMPRAS', label: 'Relatório de Compras', icon: BarChart3, cargos: ['MASTER'] },
         { id: 'RELATORIO_MOVIMENTACAO', label: 'Relatório Movimentação', icon: TrendingUp, cargos: ['MASTER'] },
@@ -97,10 +104,10 @@ export default function App() {
     },
     {
       idGrupo: 'FROTAS',
-      titulo: 'Frotas & Logística',
+      titulo: 'Frota & Logística',
       icone: Car,
       itens: [
-        { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'RH', 'ENGENHARIA'] },
+        { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'RH'] },
       ]
     },
     {
@@ -111,7 +118,7 @@ export default function App() {
         { id: 'RH', label: 'Gestão RH', icon: Users, cargos: ['MASTER', 'RH'] },
         { id: 'RH_INTEGRACAO', label: 'RH - Integração', icon: Users, cargos: ['MASTER', 'RH'] },
         { id: 'CADASTRO_FUNCIONARIO', label: 'Cadastrar Funcionário', icon: UserPlus, cargos: ['MASTER', 'RH'] },
-        { id: 'PRESENCA', label: 'Controle de Presença', icon: CalendarX, cargos: ['MASTER', 'GESTOR', 'RH', 'ENGENHARIA'] },
+        { id: 'PRESENCA', label: 'Controle de Presença', icon: CalendarX, cargos: ['MASTER', 'RH'] },
       ]
     }
   ];
@@ -128,30 +135,13 @@ export default function App() {
     return 'RH';
   };
 
-  // Abre automaticamente apenas o grupo que contém a aba ativa inicial
-  const expandirGrupoDaAbaAtiva = (aba, cargo) => {
-    const cargoUser = cargo?.toString().trim().toUpperCase();
-    const novoEstado = { ADMIN: false, OBRAS: false, MATERIAIS: false, FROTAS: false, RH: false };
-
-    estruturaMenu.forEach(grupo => {
-      const possuiAba = grupo.itens.some(item => item.id === aba && item.cargos.includes(cargoUser));
-      if (possuiAba) {
-        novoEstado[grupo.idGrupo] = true;
-      }
-    });
-
-    setGruposAbertos(novoEstado);
-  };
-
   useEffect(() => {
     const usuarioSalvo = localStorage.getItem('usuario');
     if (usuarioSalvo) {
       try {
         const user = JSON.parse(usuarioSalvo);
         setUsuarioLogado(user);
-        const abaInicial = definirAbaInicial(user.cargo);
-        setAbaAtiva(abaInicial);
-        expandirGrupoDaAbaAtiva(abaInicial, user.cargo);
+        setAbaAtiva(definirAbaInicial(user.cargo));
       } catch (e) {
         localStorage.removeItem('usuario');
       }
@@ -178,7 +168,6 @@ export default function App() {
       const res = await axios.get(`${API_URL}/master/usuarios`);
       setListaUsuarios(res.data || []);
     } catch (e) { 
-      console.error("Erro ao carregar usuários master:", e);
       setListaUsuarios([]); 
     }
   };
@@ -192,9 +181,8 @@ export default function App() {
       });
       setListaObrasBanco(res.data || []);
     } catch (e) { 
-      console.error("Erro na requisição de obras:", e);
       setListaObrasBanco([]);
-      mostrarMensagem('Erro de comunicação: Não foi possível carregar as obras.', 'erro');
+      mostrarMensagem('Erro ao carregar obras.', 'erro');
     }
   };
 
@@ -203,7 +191,6 @@ export default function App() {
       const res = await axios.get(`${API_URL}/funcionarios`); 
       setListaFuncionarios(Array.isArray(res.data) ? res.data : res.data?.funcionarios || []);
     } catch (e) { 
-      console.error("Erro ao carregar funcionários gerais:", e);
       setListaFuncionarios([]); 
     }
   };
@@ -231,13 +218,10 @@ export default function App() {
         const usuario = resposta.data.usuario;
         localStorage.setItem('usuario', JSON.stringify(usuario));
         setUsuarioLogado(usuario);
-        const abaInicial = definirAbaInicial(usuario.cargo);
-        setAbaAtiva(abaInicial);
-        expandirGrupoDaAbaAtiva(abaInicial, usuario.cargo);
+        setAbaAtiva(definirAbaInicial(usuario.cargo));
       }
     } catch (err) {
-      console.error("Erro ao logar:", err);
-      setErroLogin(err.response?.data?.error || "Erro ao tentar logar no servidor.");
+      setErroLogin(err.response?.data?.error || "Erro ao tentar logar.");
     }
   };
 
@@ -274,53 +258,67 @@ export default function App() {
   const cargoUser = usuarioLogado.cargo;
 
   return (
-    <div style={{ minHeight: '100vh', width: '100%', backgroundColor: '#f8fafc', fontFamily: 'sans-serif', fontSize: '12px', color: '#1e293b', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', width: '100%', backgroundColor: '#f8fafc', fontFamily: 'sans-serif', fontSize: '12px', color: '#1e293b', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       
-      {/* CABEÇALHO SUPERIOR */}
-      <header style={{ backgroundColor: '#0f172a', color: '#fff', height: '50px', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', zIndex: 30 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {/* CABEÇALHO */}
+      <header style={{ backgroundColor: '#0f172a', color: '#fff', height: '50px', padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', zIndex: 40, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button 
             onClick={() => setSidebarAberto(!sidebarAberto)} 
             style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '6px', borderRadius: '4px', backgroundColor: '#1e293b' }}
-            title={sidebarAberto ? "Ocultar Menu Lateral" : "Exibir Menu Lateral"}
           >
             {sidebarAberto ? <X style={{ width: '18px', height: '18px' }} /> : <Menu style={{ width: '18px', height: '18px' }} />}
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <HardHat style={{ color: '#60a5fa', width: '20px', height: '20px' }} />
-            <span style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: '12px', letterSpacing: '0.4px' }}>
-              Sistema Unificado de Engenharia
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <HardHat style={{ color: '#60a5fa', width: '20px', height: '20px', flexShrink: 0 }} />
+            <span style={{ fontWeight: 'bold', textTransform: 'uppercase', fontSize: isMobile ? '10px' : '12px', letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+              {isMobile ? 'Sistema Engenharia' : 'Sistema Unificado de Engenharia'}
             </span>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', color: '#cbd5e1', border: '1px solid #334155' }}>
-            {usuarioLogado.nome} <strong style={{ color: '#60a5fa' }}>({usuarioLogado.cargo})</strong>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ backgroundColor: '#1e293b', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', color: '#cbd5e1', border: '1px solid #334155', maxWidth: isMobile ? '100px' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {usuarioLogado.nome} {!isMobile && <strong style={{ color: '#60a5fa' }}>({usuarioLogado.cargo})</strong>}
           </span>
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold', fontSize: '11px' }}>
-            <LogOut style={{ width: '15px', height: '15px' }} /> <span>Sair</span>
+            <LogOut style={{ width: '15px', height: '15px' }} /> <span>{!isMobile && 'Sair'}</span>
           </button>
         </div>
       </header>
 
-      {/* ÁREA PRINCIPAL COM MENU LATERAL E CONTEÚDO */}
-      <div style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden', position: 'relative' }}>
+      {/* ÁREA PRINCIPAL DA APLICAÇÃO */}
+      <div style={{ display: 'flex', flex: 1, width: '100%', height: 'calc(100vh - 50px)', overflow: 'hidden', position: 'relative' }}>
         
-        {/* SIDEBAR LATERAL AGRUPADO */}
+        {/* MÁSCARA ESCURA PARA MOBILE */}
+        {isMobile && sidebarAberto && (
+          <div 
+            onClick={() => setSidebarAberto(false)} 
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 45 }}
+          />
+        )}
+
+        {/* SIDEBAR COMPLETA ATÉ O FIM DA TELA */}
         <aside 
           style={{ 
+            position: isMobile ? 'absolute' : 'relative',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            zIndex: isMobile ? 50 : 10,
             width: sidebarAberto ? '250px' : '0px', 
             minWidth: sidebarAberto ? '250px' : '0px',
+            transform: isMobile ? (sidebarAberto ? 'translateX(0)' : 'translateX(-100%)') : 'none',
             transition: 'all 0.2s ease-in-out', 
             backgroundColor: '#0f172a', 
             borderRight: sidebarAberto ? '1px solid #1e293b' : 'none', 
-            display: sidebarAberto ? 'flex' : 'none', 
+            display: 'flex', 
             flexDirection: 'column', 
             overflowY: 'auto', 
             overflowX: 'hidden',
             boxSizing: 'border-box',
+            height: '100%',
             flexShrink: 0
           }}
         >
@@ -334,7 +332,6 @@ export default function App() {
 
               return (
                 <div key={grupo.idGrupo} style={{ marginBottom: '2px' }}>
-                  {/* BOTÃO DO GRUPO (EXPANDE/RECOLHE SUBGRUPOS) */}
                   <button
                     onClick={() => toggleGrupo(grupo.idGrupo)}
                     style={{
@@ -362,7 +359,6 @@ export default function App() {
                     {estaAberto ? <ChevronDown style={{ width: '14px', height: '14px' }} /> : <ChevronRight style={{ width: '14px', height: '14px' }} />}
                   </button>
 
-                  {/* ITENS DO SUBGRUPO (EXIBIDOS APENAS QUANDO ABERTO) */}
                   {estaAberto && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px', paddingLeft: '8px' }}>
                       {itensPermitidos.map(item => {
@@ -373,7 +369,7 @@ export default function App() {
                             key={item.id}
                             onClick={() => {
                               setAbaAtiva(item.id);
-                              if (window.innerWidth < 768) setSidebarAberto(false);
+                              if (isMobile) setSidebarAberto(false);
                             }}
                             style={{
                               display: 'flex',
@@ -405,8 +401,8 @@ export default function App() {
           </div>
         </aside>
 
-        {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-        <main style={{ flex: 1, padding: '16px', overflowY: 'auto', boxSizing: 'border-box', height: 'calc(100vh - 50px)' }}>
+        {/* CONTEÚDO DA PÁGINA */}
+        <main style={{ flex: 1, padding: isMobile ? '8px' : '16px', overflowY: 'auto', boxSizing: 'border-box', height: '100%', width: '100%' }}>
           
           {mensagem.texto && (
             <div style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '6px', border: '1px solid', fontSize: '12px', fontWeight: 'bold', backgroundColor: mensagem.tipo === 'sucesso' ? '#f0fdf4' : '#fef2f2', color: mensagem.tipo === 'sucesso' ? '#166534' : '#991b1b' }}>
@@ -414,7 +410,7 @@ export default function App() {
             </div>
           )}
 
-          <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', minHeight: '100%' }}>
+          <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', padding: isMobile ? '10px' : '16px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', minHeight: '100%', overflowX: 'auto' }}>
             
             {abaAtiva === 'MASTER_CONTROLE' && (
               <ControleMaster 
@@ -446,13 +442,11 @@ export default function App() {
             {abaAtiva === 'RH_INTEGRACAO' && <RhIntegracao API_URL={API_URL} mostrarMensagemGlobal={mostrarMensagem} recarregarFuncionariosGeral={carregarFuncionariosGeral} />}
             {abaAtiva === 'CADASTRO_FUNCIONARIO' && <CadastroFuncionario usuarioLogado={usuarioLogado} recarregarFuncionariosGlobal={carregarFuncionariosGeral} />}
             
-            {/* GRUPO FROTAS */}
             {abaAtiva === 'CADASTRO_VEICULO' && <CadastroVeiculo usuarioLogado={usuarioLogado} />}
             
             {abaAtiva === 'EQUIPE' && <DiarioEfetivo obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             {abaAtiva === 'DIARIO_TECNICO' && <DiarioObraTecnico obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             
-            {/* ABAS COM ACESSO DA ENGENHARIA */}
             {abaAtiva === 'HISTORICO_DIARIOS' && <HistoricoDiarios id={usuarioLogado.id} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             {abaAtiva === 'HISTORICO_MATERIAIS' && <HistoricoMateriais id={usuarioLogado.id} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             {abaAtiva === 'PRESENCA' && <HistoricoPresenca cargo={usuarioLogado.cargo} id={usuarioLogado.id} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
@@ -477,7 +471,6 @@ export default function App() {
               <EstoqueSaldos API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
 
-            {/* ABAS EXCLUSIVAS DO MASTER */}
             {abaAtiva === 'ESTOQUE_MOVIMENTACOES' && usuarioLogado.cargo === 'MASTER' && (
               <EstoqueMovimentacoes API_URL={API_URL} mostrarMensagem={mostrarMensagem} usuarioLogado={usuarioLogado} />
             )}

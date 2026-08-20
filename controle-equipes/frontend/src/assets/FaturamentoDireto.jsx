@@ -5,7 +5,8 @@ import {
   Building2, Truck, User, Calendar, DollarSign, MessageSquare, Eye, X, Package, AlertCircle, CheckCircle2, Link, Paperclip, Send
 } from 'lucide-react';
 
-export default function FaturamentoDireto({ API_URL, mostrarMensagem }) {
+// ✅ Ajuste a assinatura do componente:
+export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDisponiveis: obrasProps, usuarioLogado }) {
   const [faturamentos, setFaturamentos] = useState([]);
   const [obrasDisponiveis, setObrasDisponiveis] = useState([]);
   const [fornecedoresDisponiveis, setFornecedoresDisponiveis] = useState([]);
@@ -65,19 +66,43 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem }) {
     carregarDados();
   }, []);
 
-  const carregarDados = async () => {
+const carregarDados = async () => {
     try {
+      // 1. Identifica ID e Cargo do usuário logado
+      const idUsuario = usuarioLogado?.id || usuarioLogado?.id_usuario;
+      const cargoUpper = String(usuarioLogado?.cargo || '').trim().toUpperCase();
+
+      // 2. Define a requisição de obras dinamicamente:
+      // MASTER e RH usam a rota geral; os demais perfis (ENGENHARIA, GESTOR) 
+      // usam a rota com filtro de vínculo no banco.
+      const reqObras = (cargoUpper === 'MASTER' || cargoUpper === 'RH')
+        ? axios.get(`${API_URL}/master/obras-geral`)
+        : axios.get(`${API_URL}/gestor/obras-ativas`, {
+            params: {
+              id: idUsuario,
+              cargo: cargoUpper,
+              incluirInativas: 'true' // Altere para 'false' se quiser listar apenas obras ativas
+            }
+          });
+
+      // 3. Executa todas as buscas em paralelo
       const [resFat, resObras, resForn, resUser, resMat, resFornMat] = await Promise.all([
         axios.get(`${API_URL}/faturamento-direto`).catch(() => ({ data: [] })),
-        axios.get(`${API_URL}/master/obras-geral`).catch(() => axios.get(`${API_URL}/obras`)).catch(() => ({ data: [] })),
+        reqObras.catch(() => ({ data: [] })),
         axios.get(`${API_URL}/fornecedores`).catch(() => ({ data: [] })),
         axios.get(`${API_URL}/master/usuarios`).catch(() => axios.get(`${API_URL}/usuarios`)).catch(() => ({ data: [] })),
         axios.get(`${API_URL}/materiais`).catch(() => ({ data: [] })),
         axios.get(`${API_URL}/fornecedor-materiais`).catch(() => ({ data: [] }))
       ]);
 
+      // 4. Se a propriedade obrasDisponiveis veio via Props e possui itens, 
+      // você pode dar preferência a ela, caso contrário usa a busca dinâmica:
+      const listaObrasFinal = (obrasProps && obrasProps.length > 0)
+        ? obrasProps
+        : (resObras.data || []);
+
       setFaturamentos(resFat.data || []);
-      setObrasDisponiveis(resObras.data || []);
+      setObrasDisponiveis(listaObrasFinal);
       setFornecedoresDisponiveis(resForn.data || []);
       setMateriaisDisponiveis(resMat.data || []);
       setFornecedorMateriais(resFornMat.data || []);
@@ -187,21 +212,25 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem }) {
       return mostrarMensagem('Para o status Cancelado, informe o motivo.', 'erro');
     }
 
+  // Substitua o payload do handleSubmit por:
+    // ✅ Ajuste no payload:
     const payload = {
       obra_id: form.obra_id,
       numero_pedido_obra: form.numero_pedido_concessionaria,
       boletim_medicao: form.boletim_medicao,
       fornecedor_id: form.fornecedor_id,
       numero_nota_fiscal: form.numero_nota_fiscal,
-      data_nota_fiscal: form.data_nota_fiscal,
+      data_nota_fiscal: form.data_nota_fiscal || null,
       valor_nota_fiscal: form.valor_nota_fiscal,
       status: form.status,
       id_gestor: form.id_gestor,
       data_solicitacao: form.data_solicitacao,
       observacao: form.observacao,
-      data_envio: form.data_envio,
+      data_envio: form.data_envio || null,
       url_email: form.url_email,
-      itens: form.itens
+      itens: form.itens,
+      id_usuario: usuarioLogado?.id || usuarioLogado?.id_usuario,
+      cargo: usuarioLogado?.cargo || 'ENGENHARIA'
     };
 
     try {
