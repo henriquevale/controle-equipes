@@ -29,10 +29,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     'Em orçamento',
     'Aguardando aprovação',
     'Aprovado(Pedido gerado)',
-    'Comprado',
-    'NF recebida',
-    'Recebido em estoque',
-    'Transferido para obra',
+    'NF recebida e em estoque',
     'Concluído',
     'Cancelado'
   ];

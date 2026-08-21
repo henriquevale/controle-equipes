@@ -57,12 +57,10 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
       return;
     }
 
-    // Mapeia os IDs relacionais usando o nome exato da coluna retornado do BD: 'obra_id'
     const idsObrasDaBase = baseObras
       .filter(bo => String(bo.base_id) === String(baseId))
       .map(bo => Number(bo.obra_id));
 
-    // Filtra o estado principal de obras
     const obrasDaBase = obras.filter(o => idsObrasDaBase.includes(Number(o.id)));
     setObrasFiltradas(obrasDaBase);
   };
@@ -138,6 +136,15 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     if (filtroTipo && categoria.toUpperCase() !== filtroTipo.toUpperCase()) return false;
     return true;
   });
+
+  // Recalcula o saldo apenas com movimentações CONCLUIDAS no modal
+  const saldoExtratoConcluido = historicoMaterial
+    .filter(m => String(m.status).toUpperCase() === 'CONCLUIDO')
+    .reduce((acc, m) => {
+      const qtd = Number(m.quantidade || 0);
+      const ehEntrada = ['ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE'].includes(m.tipo_movimentacao);
+      return ehEntrada ? acc + qtd : acc - qtd;
+    }, 0);
 
   const inputStyle = {
     height: '36px', padding: '0 8px', border: '1px solid #cbd5e1',
@@ -301,7 +308,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
       {/* MODAL DE EXTRATO DE MOVIMENTAÇÃO */}
       {materialSelecionado && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(15, 23, 42, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: '8px', width: '90%', maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '8px', width: '90%', maxWidth: '750px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
             
             <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
@@ -309,7 +316,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                   Extrato do Material: {materialSelecionado.nome || materialSelecionado.material_nome || materialSelecionado.descricao}
                 </h3>
                 <span style={{ fontSize: '11px', color: '#64748b' }}>
-                  Saldo Atual: <strong>{materialSelecionado.saldo_atual || materialSelecionado.saldo_total || 0} {materialSelecionado.unidade_medida || 'UN'}</strong>
+                  Saldo Concluído: <strong>{saldoExtratoConcluido.toLocaleString('pt-BR')} {materialSelecionado.unidade_medida || 'UN'}</strong>
                 </span>
               </div>
               <button onClick={fecharModal} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px' }}>
@@ -328,6 +335,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                       <th style={{ padding: '8px' }}>Tipo</th>
                       <th style={{ padding: '8px' }}>Qtd</th>
+                      <th style={{ padding: '8px' }}>Status</th>
                       <th style={{ padding: '8px' }}>Origem / Destino</th>
                       <th style={{ padding: '8px' }}>Data</th>
                     </tr>
@@ -335,8 +343,16 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                   <tbody>
                     {historicoMaterial.map((m) => {
                       const ehEntrada = ['ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE'].includes(m.tipo_movimentacao);
+                      const isConcluido = String(m.status).toUpperCase() === 'CONCLUIDO';
+
                       return (
-                        <tr key={`modal-mov-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <tr 
+                          key={`modal-mov-${m.id}`} 
+                          style={{ 
+                            borderBottom: '1px solid #f1f5f9',
+                            opacity: isConcluido ? 1 : 0.6 
+                          }}
+                        >
                           <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             {ehEntrada ? (
                               <ArrowDownLeft style={{ width: '14px', height: '14px', color: '#16a34a' }} />
@@ -349,6 +365,18 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                           </td>
                           <td style={{ padding: '8px', fontWeight: 'bold' }}>
                             {m.quantidade} {m.unidade_medida || 'UN'}
+                          </td>
+                          <td style={{ padding: '8px' }}>
+                            <span style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '9px',
+                              fontWeight: 'bold',
+                              backgroundColor: isConcluido ? '#dcfce7' : '#fef3c7',
+                              color: isConcluido ? '#15803d' : '#b45309'
+                            }}>
+                              {m.status || 'PENDENTE'}
+                            </span>
                           </td>
                           <td style={{ padding: '8px', color: '#475569' }}>
                             {m.origem_tipo} #{m.origem_id || '-'} → {m.destino_tipo} #{m.destino_id || '-'}

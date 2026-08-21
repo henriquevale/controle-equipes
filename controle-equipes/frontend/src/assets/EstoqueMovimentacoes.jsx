@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ArrowRightLeft, Plus, Search, Filter, Download, Edit2, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Plus, Search, Filter, Download, Edit2, Trash2, CheckSquare, Square } from 'lucide-react';
 
 export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuarioLogado }) {
   const [movimentacoes, setMovimentacoes] = useState([]);
@@ -17,6 +17,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
   const [filtroDataFim, setFiltroDataFim] = useState('');
   const [filtroTipoMov, setFiltroTipoMov] = useState('');
   const [filtroObraDestino, setFiltroObraDestino] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState(''); // NOVO FILTRO DE STATUS
 
   // Seleções para Cascata
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState('');
@@ -34,7 +35,8 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
     destino_tipo: 'OBRA',
     destino_id: '',
     data_solicitada: '',
-    observacao: ''
+    observacao: '',
+    status: 'CONCLUIDO'
   };
 
   const [form, setForm] = useState(estadoInicialForm);
@@ -77,6 +79,31 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
 
     } catch (e) {
       console.error("Erro ao carregar dados do estoque:", e);
+    }
+  };
+
+  const toggleStatusConcluido = async (mov) => {
+    const isConcluido = mov.status === 'CONCLUIDO' || mov.status === 'CONFIRMADO';
+    const novoStatus = isConcluido ? 'PENDENTE' : 'CONCLUIDO';
+
+    let dataFormatada = mov.data_solicitada;
+    if (dataFormatada && typeof dataFormatada === 'string') {
+      dataFormatada = dataFormatada.split('T')[0];
+    }
+
+    const payload = {
+      ...mov,
+      data_solicitada: dataFormatada || null,
+      status: novoStatus
+    };
+
+    try {
+      await axios.put(`${API_URL}/master/movimentacoes/${mov.id}`, payload);
+      mostrarMensagem(`Status alterado para ${novoStatus}!`, 'sucesso');
+      carregarDados();
+    } catch (e) {
+      console.error("Erro ao alterar status:", e.response?.data || e.message);
+      mostrarMensagem('Erro ao alterar status no servidor.', 'erro');
     }
   };
 
@@ -152,7 +179,8 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
       ...form,
       quem_envia_id: form.quem_envia_id ? parseInt(form.quem_envia_id) : null,
       quem_pede_id: form.quem_pede_id ? parseInt(form.quem_pede_id) : null,
-      id_usuario: usuarioLogado?.id || usuarioLogado?.id_usuario || 1
+      id_usuario: usuarioLogado?.id || usuarioLogado?.id_usuario || 1,
+      status: editandoId ? form.status : 'CONCLUIDO'
     };
 
     try {
@@ -180,18 +208,28 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
       dataSolicitadaFormatada = m.data_solicitada.split('T')[0];
     }
 
+    if (m.origem_tipo === 'FORNECEDOR' && m.origem_id) {
+      setFornecedorSelecionado(m.origem_id);
+    }
+
+    const matObj = materiais.find(x => Number(x.id) === Number(m.material_id));
+    if (matObj && matObj.tipo) {
+      setCategoriaSelecionada(String(matObj.tipo).toUpperCase().trim());
+    }
+
     setForm({
       quem_envia_id: m.quem_envia_id || '',
       material_id: m.material_id || '',
       quantidade: m.quantidade || '',
       tipo_movimentacao: m.tipo_movimentacao || 'TRANSFERENCIA_SAIDA',
-      quem_pede_id: m.quem_pede_id || '',
+      quem_pede_id: m.quem_pede_id || m.id_gestor || '',
       origem_tipo: m.origem_tipo || 'BASE',
       origem_id: m.origem_id || '',
       destino_tipo: m.destino_tipo || 'OBRA',
       destino_id: m.destino_id || '',
       data_solicitada: dataSolicitadaFormatada,
-      observacao: m.observacao || ''
+      observacao: m.observacao || '',
+      status: m.status || 'PENDENTE'
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -220,7 +258,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
 
     if (tipo === 'FORNECEDOR') {
       const f = fornecedores.find(x => Number(x.id) === Number(id));
-      return f ? `Fornecedor: ${f.nome_fantasia || f.razao_social}` : `Fornecedor #${id}`;
+      return f ? `${f.nome_fantasia || f.razao_social}` : `Fornecedor #${id}`;
     }
     if (tipo === 'BASE') {
       const b = bases.find(x => Number(x.id) === Number(id));
@@ -240,7 +278,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
     return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : new Date(dataIso).toLocaleDateString('pt-BR');
   };
 
-const movsFiltradas = movimentacoes.filter(m => {
+  const movsFiltradas = movimentacoes.filter(m => {
     const matNome = String(m.material_nome || m.descricao || '').toLowerCase();
     const busca = termoBusca.toLowerCase();
     if (busca && !matNome.includes(busca)) {
@@ -249,13 +287,15 @@ const movsFiltradas = movimentacoes.filter(m => {
     if (filtroTipoMov && m.tipo_movimentacao !== filtroTipoMov) return false;
     if (filtroObraDestino && String(m.destino_id) !== String(filtroObraDestino)) return false;
 
-    // Filtra pela DATA DE SOLICITAÇÃO
+    // Filtro de Status
+    const statusAtual = m.status || (m.faturamento_id ? 'PENDENTE' : 'CONCLUIDO');
+    if (filtroStatus && statusAtual !== filtroStatus) return false;
+
     if (m.data_solicitada) {
       const dataSolicitada = m.data_solicitada.split('T')[0];
       if (filtroDataInicio && dataSolicitada < filtroDataInicio) return false;
       if (filtroDataFim && dataSolicitada > filtroDataFim) return false;
     } else if (filtroDataInicio || filtroDataFim) {
-      // Oculta registros que não possuem data solicitada se houver filtro ativo
       return false;
     }
 
@@ -267,20 +307,59 @@ const movsFiltradas = movimentacoes.filter(m => {
       return mostrarMensagem('Nenhum dado para exportar.', 'erro');
     }
 
-    const cabecalho = ['Material', 'Quantidade', 'Unidade', 'Tipo', 'Quem Envia', 'Origem', 'Quem Pede', 'Destino', 'Data Solicitada', 'Registrado Por', 'Data Lançamento'];
-    const linhas = movsFiltradas.map(m => [
-      `"${(m.material_nome || m.descricao || '').replace(/"/g, '""')}"`,
-      m.quantidade,
-      m.unidade_medida || 'UN',
-      m.tipo_movimentacao,
-      `"${m.quem_envia_nome || '-'}"`,
-      `"${getNomeEntidade(m.origem_tipo, m.origem_id)}"`,
-      `"${m.quem_pede_nome || '-'}"`,
-      `"${getNomeEntidade(m.destino_tipo, m.destino_id)}"`,
-      formatarData(m.data_solicitada),
-      `"${m.usuario_nome || '-'}"`,
-      formatarData(m.data_movimentacao)
-    ]);
+    const cabecalho = [
+      'Material', 
+      'Tipo Material', 
+      'Fornecedor', 
+      'Quantidade', 
+      'Unidade', 
+      'Tipo Movimentação', 
+      'Quem Envia', 
+      'Origem', 
+      'Quem Pede (Gestor)', 
+      'Destino', 
+      'Data Solicitada', 
+      'Status', 
+      'Registrado Por', 
+      'Data Lançamento'
+    ];
+
+    const linhas = movsFiltradas.map(m => {
+      const matObj = materiais.find(x => Number(x.id) === Number(m.material_id));
+      const tipoMaterial = matObj?.tipo || m.material_tipo || '-';
+
+      let fornecedorNome = '-';
+      if (m.origem_tipo === 'FORNECEDOR' && m.origem_id) {
+        const forn = fornecedores.find(f => Number(f.id) === Number(m.origem_id));
+        fornecedorNome = forn ? (forn.nome_fantasia || forn.razao_social) : `Fornecedor #${m.origem_id}`;
+      }
+
+      let quemPedeIdValido = m.quem_pede_id || m.id_gestor;
+      let quemPedeNome = m.quem_pede_nome || '-';
+      if (quemPedeIdValido) {
+        const gestorPede = gestores.find(g => Number(g.id || g.id_usuario) === Number(quemPedeIdValido));
+        if (gestorPede) {
+          quemPedeNome = gestorPede.nome || gestorPede.nome_gestor || gestorPede.usuario;
+        }
+      }
+
+      return [
+        `"${(m.material_nome || m.descricao || '').replace(/"/g, '""')}"`,
+        `"${tipoMaterial.replace(/"/g, '""')}"`,
+        `"${fornecedorNome.replace(/"/g, '""')}"`,
+        m.quantidade,
+        m.unidade_medida || 'UN',
+        m.tipo_movimentacao,
+        `"${m.quem_envia_nome || '-'}"`,
+        `"${getNomeEntidade(m.origem_tipo, m.origem_id)}"`,
+        `"${quemPedeNome}"`,
+        `"${getNomeEntidade(m.destino_tipo, m.destino_id)}"`,
+        formatarData(m.data_solicitada),
+        m.status || (m.faturamento_id ? 'PENDENTE' : 'CONCLUIDO'),
+        `"${m.usuario_nome || '-'}"`,
+        formatarData(m.data_movimentacao)
+      ];
+    });
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [cabecalho.join(','), ...linhas.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -425,9 +504,9 @@ const movsFiltradas = movimentacoes.filter(m => {
             </div>
 
             <div>
-              <label style={labelStyle}>8. Quem vai pedir</label>
+              <label style={labelStyle}>8. Quem vai pedir (Gestor)</label>
               <select value={form.quem_pede_id} onChange={e => setForm({ ...form, quem_pede_id: e.target.value })} style={inputStyle}>
-                <option value="">Selecione...</option>
+                <option value="">Selecione o gestor...</option>
                 {gestores.map(g => (
                   <option key={`pede-${g.id || g.id_usuario}`} value={g.id || g.id_usuario}>
                     {g.nome || g.nome_gestor || g.usuario}
@@ -512,8 +591,8 @@ const movsFiltradas = movimentacoes.filter(m => {
           </button>
         </div>
 
-        <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
-      <div>
+        <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+          <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA SOLICITAÇÃO INÍCIO</label>
             <input type="date" value={filtroDataInicio} onChange={e => setFiltroDataInicio(e.target.value)} style={{ ...inputStyle, height: '32px' }} />
           </div>
@@ -521,6 +600,15 @@ const movsFiltradas = movimentacoes.filter(m => {
           <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA SOLICITAÇÃO FIM</label>
             <input type="date" value={filtroDataFim} onChange={e => setFiltroDataFim(e.target.value)} style={{ ...inputStyle, height: '32px' }} />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>STATUS</label>
+            <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={{ ...inputStyle, height: '32px' }}>
+              <option value="">Todos</option>
+              <option value="PENDENTE">Pendente</option>
+              <option value="CONCLUIDO">Concluído</option>
+            </select>
           </div>
 
           <div>
@@ -554,17 +642,17 @@ const movsFiltradas = movimentacoes.filter(m => {
           </div>
         </div>
 
-<div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '800px' }}>
+        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '980px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
-                <th style={{ padding: '10px 12px' }}>Material</th>
+                <th style={{ padding: '10px 12px', textAlign: 'center', width: '40px' }}>Concluir</th>
+                <th style={{ padding: '10px 12px' }}>Material / Tipo</th>
+                <th style={{ padding: '10px 12px' }}>Fornecedor</th>
                 <th style={{ padding: '10px 12px' }}>Qtd</th>
-                <th style={{ padding: '10px 12px' }}>Tipo</th>
+                <th style={{ padding: '10px 12px' }}>Tipo Mov.</th>
                 <th style={{ padding: '10px 12px' }}>Quem Envia / Origem</th>
-                <th style={{ padding: '10px 12px' }}>Quem Pede / Destino</th>
-                <th style={{ padding: '10px 12px' }}>Observação</th>
-                <th style={{ padding: '10px 12px' }}>Registrado Por</th>
+                <th style={{ padding: '10px 12px' }}>Quem Pede (Gestor)</th>
                 <th style={{ padding: '10px 12px' }}>Data Solicitada</th>
                 <th style={{ padding: '10px 12px', textAlign: 'center' }}>Ações</th>
               </tr>
@@ -577,56 +665,86 @@ const movsFiltradas = movimentacoes.filter(m => {
                   </td>
                 </tr>
               ) : (
-                movsFiltradas.map((m) => (
-                  <tr key={`mov-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>
-                      {m.material_nome || m.descricao || `Material #${m.material_id}`}
-                    </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#2563eb' }}>
-                      {m.quantidade} {m.unidade_medida || ''}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span style={{ padding: '3px 8px', backgroundColor: '#e0f2fe', color: '#0369a1', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>
-                        {m.tipo_movimentacao}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#475569' }}>
-                      <div>{m.quem_envia_nome ? <strong>{m.quem_envia_nome}</strong> : '-'}</div>
-                      <div style={{ fontSize: '10px', color: '#94a3b8' }}>{getNomeEntidade(m.origem_tipo, m.origem_id)}</div>
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#0f172a' }}>
-                      <div>{m.quem_pede_nome ? <strong>{m.quem_pede_nome}</strong> : '-'}</div>
-                      <div style={{ fontSize: '10px', color: '#94a3b8' }}>{getNomeEntidade(m.destino_tipo, m.destino_id)}</div>
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#64748b', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.observacao || ''}>
-                      {m.observacao || '-'}
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                      {m.usuario_nome || `Usuário #${m.id_usuario}`}
-                    </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#d97706' }}>
-                      {formatarData(m.data_solicitada)}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                movsFiltradas.map((m) => {
+                  const matObj = materiais.find(x => Number(x.id) === Number(m.material_id));
+                  const tipoMaterial = matObj?.tipo || m.material_tipo || '-';
+
+                  let fornecedorNome = '-';
+                  if (m.origem_tipo === 'FORNECEDOR' && m.origem_id) {
+                    const forn = fornecedores.find(f => Number(f.id) === Number(m.origem_id));
+                    fornecedorNome = forn ? (forn.nome_fantasia || forn.razao_social) : `Fornecedor #${m.origem_id}`;
+                  }
+
+                  let quemPedeIdValido = m.quem_pede_id || m.id_gestor;
+                  let quemPedeNome = m.quem_pede_nome || '-';
+                  if (quemPedeIdValido) {
+                    const gestorPede = gestores.find(g => Number(g.id || g.id_usuario) === Number(quemPedeIdValido));
+                    if (gestorPede) {
+                      quemPedeNome = gestorPede.nome || gestorPede.nome_gestor || gestorPede.usuario;
+                    }
+                  }
+
+                  const statusFinal = m.status || (m.faturamento_id ? 'PENDENTE' : 'CONCLUIDO');
+                  const isConcluido = statusFinal === 'CONCLUIDO';
+
+                  return (
+                    <tr key={`mov-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isConcluido ? '#f0fdf4' : 'transparent' }}>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <button
-                          onClick={() => handleEditar(m)}
-                          title="Editar"
-                          style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#eab308', padding: '4px' }}
+                          onClick={() => toggleStatusConcluido(m)}
+                          title={isConcluido ? "Marcar como Pendente" : "Marcar como Concluído"}
+                          style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: isConcluido ? '#16a34a' : '#94a3b8' }}
                         >
-                          <Edit2 style={{ width: '14px', height: '14px' }} />
+                          {isConcluido ? <CheckSquare style={{ width: '18px', height: '18px' }} /> : <Square style={{ width: '18px', height: '18px' }} />}
                         </button>
-                        <button
-                          onClick={() => handleDeletar(m.id)}
-                          title="Excluir"
-                          style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', padding: '4px' }}
-                        >
-                          <Trash2 style={{ width: '14px', height: '14px' }} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#0f172a' }}>
+                        <div style={{ fontWeight: 'bold' }}>{m.material_nome || m.descricao || `Material #${m.material_id}`}</div>
+                        <div style={{ fontSize: '10px', color: '#64748b' }}>Tipo: {tipoMaterial}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#475569' }}>
+                        {fornecedorNome}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#2563eb' }}>
+                        {m.quantidade} {m.unidade_medida || ''}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{ padding: '3px 8px', backgroundColor: '#e0f2fe', color: '#0369a1', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>
+                          {m.tipo_movimentacao}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#475569' }}>
+                        <div>{m.quem_envia_nome ? <strong>{m.quem_envia_nome}</strong> : '-'}</div>
+                        <div style={{ fontSize: '10px', color: '#94a3b8' }}>{getNomeEntidade(m.origem_tipo, m.origem_id)}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#0f172a' }}>
+                        <div><strong>{quemPedeNome}</strong></div>
+                        <div style={{ fontSize: '10px', color: '#94a3b8' }}>{getNomeEntidade(m.destino_tipo, m.destino_id)}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#d97706' }}>
+                        {formatarData(m.data_solicitada)}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                          <button
+                            onClick={() => handleEditar(m)}
+                            title="Editar"
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#eab308', padding: '4px' }}
+                          >
+                            <Edit2 style={{ width: '14px', height: '14px' }} />
+                          </button>
+                          <button
+                            onClick={() => handleDeletar(m.id)}
+                            title="Excluir"
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', padding: '4px' }}
+                          >
+                            <Trash2 style={{ width: '14px', height: '14px' }} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
