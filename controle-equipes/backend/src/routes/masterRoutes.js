@@ -715,6 +715,7 @@ router.post('/faturamento-direto', async (req, res) => {
     numero_nota_fiscal, 
     data_nota_fiscal,
     valor_nota_fiscal, 
+    valor_frete,
     status, 
     id_gestor,
     data_solicitacao,
@@ -725,6 +726,8 @@ router.post('/faturamento-direto', async (req, res) => {
     id_usuario,
     cargo
   } = req.body;
+
+  const valorFreteValido = (valor_frete !== undefined && valor_frete !== '' && valor_frete !== null) ? parseFloat(valor_frete) : 0;
 
   const connection = await db.getConnection();
   try {
@@ -757,10 +760,11 @@ router.post('/faturamento-direto', async (req, res) => {
     const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
     const valorNfValido = (valor_nota_fiscal !== undefined && valor_nota_fiscal !== '' && valor_nota_fiscal !== null) ? parseFloat(valor_nota_fiscal) : 0;
 
+    // CORREÇÃO: Adicionado o 14º '?' na cláusula VALUES
     const sqlFaturamento = `
       INSERT INTO faturamentos_diretos 
-      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, status, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, valor_frete, status, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(sqlFaturamento, [
@@ -771,6 +775,7 @@ router.post('/faturamento-direto', async (req, res) => {
       numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
       parseDate(data_nota_fiscal),
       valorNfValido, 
+      valorFreteValido,
       statusFinal, 
       gestorIdValido,
       parseDate(data_solicitacao),
@@ -861,6 +866,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     numero_nota_fiscal, 
     data_nota_fiscal,
     valor_nota_fiscal, 
+    valor_frete,
     status, 
     id_gestor,
     data_solicitacao,
@@ -875,6 +881,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
   const statusNovo = status || 'Solicitado';
   const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
   const usuarioAcaoId = id_usuario || gestorIdValido || 1;
+  const valorFreteValido = (valor_frete !== undefined && valor_frete !== '' && valor_frete !== null) ? parseFloat(valor_frete) : 0;
 
   const maxRetries = 3;
   let attempt = 0;
@@ -921,6 +928,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
           numero_nota_fiscal = ?, 
           data_nota_fiscal = ?,
           valor_nota_fiscal = ?, 
+          valor_frete = ?, 
           status = ?, 
           id_gestor = ?,
           data_solicitacao = ?,
@@ -938,6 +946,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
         parseDate(data_nota_fiscal),
         parseFloat(valor_nota_fiscal) || 0, 
+        valorFreteValido,
         statusNovo, 
         gestorIdValido,
         parseDate(data_solicitacao), 
@@ -955,10 +964,11 @@ router.put('/faturamento-direto/:id', async (req, res) => {
           VALUES (?, ?, ?, ?, ?)
         `;
 
+        // Ajustado status de movimentação para 'CONCLUIDO' (alinhado com a rota POST)
         const sqlMovimentacao = `
           INSERT INTO estoque_movimentacoes 
           (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
-          VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'PENDENTE', CURDATE(), ?, ?)
+          VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'CONCLUIDO', CURDATE(), ?, ?)
         `;
 
         const sqlAtualizaSaldo = `
@@ -1010,7 +1020,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       // Se for Deadlock (1213) e ainda houver tentativas, tenta novamente
       if (error.errno === 1213 && attempt < maxRetries - 1) {
         attempt++;
-        await new Promise(resolve => setTimeout(resolve, 50 * attempt)); // Pequena pausa antes de tentar de novo
+        await new Promise(resolve => setTimeout(resolve, 50 * attempt));
         continue;
       }
 

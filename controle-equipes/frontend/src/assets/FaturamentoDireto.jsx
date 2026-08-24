@@ -5,7 +5,6 @@ import {
   Building2, Truck, User, Calendar, DollarSign, MessageSquare, Eye, X, Package, AlertCircle, CheckCircle2, Link, Paperclip, Send
 } from 'lucide-react';
 
-// ✅ Ajuste a assinatura do componente:
 export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDisponiveis: obrasProps, usuarioLogado }) {
   const [faturamentos, setFaturamentos] = useState([]);
   const [obrasDisponiveis, setObrasDisponiveis] = useState([]);
@@ -43,6 +42,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     numero_nota_fiscal: '',
     data_nota_fiscal: '',
     valor_nota_fiscal: '',
+    valor_frete: '', // Frete global do pedido
     data_envio: '',
     status: 'Solicitado',
     motivo_cancelamento: '',
@@ -56,33 +56,28 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
 
   const [form, setForm] = useState(initialForm);
 
-  // Item temporário
+  // Item temporário (apenas material, quantidade e valor unitário)
   const [tempItem, setTempItem] = useState({ material_id: '', quantidade: '', valor_unitario: '' });
 
   useEffect(() => {
     carregarDados();
   }, []);
 
-const carregarDados = async () => {
+  const carregarDados = async () => {
     try {
-      // 1. Identifica ID e Cargo do usuário logado
       const idUsuario = usuarioLogado?.id || usuarioLogado?.id_usuario;
       const cargoUpper = String(usuarioLogado?.cargo || '').trim().toUpperCase();
 
-      // 2. Define a requisição de obras dinamicamente:
-      // MASTER e RH usam a rota geral; os demais perfis (ENGENHARIA, GESTOR) 
-      // usam a rota com filtro de vínculo no banco.
       const reqObras = (cargoUpper === 'MASTER' || cargoUpper === 'RH')
         ? axios.get(`${API_URL}/master/obras-geral`)
         : axios.get(`${API_URL}/gestor/obras-ativas`, {
             params: {
               id: idUsuario,
               cargo: cargoUpper,
-              incluirInativas: 'true' // Altere para 'false' se quiser listar apenas obras ativas
+              incluirInativas: 'true'
             }
           });
 
-      // 3. Executa todas as buscas em paralelo
       const [resFat, resObras, resForn, resUser, resMat, resFornMat] = await Promise.all([
         axios.get(`${API_URL}/faturamento-direto`).catch(() => ({ data: [] })),
         reqObras.catch(() => ({ data: [] })),
@@ -92,8 +87,6 @@ const carregarDados = async () => {
         axios.get(`${API_URL}/fornecedor-materiais`).catch(() => ({ data: [] }))
       ]);
 
-      // 4. Se a propriedade obrasDisponiveis veio via Props e possui itens, 
-      // você pode dar preferência a ela, caso contrário usa a busca dinâmica:
       const listaObrasFinal = (obrasProps && obrasProps.length > 0)
         ? obrasProps
         : (resObras.data || []);
@@ -138,14 +131,16 @@ const carregarDados = async () => {
     }));
   };
 
-  // Cálculo seguro tratando conversões para número
   const totalSomaItens = form.itens.reduce((acc, it) => {
     const qtd = parseFloat(it.quantidade) || 0;
     const vlr = parseFloat(it.valor_unitario) || 0;
     return acc + (qtd * vlr);
   }, 0);
 
+  const valorFrete = parseFloat(form.valor_frete) || 0;
   const valorNF = parseFloat(form.valor_nota_fiscal) || 0;
+  const valorTotalGeral = totalSomaItens + valorFrete;
+
   const diferencaValorNF = valorNF - totalSomaItens;
 
   const handleAdicionarItem = () => {
@@ -209,8 +204,6 @@ const carregarDados = async () => {
       return mostrarMensagem('Para o status Cancelado, informe o motivo.', 'erro');
     }
 
-  // Substitua o payload do handleSubmit por:
-    // ✅ Ajuste no payload:
     const payload = {
       obra_id: form.obra_id,
       numero_pedido_obra: form.numero_pedido_concessionaria,
@@ -218,7 +211,8 @@ const carregarDados = async () => {
       fornecedor_id: form.fornecedor_id,
       numero_nota_fiscal: form.numero_nota_fiscal,
       data_nota_fiscal: form.data_nota_fiscal || null,
-      valor_nota_fiscal: form.valor_nota_fiscal,
+      valor_nota_fiscal: form.valor_nota_fiscal || 0,
+      valor_frete: form.valor_frete || 0,
       status: form.status,
       id_gestor: form.id_gestor,
       data_solicitacao: form.data_solicitacao,
@@ -269,6 +263,7 @@ const carregarDados = async () => {
       numero_nota_fiscal: fat.numero_nota_fiscal || '',
       data_nota_fiscal: formatarDataInput(fat.data_nota_fiscal),
       valor_nota_fiscal: fat.valor_nota_fiscal || '',
+      valor_frete: fat.valor_frete || '',
       data_envio: formatarDataInput(fat.data_envio),
       status: fat.status || 'Solicitado',
       motivo_cancelamento: fat.motivo_cancelamento || '',
@@ -281,30 +276,28 @@ const carregarDados = async () => {
     });
   };
 
-const handleExcluir = async (fat) => {
-  // Pega o ID independente se no banco está como 'id', 'id_faturamento' ou '_id'
-  const idParaExcluir = typeof fat === 'object' ? (fat.id || fat.id_faturamento || fat._id) : fat;
+  const handleExcluir = async (fat) => {
+    const idParaExcluir = typeof fat === 'object' ? (fat.id || fat.id_faturamento || fat._id) : fat;
 
-  if (!idParaExcluir) {
-    return mostrarMensagem('ID do registro não encontrado para exclusão.', 'erro');
-  }
-
-  if (!window.confirm(`Tem certeza que deseja excluir o registro #${idParaExcluir}?`)) return;
-
-  try {
-    // CERTIFIQUE-SE de que esta rota coincide com o seu backend
-    await axios.delete(`${API_URL}/faturamento-direto/${idParaExcluir}`);
-    mostrarMensagem('Registro excluído com sucesso!', 'sucesso');
-    carregarDados();
-  } catch (e) {
-    console.error("Erro ao excluir registro:", e);
-    if (e.response && e.response.status === 404) {
-      mostrarMensagem('Rota de exclusão não encontrada no servidor (Erro 404). Verifique a URL da API no Backend.', 'erro');
-    } else {
-      mostrarMensagem('Erro ao excluir registro.', 'erro');
+    if (!idParaExcluir) {
+      return mostrarMensagem('ID do registro não encontrado para exclusão.', 'erro');
     }
-  }
-};
+
+    if (!window.confirm(`Tem certeza que deseja excluir o registro #${idParaExcluir}?`)) return;
+
+    try {
+      await axios.delete(`${API_URL}/faturamento-direto/${idParaExcluir}`);
+      mostrarMensagem('Registro excluído com sucesso!', 'sucesso');
+      carregarDados();
+    } catch (e) {
+      console.error("Erro ao excluir registro:", e);
+      if (e.response && e.response.status === 404) {
+        mostrarMensagem('Rota de exclusão não encontrada no servidor (Erro 404). Verifique a URL da API no Backend.', 'erro');
+      } else {
+        mostrarMensagem('Erro ao excluir registro.', 'erro');
+      }
+    }
+  };
 
   const limparForm = () => {
     setEditandoId(null);
@@ -326,11 +319,14 @@ const handleExcluir = async (fat) => {
     }
 
     let csvContent = 'data:text/csv;charset=utf-8,\uFEFF';
-    csvContent += 'ID;OBRA_ID;PEDIDO_CONCESSIONARIA;PEDIDO_INTERNO;BOLETIM_MEDICAO;FORNECEDOR_ID;NUMERO_NF;DATA_NF;VALOR_NF;DATA_ENVIO;STATUS;MOTIVO_CANCELAMENTO;ID_GESTOR;URL_EMAIL;DATA_SOLICITACAO;OBSERVACAO\n';
+    csvContent += 'ID;OBRA_ID;PEDIDO_CONCESSIONARIA;PEDIDO_INTERNO;BOLETIM_MEDICAO;FORNECEDOR_ID;NUMERO_NF;DATA_NF;VALOR_NF;VALOR_FRETE;VALOR_TOTAL;DATA_ENVIO;STATUS;MOTIVO_CANCELAMENTO;ID_GESTOR;URL_EMAIL;DATA_SOLICITACAO;OBSERVACAO\n';
 
     faturamentosFiltrados.forEach((f) => {
       const idGestor = f.id_gestor || f.gestor || f.gestor_id;
-      const linha = `"${f.id}";"${f.obra_id}";"${f.numero_pedido_concessionaria || ''}";"${f.numero_pedido_interno || ''}";"${f.boletim_medicao || ''}";"${f.fornecedor_id}";"${f.numero_nota_fiscal || ''}";"${f.data_nota_fiscal || ''}";"${f.valor_nota_fiscal || 0}";"${f.data_envio || ''}";"${f.status}";"${f.motivo_cancelamento || ''}";"${idGestor || ''}";"${f.url_email || ''}";"${f.data_solicitacao || ''}";"${(f.observacao || '').replace(/"/g, '""')}"`;
+      const vNf = parseFloat(f.valor_nota_fiscal) || 0;
+      const vFr = parseFloat(f.valor_frete) || 0;
+      const vTot = vNf + vFr;
+      const linha = `"${f.id}";"${f.obra_id}";"${f.numero_pedido_concessionaria || ''}";"${f.numero_pedido_interno || ''}";"${f.boletim_medicao || ''}";"${f.fornecedor_id}";"${f.numero_nota_fiscal || ''}";"${f.data_nota_fiscal || ''}";"${vNf}";"${vFr}";"${vTot}";"${f.data_envio || ''}";"${f.status}";"${f.motivo_cancelamento || ''}";"${idGestor || ''}";"${f.url_email || ''}";"${f.data_solicitacao || ''}";"${(f.observacao || '').replace(/"/g, '""')}"`;
       csvContent += linha + '\n';
     });
 
@@ -517,13 +513,14 @@ const handleExcluir = async (fat) => {
             </div>
           </div>
 
-          {/* SEÇÃO 3: ITENS DO PEDIDO */}
+          {/* SEÇÃO 3: ITENS DO PEDIDO E FRETE DO PEDIDO */}
           <div style={sectionCardStyle}>
             <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Package style={{ width: '14px', height: '14px' }} />
-              3. Itens do Pedido (Materiais do Fornecedor Selecionado)
+              3. Itens do Pedido & Frete
             </div>
 
+            {/* ADICIONAR MATERIAL */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', alignItems: 'flex-end' }}>
               <div>
                 <label style={labelStyle}>Material / Insumo</label>
@@ -609,8 +606,9 @@ const handleExcluir = async (fat) => {
               </button>
             </div>
 
+            {/* TABELA DE MATERIAIS ADICIONADOS */}
             {form.itens.length > 0 && (
-              <div style={{ marginTop: '8px', overflowX: 'auto' }}>
+              <div style={{ marginTop: '4px', overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'left' }}>
@@ -650,9 +648,34 @@ const handleExcluir = async (fat) => {
                 </table>
               </div>
             )}
+
+            {/* CAMPO FRETE INDEPENDENTE (DENTRO DA SEÇÃO 3) */}
+            <div style={{ marginTop: '6px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: 1, maxWidth: '250px' }}>
+                <label style={{ ...labelStyle, color: '#d97706', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Truck style={{ width: '13px', height: '13px' }} /> Valor do Frete (Pedido Geral)
+                </label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  placeholder="0.00" 
+                  value={form.valor_frete} 
+                  onChange={e => setForm({ ...form, valor_frete: e.target.value })} 
+                  style={{ ...inputStyle, fontWeight: 'bold', color: '#d97706', borderColor: '#fcd34d' }} 
+                />
+              </div>
+
+              <div style={{ fontSize: '11px', textAlign: 'right', backgroundColor: '#fff8f0', border: '1px solid #ffedd5', padding: '6px 12px', borderRadius: '6px' }}>
+                <span style={{ color: '#64748b' }}>Total de Insumos + Frete: </span>
+                <strong style={{ color: '#d97706', fontSize: '12px' }}>
+                  R$ {valorTotalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </strong>
+              </div>
+            </div>
+
           </div>
 
-          {/* SEÇÃO 4: DADOS FISCAIS */}
+          {/* SEÇÃO 4: DADOS FISCAIS E VALORES DA NF */}
           <div style={sectionCardStyle}>
             <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <DollarSign style={{ width: '14px', height: '14px' }} />
@@ -671,7 +694,7 @@ const handleExcluir = async (fat) => {
               </div>
 
               <div>
-                <label style={labelStyle}>Valor Nota Fiscal (R$)</label>
+                <label style={labelStyle}>Valor NF (R$)</label>
                 <input 
                   type="number" 
                   step="0.01" 
@@ -702,7 +725,6 @@ const handleExcluir = async (fat) => {
               </div>
             </div>
 
-            {/* PAINEL DE VALIDAÇÃO DE CONCILIAÇÃO DA NF X ITENS */}
             <div style={{ 
               padding: '10px 12px', 
               borderRadius: '6px', 
@@ -721,13 +743,17 @@ const handleExcluir = async (fat) => {
                 )}
                 <div>
                   <div style={{ fontWeight: 'bold', color: Math.abs(diferencaValorNF) < 0.01 && valorNF > 0 ? '#15803d' : diferencaValorNF !== 0 && valorNF > 0 ? '#991b1b' : '#334155' }}>
-                    Soma dos Itens: R$ {totalSomaItens.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    Soma Itens: R$ {totalSomaItens.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {valorFrete > 0 && ` | Frete: R$ ${valorFrete.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    <span style={{ marginLeft: '8px', color: '#0f172a', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>
+                      Total Geral: R$ {valorTotalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
                   </div>
-                  <div style={{ fontSize: '10px', color: '#64748b' }}>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
                     {valorNF === 0 
                       ? 'Informe o Valor da Nota Fiscal para comparar com os itens.' 
                       : Math.abs(diferencaValorNF) < 0.01 
-                      ? 'Valores Bateram! A soma dos itens confere perfeitamente com o valor da Nota Fiscal.' 
+                      ? 'Valores Bateram! A soma dos itens confere com a Nota Fiscal.' 
                       : `Divergência de R$ ${Math.abs(diferencaValorNF).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} em relação ao Valor da NF.`}
                   </div>
                 </div>
@@ -739,7 +765,7 @@ const handleExcluir = async (fat) => {
                   onClick={() => setForm({ ...form, valor_nota_fiscal: totalSomaItens.toFixed(2) })}
                   style={{ height: '26px', padding: '0 10px', backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '10px', cursor: 'pointer' }}
                 >
-                  Igualar Valor NF com Itens
+                  Igualar NF com Itens
                 </button>
               )}
             </div>
@@ -768,7 +794,7 @@ const handleExcluir = async (fat) => {
               </div>
 
               <div>
-                <label style={labelStyle}>*NÃO USAR AINDA* -Anexar Arquivos (Múltiplos)</label>
+                <label style={labelStyle}>Anexar Arquivos</label>
                 <input 
                   type="file" 
                   multiple
@@ -868,7 +894,7 @@ const handleExcluir = async (fat) => {
                 <th style={{ padding: '10px 12px' }}>Nº Pedidos / BM</th>
                 <th style={{ padding: '10px 12px' }}>Nº NF</th>
                 <th style={{ padding: '10px 12px' }}>Data NF / Envio</th>
-                <th style={{ padding: '10px 12px' }}>Valor (R$)</th>
+                <th style={{ padding: '10px 12px' }}>Valores (NF + Frete = Total)</th>
                 <th style={{ padding: '10px 12px' }}>Gestor / Status</th>
                 <th style={{ padding: '10px 12px' }}>Observação</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right' }}>Ações</th>
@@ -888,6 +914,10 @@ const handleExcluir = async (fat) => {
                   const idGestorRegistro = fat.id_gestor || fat.gestor || fat.gestor_id;
                   const gestorObj = gestoresDisponiveis.find(g => String(g.id) === String(idGestorRegistro));
                   const nomeGestorExibir = fat.gestor_nome || (gestorObj ? gestorObj.nome : (idGestorRegistro ? `ID: ${idGestorRegistro}` : '-'));
+
+                  const valNfReg = parseFloat(fat.valor_nota_fiscal) || 0;
+                  const valFreteReg = parseFloat(fat.valor_frete) || 0;
+                  const valTotalReg = valNfReg + valFreteReg;
 
                   return (
                     <tr key={fat.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -909,8 +939,12 @@ const handleExcluir = async (fat) => {
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#16a34a' }}>
-                        {fat.valor_nota_fiscal ? `R$ ${parseFloat(fat.valor_nota_fiscal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
+                      <td style={{ padding: '10px 12px' }}>
+                        <div>NF: R$ {valNfReg.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                        {valFreteReg > 0 && <div style={{ fontSize: '10px', color: '#d97706' }}>Frete: R$ {valFreteReg.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>}
+                        <div style={{ fontWeight: 'bold', color: '#16a34a', marginTop: '2px' }}>
+                          Total: R$ {valTotalReg.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </div>
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>{nomeGestorExibir}</div>
@@ -982,6 +1016,10 @@ const handleExcluir = async (fat) => {
               <div><strong>Data da NF:</strong> {itemModal.data_nota_fiscal ? new Date(itemModal.data_nota_fiscal).toLocaleDateString('pt-BR') : '-'}</div>
               <div><strong>Data de Envio:</strong> {itemModal.data_envio ? new Date(itemModal.data_envio).toLocaleDateString('pt-BR') : '-'}</div>
               <div><strong>Valor NF:</strong> R$ {parseFloat(itemModal.valor_nota_fiscal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+              <div><strong>Valor Frete:</strong> R$ {parseFloat(itemModal.valor_frete || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+              <div style={{ gridColumn: 'span 2', fontWeight: 'bold', fontSize: '12px', color: '#15803d', backgroundColor: '#dcfce7', padding: '6px 8px', borderRadius: '4px' }}>
+                Valor Total (NF + Frete): R$ {(parseFloat(itemModal.valor_nota_fiscal || 0) + parseFloat(itemModal.valor_frete || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </div>
             </div>
 
             <div>
