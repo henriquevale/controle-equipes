@@ -791,7 +791,7 @@ router.post('/faturamento-direto', async (req, res) => {
       const sqlMovimentacao = `
         INSERT INTO estoque_movimentacoes 
         (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
-        VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'PENDENTE', CURDATE(), ?, ?)
+        VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'CONCLUIDO', CURDATE(), ?, ?)
       `;
 
       const sqlAtualizaSaldo = `
@@ -871,24 +871,178 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     id_usuario
   } = req.body;
 
+  const faturamentoId = parseInt(id);
+  const statusNovo = status || 'Solicitado';
+  const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
+  const usuarioAcaoId = id_usuario || gestorIdValido || 1;
+
+  const maxRetries = 3;
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // 1. Estorna os saldos com bloqueio de leitura FOR UPDATE (Previne Deadlock)
+      const [movsAntigas] = await connection.query(
+        `SELECT material_id, destino_id AS obra_id, quantidade 
+         FROM estoque_movimentacoes 
+         WHERE faturamento_id = ? AND tipo_movimentacao = 'ENTRADA_FORNECEDOR' FOR UPDATE`,
+        [faturamentoId]
+      );
+
+      for (const mov of movsAntigas) {
+        await connection.query(
+          `UPDATE estoque_saldos 
+           SET quantidade = GREATEST(0, quantidade - ?) 
+           WHERE local_tipo = 'OBRA' AND local_id = ? AND material_id = ?`,
+          [parseFloat(mov.quantidade), mov.obra_id, mov.material_id]
+        );
+      }
+
+      // 2. Limpa dados antigos vinculados ao faturamento
+      await connection.query('DELETE FROM estoque_movimentacoes WHERE faturamento_id = ?', [faturamentoId]);
+      await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [faturamentoId]);
+
+      const boletimFormatado = boletim_medicao ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() : '';
+      const pedidoRaw = numero_pedido_obra ?? numero_pedido_concessionaria;
+      const pedidoObraValido = (pedidoRaw !== undefined && pedidoRaw !== '' && pedidoRaw !== null) ? parseInt(pedidoRaw) : 0;
+      const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
+      const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
+      const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
+
+      const sqlUpdateFat = `
+        UPDATE faturamentos_diretos SET 
+          obra_id = ?, 
+          numero_pedido_obra = ?, 
+          boletim_medicao = ?, 
+          fornecedor_id = ?, 
+          numero_nota_fiscal = ?, 
+          data_nota_fiscal = ?,
+          valor_nota_fiscal = ?, 
+          status = ?, 
+          id_gestor = ?,
+          data_solicitacao = ?,
+          observacao = ?,
+          data_envio = ?,
+          url_email = ? 
+        WHERE id = ?
+      `;
+
+      await connection.query(sqlUpdateFat, [
+        obraIdValida, 
+        pedidoObraValido, 
+        boletimFormatado, 
+        fornecedorIdValido, 
+        numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
+        parseDate(data_nota_fiscal),
+        parseFloat(valor_nota_fiscal) || 0, 
+        statusNovo, 
+        gestorIdValido,
+        parseDate(data_solicitacao), 
+        observacao ? String(observacao).trim() : '',
+        parseDate(data_envio),
+        url_email ? String(url_email).trim() : null,
+        faturamentoId
+      ]);
+
+      // 3. Insere os novos itens e atualiza saldo se o status for 'NF recebida e em estoque'
+      if (Array.isArray(itens) && itens.length > 0) {
+        const sqlItem = `
+          INSERT INTO faturamento_itens 
+          (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario) 
+          VALUES (?, ?, ?, ?, ?)
+        `;
+
+        const sqlMovimentacao = `
+          INSERT INTO estoque_movimentacoes 
+          (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
+          VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'PENDENTE', CURDATE(), ?, ?)
+        `;
+
+        const sqlAtualizaSaldo = `
+          INSERT INTO estoque_saldos (local_tipo, local_id, material_id, quantidade)
+          VALUES ('OBRA', ?, ?, ?)
+          ON DUPLICATE KEY UPDATE quantidade = quantidade + VALUES(quantidade)
+        `;
+
+        for (const item of itens) {
+          if (item.material_id) {
+            const matId = parseInt(item.material_id);
+            const qtd = parseFloat(item.quantidade) || 0;
+
+            await connection.query(sqlItem, [
+              faturamentoId,
+              matId,
+              qtd,
+              item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
+              parseFloat(item.valor_unitario) || 0
+            ]);
+
+            if (statusNovo === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
+              await connection.query(sqlMovimentacao, [
+                fornecedorIdValido || 0,
+                obraIdValida,
+                matId,
+                qtd,
+                faturamentoId,
+                usuarioAcaoId,
+                gestorIdValido
+              ]);
+
+              await connection.query(sqlAtualizaSaldo, [
+                obraIdValida,
+                matId,
+                qtd
+              ]);
+            }
+          }
+        }
+      }
+
+      await connection.commit();
+      return res.json({ success: true, message: 'Faturamento e estoque processados com sucesso!' });
+
+    } catch (error) {
+      await connection.rollback();
+
+      // Se for Deadlock (1213) e ainda houver tentativas, tenta novamente
+      if (error.errno === 1213 && attempt < maxRetries - 1) {
+        attempt++;
+        await new Promise(resolve => setTimeout(resolve, 50 * attempt)); // Pequena pausa antes de tentar de novo
+        continue;
+      }
+
+      console.error('Erro ao atualizar faturamento:', error);
+      return res.status(500).json({ error: 'Erro interno ao atualizar faturamento', detalhe: error.message });
+    } finally {
+      connection.release();
+    }
+  }
+});
+
+// ========================================================
+// DELETE: Remover faturamento (Com estorno de estoque e exclusão em cascata)
+// ========================================================
+router.delete('/faturamento-direto/:id', async (req, res) => {
+  const { id } = req.params;
+  const faturamentoId = parseInt(id);
+
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    const faturamentoId = parseInt(id);
-    const statusNovo = status || 'Solicitado';
-    const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
-    const usuarioAcaoId = id_usuario || gestorIdValido || 1;
-
-    // 1. Estorna os saldos das movimentações geradas anteriormente
-    const [movsAntigas] = await connection.query(
+    // 1. Busca as movimentações associadas a este faturamento com bloqueio
+    const [movs] = await connection.query(
       `SELECT material_id, destino_id AS obra_id, quantidade 
        FROM estoque_movimentacoes 
-       WHERE faturamento_id = ? AND tipo_movimentacao = 'ENTRADA_FORNECEDOR'`,
+       WHERE faturamento_id = ? AND tipo_movimentacao = 'ENTRADA_FORNECEDOR' FOR UPDATE`,
       [faturamentoId]
     );
 
-    for (const mov of movsAntigas) {
+    // 2. Estorna o saldo das obras que receberam os materiais
+    for (const mov of movs) {
       await connection.query(
         `UPDATE estoque_saldos 
          SET quantidade = GREATEST(0, quantidade - ?) 
@@ -897,132 +1051,27 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       );
     }
 
-    // 2. Limpa dados antigos vinculados ao faturamento
+    // 3. Remove os registros filhos nas tabelas dependentes
     await connection.query('DELETE FROM estoque_movimentacoes WHERE faturamento_id = ?', [faturamentoId]);
     await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [faturamentoId]);
 
-    const boletimFormatado = boletim_medicao ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() : '';
-    const pedidoRaw = numero_pedido_obra ?? numero_pedido_concessionaria;
-    const pedidoObraValido = (pedidoRaw !== undefined && pedidoRaw !== '' && pedidoRaw !== null) ? parseInt(pedidoRaw) : 0;
-    const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
-    const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
-    const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
-
-    const sqlUpdateFat = `
-      UPDATE faturamentos_diretos SET 
-        obra_id = ?, 
-        numero_pedido_obra = ?, 
-        boletim_medicao = ?, 
-        fornecedor_id = ?, 
-        numero_nota_fiscal = ?, 
-        data_nota_fiscal = ?,
-        valor_nota_fiscal = ?, 
-        status = ?, 
-        id_gestor = ?,
-        data_solicitacao = ?,
-        observacao = ?,
-        data_envio = ?,
-        url_email = ? 
-      WHERE id = ?
-    `;
-
-    await connection.query(sqlUpdateFat, [
-      obraIdValida, 
-      pedidoObraValido, 
-      boletimFormatado, 
-      fornecedorIdValido, 
-      numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
-      parseDate(data_nota_fiscal),
-      parseFloat(valor_nota_fiscal) || 0, 
-      statusNovo, 
-      gestorIdValido,
-      parseDate(data_solicitacao), 
-      observacao ? String(observacao).trim() : '',
-      parseDate(data_envio),
-      url_email ? String(url_email).trim() : null,
-      faturamentoId
-    ]);
-
-    // 3. Insere os novos itens e atualiza saldo se o status for 'NF recebida e em estoque'
-    if (Array.isArray(itens) && itens.length > 0) {
-      const sqlItem = `
-        INSERT INTO faturamento_itens 
-        (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario) 
-        VALUES (?, ?, ?, ?, ?)
-      `;
-
-      const sqlMovimentacao = `
-        INSERT INTO estoque_movimentacoes 
-        (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
-        VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'CONCLUIDO', CURDATE(), ?, ?)
-      `;
-
-      const sqlAtualizaSaldo = `
-        INSERT INTO estoque_saldos (local_tipo, local_id, material_id, quantidade)
-        VALUES ('OBRA', ?, ?, ?)
-        ON DUPLICATE KEY UPDATE quantidade = quantidade + VALUES(quantidade)
-      `;
-
-      for (const item of itens) {
-        if (item.material_id) {
-          const matId = parseInt(item.material_id);
-          const qtd = parseFloat(item.quantidade) || 0;
-
-          await connection.query(sqlItem, [
-            faturamentoId,
-            matId,
-            qtd,
-            item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
-            parseFloat(item.valor_unitario) || 0
-          ]);
-
-          if (statusNovo === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
-            await connection.query(sqlMovimentacao, [
-              fornecedorIdValido || 0,
-              obraIdValida,
-              matId,
-              qtd,
-              faturamentoId,
-              usuarioAcaoId,
-              gestorIdValido
-            ]);
-
-            await connection.query(sqlAtualizaSaldo, [
-              obraIdValida,
-              matId,
-              qtd
-            ]);
-          }
-        }
-      }
-    }
-
-    await connection.commit();
-    res.json({ success: true, message: 'Faturamento e estoque processados com sucesso!' });
-  } catch (error) {
-    await connection.rollback();
-    console.error('Erro ao atualizar faturamento:', error);
-    res.status(500).json({ error: 'Erro interno ao atualizar faturamento' });
-  } finally {
-    connection.release();
-  }
-});
-
-// DELETE - Remover faturamento
-router.delete('/faturamento-direto/:id', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const [result] = await db.query('DELETE FROM faturamentos_diretos WHERE id = ?', [id]);
+    // 4. Exclui o faturamento principal
+    const [result] = await connection.query('DELETE FROM faturamentos_diretos WHERE id = ?', [faturamentoId]);
 
     if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: 'Registro não encontrado para exclusão' });
     }
 
-    return res.json({ message: 'Faturamento excluído com sucesso' });
+    await connection.commit();
+    return res.json({ success: true, message: 'Faturamento e vínculos excluídos com sucesso!' });
+
   } catch (error) {
+    await connection.rollback();
     console.error('Erro ao deletar faturamento:', error);
-    return res.status(500).json({ error: 'Erro ao excluir faturamento' });
+    return res.status(500).json({ error: 'Erro ao excluir faturamento', detalhe: error.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -1208,7 +1257,7 @@ router.post('/master/movimentacoes', async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO estoque_movimentacoes 
        (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, rdo_id, data_movimentacao, data_solicitada, status, id_usuario, quem_envia_id, quem_pede_id, observacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'PENDENTE', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'CONCLUIDO', ?, ?, ?, ?)`,
       [
         tipo_movimentacao || 'TRANSFERENCIA_SAIDA',
         origem_tipo || 'BASE',
