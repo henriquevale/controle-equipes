@@ -1108,7 +1108,8 @@ router.post('/bases', async (req, res) => {
     const [resBase] = await db.query(
       'INSERT INTO bases (nome, endereco) VALUES (?, ?)',
       [nome, endereco || '']
-    );F
+    ); // 'F' removido daqui
+
     const baseId = resBase.insertId;
 
     if (Array.isArray(obras_ids) && obras_ids.length > 0) {
