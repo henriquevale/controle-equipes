@@ -151,6 +151,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
               <option value="L">L (Litro)</option>
               <option value="GL">GL (Galão)</option>
               <option value="BD">BD (Balde)</option>
+              <option value="CX">CX (Caixa)</option>
             </select>
           </div>
 

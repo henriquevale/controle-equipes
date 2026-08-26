@@ -1,31 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Trash2, Edit3, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search, Download, Eye, X } from 'lucide-react';
+import { Trash2, Edit3, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search, Download, Eye, X, ArrowUpDown } from 'lucide-react';
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
-  //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
   
 export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL, mostrarMensagemGlobal }) {
   const [funcionarioEmEdicao, setFuncionarioEmEdicao] = useState(null);
-  const [funcionarioDetalhar, setFuncionarioDetalhar] = useState(null); // Estado para a Modal de Detalhes
-  const [listaGestores, setListaGestores] = useState([]); // Lista de gestores disponíveis no sistema
+  const [funcionarioDetalhar, setFuncionarioDetalhar] = useState(null);
+  const [listaGestores, setListaGestores] = useState([]);
   
   const scrollFormRef = useRef(null);
 
-  // Função para formatar data ISO/MySQL para YYYY-MM-DD
   const formatarDataParaInput = (d) => {
     if (!d) return '';
     if (typeof d === 'string' && d.includes('T')) return d.split('T')[0];
     return String(d).substring(0, 10);
   };
 
-  // Estado para armazenar todos os campos editáveis
   const [formData, setFormData] = useState({
     nome: '',
     matricula: '',
     cargo: '',
-    id_usuario_gestor: '', // Armazena o ID do gestor para vincular no Backend
+    id_usuario_gestor: '',
     ativo: 'ATIVO',
     cpf: '',
     telefone: '',
@@ -40,10 +37,11 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   });
 
   const [filtroStatus, setFiltroStatus] = useState('TODOS');
-  const [filtroGestor, setFiltroGestor] = useState('TODOS'); // Estado para o filtro de Gestor
+  const [filtroGestor, setFiltroGestor] = useState('TODOS');
   const [termoPesquisa, setTermoPesquisa] = useState('');
+  // NOVO: Estado para controlar a ordenação
+  const [ordem, setOrdem] = useState('ALFABETICA_ASC');
 
-  // Busca lista de gestores para preencher os selects do formulário e filtro
   useEffect(() => {
     const carregarGestores = async () => {
       try {
@@ -56,7 +54,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     carregarGestores();
   }, [API_URL]);
 
-  // Sincroniza formulário na edição
   useEffect(() => {
     if (funcionarioEmEdicao) {
       setFormData({
@@ -109,14 +106,31 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     return atendeStatus && atendeGestor && atendeNome;
   });
 
+  // NOVO: Lógica de Ordenação
+  const funcionariosOrdenados = [...funcionariosFiltrados].sort((a, b) => {
+    if (ordem === 'ALFABETICA_ASC') {
+      return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+    }
+    if (ordem === 'ALFABETICA_DESC') {
+      return (b.nome || '').localeCompare(a.nome || '', 'pt-BR');
+    }
+    if (ordem === 'ULTIMOS_ATUALIZADOS') {
+      // Utiliza a coluna 'atualizado_em' (com fallback para criada_em/created_at se nulo)
+      const dataA = new Date(a.atualizado_em || a.criado_em || a.created_at || 0);
+      const dataB = new Date(b.atualizado_em || b.criado_em || b.created_at || 0);
+      return dataB - dataA;
+    }
+    return 0;
+  });
+
   const exportarParaCSV = () => {
-    if (funcionariosFiltrados.length === 0) {
+    if (funcionariosOrdenados.length === 0) {
       mostrarMensagemGlobal('Não há dados para exportar com os filtros atuais.', 'erro');
       return;
     }
 
     const cabecalho = ['Nome', 'Matrícula', 'Cargo/Função', 'Gestor', 'Status', 'CPF', 'Telefone', 'Admissão', 'Demissão', 'Observações'];
-    const linhas = funcionariosFiltrados.map(f => [
+    const linhas = funcionariosOrdenados.map(f => [
       `"${(f.nome || '').replace(/"/g, '""')}"`,
       `"${(f.matricula || '').replace(/"/g, '""')}"`,
       `"${(f.cargo || '').replace(/"/g, '""')}"`,
@@ -179,7 +193,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     }
   };
 
-  // Função formatadora para exibição legível de datas no modal
   const formatarDataBR = (d) => {
     if (!d) return '-';
     const dataApenas = String(d).split('T')[0];
@@ -235,7 +248,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
           </div>
 
           <form onSubmit={lidarComEnvio} style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
-            {/* Linha 1: Dados Principais */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Nome Completo *</label>
@@ -250,7 +262,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 <input type="text" style={{ height: '30px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px' }} value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})} required />
               </div>
               
-              {/* SELECT DE GESTORES PARA EDIÇÃO */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Gestor Direto</label>
                 <select 
@@ -277,7 +288,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </div>
             </div>
 
-            {/* Linha 2: Contatos e Documentos */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '10px', fontWeight: 'bold' }}>CPF</label>
@@ -301,14 +311,12 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </div>
             </div>
 
-            {/* Linha 3: Datas de RH e Demissão Regrada */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Data de Admissão</label>
                 <input type="date" style={{ height: '30px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px' }} value={formData.data_admissao} onChange={e => setFormData({...formData, data_admissao: e.target.value})} />
               </div>
               
-              {/* Campo Demissão habilitado APENAS se status == INATIVO */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '10px', fontWeight: 'bold', color: formData.ativo === 'INATIVO' ? '#b91c1c' : '#94a3b8' }}>
                   Data de Demissão {formData.ativo !== 'INATIVO' && '(Apenas se Inativo)'}
@@ -337,13 +345,11 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </div>
             </div>
 
-            {/* Linha 4: Observações */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
               <label style={{ fontSize: '10px', fontWeight: 'bold' }}>Observações</label>
               <textarea style={{ minHeight: '60px', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontFamily: 'inherit', fontSize: '11px', resize: 'vertical' }} value={formData.observacoes} onChange={e => setFormData({...formData, observacoes: e.target.value})} placeholder="Insira observações ou notas adicionais..." />
             </div>
 
-            {/* Botões do Formulário */}
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
               <button type="button" onClick={() => setFuncionarioEmEdicao(null)} style={{ height: '32px', padding: '0 16px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
                 Cancelar Edição
@@ -367,7 +373,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexWrap: 'wrap' }}>
             
-            {/* NOVO: FILTRO POR GESTOR */}
+            {/* FILTRO POR GESTOR */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }}>Gestor:</span>
               <select 
@@ -381,6 +387,20 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                     {g.nome_gestor}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            {/* NOVO: FILTRO DE ORDENAÇÃO */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <ArrowUpDown style={{ width: '13px', height: '13px', color: '#64748b' }} />
+              <select 
+                value={ordem} 
+                onChange={e => setOrdem(e.target.value)}
+                style={{ height: '28px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', backgroundColor: '#fff', fontWeight: 'bold', color: '#334155' }}
+              >
+                <option value="ALFABETICA_ASC">Ordem Alfabética (A-Z)</option>
+                <option value="ALFABETICA_DESC">Ordem Alfabética (Z-A)</option>
+                <option value="ULTIMOS_ATUALIZADOS">Atualizado por Último</option>
               </select>
             </div>
 
@@ -398,9 +418,9 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               <span>Exportar</span>
             </button>
             
-            {(filtroStatus !== 'TODOS' || filtroGestor !== 'TODOS' || termoPesquisa) && (
+            {(filtroStatus !== 'TODOS' || filtroGestor !== 'TODOS' || termoPesquisa || ordem !== 'ALFABETICA_ASC') && (
               <button 
-                onClick={() => { setFiltroStatus('TODOS'); setFiltroGestor('TODOS'); setTermoPesquisa(''); }} 
+                onClick={() => { setFiltroStatus('TODOS'); setFiltroGestor('TODOS'); setTermoPesquisa(''); setOrdem('ALFABETICA_ASC'); }} 
                 style={{ fontSize: '10px', height: '28px', padding: '0 8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', color: '#475569', fontWeight: 'bold' }}
               >
                 Limpar Filtros [X]
@@ -423,14 +443,14 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </tr>
             </thead>
             <tbody>
-              {funcionariosFiltrados.length === 0 ? (
+              {funcionariosOrdenados.length === 0 ? (
                 <tr>
                   <td colSpan="7" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
                     Nenhum funcionário localizado com os critérios informados.
                   </td>
                 </tr>
               ) : (
-                funcionariosFiltrados.map((func, index) => {
+                funcionariosOrdenados.map((func, index) => {
                   let statusBg = '#dcfce7'; 
                   let statusColor = '#15803d';
                   const ehPendente = func.ativo === 'INTEGRAÇÃO PENDENTE';
@@ -472,7 +492,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                           
-                          {/* BOTÃO VER DETALHES */}
                           <button 
                             onClick={() => setFuncionarioDetalhar(func)}
                             style={{ backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
@@ -481,7 +500,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                             <Eye style={{ width: '13px', height: '13px' }} />
                           </button>
 
-                          {/* BOTÃO EDITAR */}
                           <button 
                             onClick={() => !ehPendente && setFuncionarioEmEdicao(func)}
                             disabled={ehPendente}
@@ -501,7 +519,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                             <Edit3 style={{ width: '13px', height: '13px' }} />
                           </button>
 
-                          {/* BOTÃO EXCLUIR */}
                           <button 
                             onClick={() => deletarFuncionario(func.id)}
                             style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
@@ -525,7 +542,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '8px', maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', border: '1px solid #cbd5e1' }}>
             
-            {/* Cabeçalho da Modal */}
             <div style={{ padding: '16px 20px', backgroundColor: '#0f172a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px 8px 0 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Users style={{ width: '20px', height: '20px', color: '#38bdf8' }} />
@@ -536,10 +552,8 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </button>
             </div>
 
-            {/* Conteúdo da Modal */}
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '12px' }}>
               
-              {/* Bloco Destaque Nome e Status */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 'bold' }}>{funcionarioDetalhar.nome}</h3>
@@ -550,7 +564,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 </span>
               </div>
 
-              {/* Informações Pessoais e Uniforme */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
                 <div><strong>Gestor Vinculado:</strong> {funcionarioDetalhar.gestor || funcionarioDetalhar.nome_gestor || 'Nenhum'}</div>
                 <div><strong>CPF:</strong> {funcionarioDetalhar.cpf || '-'}</div>
@@ -560,7 +573,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 <div><strong>Tamanho Calçado:</strong> {funcionarioDetalhar.tam_calcado || '-'}</div>
               </div>
 
-              {/* Datas Importantes de RH */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
                 <div><strong>Data Admissão:</strong> {formatarDataBR(funcionarioDetalhar.data_admissao)}</div>
                 <div><strong style={{ color: funcionarioDetalhar.data_demissao ? '#b91c1c' : '#334155' }}>Data Demissão:</strong> {formatarDataBR(funcionarioDetalhar.data_demissao)}</div>
@@ -568,7 +580,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                 <div><strong>Docs RH Completos:</strong> {formatarDataBR(funcionarioDetalhar.data_documentos_rh_completos)}</div>
               </div>
 
-              {/* Observações */}
               <div style={{ backgroundColor: '#fffbebf', padding: '12px', borderRadius: '6px', border: '1px solid #fef3c7' }}>
                 <strong style={{ color: '#b45309', display: 'block', marginBottom: '4px' }}>Observações:</strong>
                 <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap' }}>
@@ -578,7 +589,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
 
             </div>
 
-            {/* Rodapé da Modal */}
             <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc', borderRadius: '0 0 8px 8px' }}>
               <button onClick={() => setFuncionarioDetalhar(null)} style={{ padding: '6px 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
                 Fechar

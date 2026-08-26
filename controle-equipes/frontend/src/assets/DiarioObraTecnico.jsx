@@ -5,7 +5,6 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api';  
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 const SERVICOS_PADRONIZADOS = [
@@ -14,10 +13,12 @@ const SERVICOS_PADRONIZADOS = [
   "PINTURA MECÂNICA (M²)",
   "PINTURA MANUAL (M²)",
   "TERMOPLÁSTICO (M²)",
-  "PLÁSTICO PARA FRIO (M²)",
-  "IMPLATAÇÃO DEFENSA (UN)",
-  "IMPLATAÇÃO TAE UN (UN)",
-  "IMPLATAÇÃO (M²)"
+  "PLÁSTICO A FRIO (M²)",
+  "IMPLANTAÇÃO DEFENSA (UN)",
+  "IMPLANTAÇÃO TAE UN (UN)",
+  "IMPLANTAÇÃO DE TACHÃO (UN)",
+  "IMPLANTAÇÃO TERMINAL AÉREO (UN)",
+  "FRESAGEM (M²)"
 ];
 
 const MATERIAIS_PADRONIZADOS = [

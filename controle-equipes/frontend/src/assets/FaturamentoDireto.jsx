@@ -5,6 +5,10 @@ import {
   Building2, Truck, User, Calendar, DollarSign, MessageSquare, Eye, X, Package, AlertCircle, CheckCircle2, Link, Paperclip, Send
 } from 'lucide-react';
 
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+const API_URL = 'http://localhost:3001/api';
+
+
 export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDisponiveis: obrasProps, usuarioLogado }) {
   const [faturamentos, setFaturamentos] = useState([]);
   const [obrasDisponiveis, setObrasDisponiveis] = useState([]);
@@ -707,7 +711,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
 
               <div>
                 <label style={{ ...labelStyle, color: form.status === 'Concluído' ? '#16a34a' : '#94a3b8' }}>
-                  Data de Envio {form.status === 'Concluído' ? '*' : '(Disponível se Concluído)'}
+                  Data de Envio {form.status === 'Concluído' ? '*' : '(Concluído)'}
                 </label>
                 <input 
                   type="date" 

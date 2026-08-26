@@ -17,7 +17,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
   const [filtroDataFim, setFiltroDataFim] = useState('');
   const [filtroTipoMov, setFiltroTipoMov] = useState('');
   const [filtroObraDestino, setFiltroObraDestino] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState(''); // NOVO FILTRO DE STATUS
+  const [filtroStatus, setFiltroStatus] = useState('');
 
   // Seleções para Cascata
   const [fornecedorSelecionado, setFornecedorSelecionado] = useState('');
@@ -319,6 +319,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
       'Quem Pede (Gestor)', 
       'Destino', 
       'Data Solicitada', 
+      'Observação',
       'Status', 
       'Registrado Por', 
       'Data Lançamento'
@@ -355,6 +356,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
         `"${quemPedeNome}"`,
         `"${getNomeEntidade(m.destino_tipo, m.destino_id)}"`,
         formatarData(m.data_solicitada),
+        `"${(m.observacao || '-').replace(/"/g, '""')}"`,
         m.status || (m.faturamento_id ? 'PENDENTE' : 'CONCLUIDO'),
         `"${m.usuario_nome || '-'}"`,
         formatarData(m.data_movimentacao)
@@ -591,21 +593,22 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
           </button>
         </div>
 
-        <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+        {/* ORGANIZAÇÃO DOS FILTROS */}
+        <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px', display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: '10px' }}>
           <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA SOLICITAÇÃO INÍCIO</label>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA INÍCIO</label>
             <input type="date" value={filtroDataInicio} onChange={e => setFiltroDataInicio(e.target.value)} style={{ ...inputStyle, height: '32px' }} />
           </div>
 
           <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA SOLICITAÇÃO FIM</label>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>DATA FIM</label>
             <input type="date" value={filtroDataFim} onChange={e => setFiltroDataFim(e.target.value)} style={{ ...inputStyle, height: '32px' }} />
           </div>
 
           <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '2px' }}>STATUS</label>
             <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={{ ...inputStyle, height: '32px' }}>
-              <option value="">Todos</option>
+              <option value="">Todos os Status</option>
               <option value="PENDENTE">Pendente</option>
               <option value="CONCLUIDO">Concluído</option>
             </select>
@@ -643,7 +646,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
         </div>
 
         <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '980px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '1080px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                 <th style={{ padding: '10px 12px', textAlign: 'center', width: '40px' }}>Concluir</th>
@@ -654,13 +657,14 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                 <th style={{ padding: '10px 12px' }}>Quem Envia / Origem</th>
                 <th style={{ padding: '10px 12px' }}>Quem Pede (Gestor)</th>
                 <th style={{ padding: '10px 12px' }}>Data Solicitada</th>
+                <th style={{ padding: '10px 12px' }}>Observação</th>
                 <th style={{ padding: '10px 12px', textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {movsFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                  <td colSpan="10" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
                     Nenhuma movimentação encontrada com os filtros selecionados.
                   </td>
                 </tr>
@@ -723,6 +727,9 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                       </td>
                       <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#d97706' }}>
                         {formatarData(m.data_solicitada)}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#64748b', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.observacao}>
+                        {m.observacao || '-'}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
