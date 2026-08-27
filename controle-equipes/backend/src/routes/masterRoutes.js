@@ -796,7 +796,7 @@ router.post('/faturamento-direto', async (req, res) => {
       const sqlMovimentacao = `
         INSERT INTO estoque_movimentacoes 
         (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
-        VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'CONCLUIDO', CURDATE(), ?, ?)
+        VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'PENDENTE', CURDATE(), ?, ?)
       `;
 
       const sqlAtualizaSaldo = `
@@ -968,7 +968,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         const sqlMovimentacao = `
           INSERT INTO estoque_movimentacoes 
           (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
-          VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'CONCLUIDO', CURDATE(), ?, ?)
+          VALUES ('ENTRADA_FORNECEDOR', 'FORNECEDOR', ?, 'OBRA', ?, ?, ?, ?, NOW(), 'PENDENTE', CURDATE(), ?, ?)
         `;
 
         const sqlAtualizaSaldo = `
