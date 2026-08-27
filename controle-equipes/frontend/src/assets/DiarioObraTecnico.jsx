@@ -4,8 +4,8 @@ import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDa
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-//const API_URL = 'http://localhost:3001/api';
-const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 const SERVICOS_PADRONIZADOS = [
  "REMOÇÃO DE TACHA (UN)",
