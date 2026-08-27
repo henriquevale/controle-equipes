@@ -23,7 +23,7 @@ const formatarData = (d) => {
 
 // 1. GET: Listar todos os funcionários ativos (Tabela Geral RH)
 // GET: Listar todos os funcionários ativos com o Gestor Atual vinculado
-// GET: Listar todos os funcionários (Tabela Geral RH)
+// Exemplo de adequação da rota GET em routes.js
 router.get('/rh/funcionarios-geral', async (req, res) => {
   try {
     const sql = `
@@ -33,38 +33,27 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
         f.nome, 
         f.cargo, 
         f.ativo, 
-        f.cpf, 
-        f.telefone, 
-        f.tam_calca, 
-        f.tam_camisa, 
-        f.tam_calcado, 
+        COALESCE(f.cpf, '') AS cpf, 
+        COALESCE(f.telefone, '') AS telefone, 
+        COALESCE(f.tam_calca, '') AS tam_calca, 
+        COALESCE(f.tam_camisa, '') AS tam_camisa, 
+        COALESCE(f.tam_calcado, '') AS tam_calcado, 
         COALESCE(f.atualizado_em, f.data_admissao) AS atualizado_em,
         f.data_admissao, 
         f.data_demissao, 
         f.data_postagem_aso_pasta, 
         f.data_documentos_rh_completos,
-        f.observacoes,
-        
-        -- ID do gestor vindo da tabela gestor_funcionarios
+        COALESCE(f.observacoes, '') AS observacoes,
         gf.id_usuario AS id_usuario_gestor,
-        
-        -- Nome do gestor (retorna NULL caso não haja gestor)
-        u.nome AS nome_gestor,
-        u.nome AS gestor
-        
+        COALESCE(u.nome, 'Sem Gestor') AS gestor,
+        COALESCE(u.nome, 'Sem Gestor') AS nome_gestor
       FROM funcionarios f
-      
-      -- LEFT JOIN para não excluir o funcionário se ele não tiver gestor
       LEFT JOIN gestor_funcionarios gf 
-        ON f.id = gf.id_funcionario 
-        AND gf.data_fim IS NULL
-        
+        ON f.id = gf.id_funcionario AND gf.data_fim IS NULL
       LEFT JOIN usuarios_sistema u 
         ON gf.id_usuario = u.id
-        
       ORDER BY f.id DESC
     `;
-    
     const [rows] = await db.execute(sql);
     return res.json(rows);
   } catch (err) {
@@ -156,7 +145,7 @@ router.post('/rh/funcionarios', async (req, res) => {
   }
 });
 
-// 3. PUT: Atualizar dados cadastrais do funcionário e seu vínculo de Gestor
+// PUT: Atualizar dados cadastrais do funcionário
 router.put('/rh/funcionarios/:id', async (req, res) => {
   const { id } = req.params;
   const { 
@@ -164,7 +153,7 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
     cpf, telefone, tam_calca, tam_camisa, tam_calcado,
     data_admissao, data_demissao, data_postagem_aso_pasta, data_documentos_rh_completos,
     observacoes,
-    id_usuario_gestor, gestor // Aceita o gestor vindo do formulário
+    id_usuario_gestor, gestor
   } = req.body;
 
   const limparTexto = (valor) => {
@@ -173,14 +162,22 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
     return str === '' ? null : str;
   };
 
-  const statusFormatado = ativo ? String(ativo).trim().toUpperCase() : '';
-  const nomeFormatado = limparTexto(nome);
-  const matriculaFormatada = limparTexto(matricula);
-  const cargoFormatado = limparTexto(cargo);
+  const formatarDataParaBD = (data) => {
+    if (!data) return null;
+    const str = String(data).trim();
+    if (!str) return null;
 
-  if (!nomeFormatado || !matriculaFormatada || !cargoFormatado || !statusFormatado) {
-    return res.status(400).json({ error: "Campos obrigatórios ausentes (nome, matrícula, cargo ou status)." });
-  }
+    if (str.includes('-')) {
+      return str.split('T')[0];
+    }
+    if (str.includes('/')) {
+      const partes = str.split('/');
+      if (partes.length === 3) {
+        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+      }
+    }
+    return null;
+  };
 
   try {
     const idFunc = parseInt(id, 10);
@@ -188,7 +185,27 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
       return res.status(400).json({ error: "ID de funcionário inválido." });
     }
 
-    const dataDemissaoFinal = (statusFormatado === 'INATIVO') ? formatarData(data_demissao) : null;
+    // Busca o status atual caso o formulário envie em branco
+    const [atual] = await db.execute(`SELECT ativo FROM funcionarios WHERE id = ?`, [idFunc]);
+    if (atual.length === 0) {
+      return res.status(404).json({ error: "Funcionário não encontrado." });
+    }
+
+    const statusFormatado = ativo ? String(ativo).trim().toUpperCase() : atual[0].ativo;
+    const nomeFormatado = limparTexto(nome);
+    const matriculaFormatada = limparTexto(matricula);
+    const cargoFormatado = limparTexto(cargo);
+
+    if (!nomeFormatado || !matriculaFormatada || !cargoFormatado) {
+      return res.status(400).json({ error: "Campos obrigatórios ausentes (nome, matrícula ou cargo)." });
+    }
+
+    const cpfTratado = cpf ? String(cpf).trim().substring(0, 14) : null;
+    const calcadoTratado = (tam_calcado === '' || tam_calcado === undefined || tam_calcado === null) 
+      ? null 
+      : parseInt(tam_calcado, 10);
+
+    const dataDemissaoFinal = (statusFormatado === 'INATIVO') ? formatarDataParaBD(data_demissao) : null;
 
     const sql = `
       UPDATE funcionarios 
@@ -216,77 +233,60 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
       matriculaFormatada, 
       cargoFormatado, 
       statusFormatado, 
-      limparTexto(cpf),
+      cpfTratado,
       limparTexto(telefone),
       limparTexto(tam_calca),
       limparTexto(tam_camisa),
-      limparTexto(tam_calcado),
-      formatarData(data_admissao),
+      isNaN(calcadoTratado) ? null : calcadoTratado,
+      formatarDataParaBD(data_admissao),
       dataDemissaoFinal,
-      formatarData(data_postagem_aso_pasta),
-      formatarData(data_documentos_rh_completos),
+      formatarDataParaBD(data_postagem_aso_pasta),
+      formatarDataParaBD(data_documentos_rh_completos),
       limparTexto(observacoes),
       idFunc
     ]);
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Funcionário não encontrado para atualização." });
-    }
+    // Atualização do gestor vinculado
+    try {
+      const gestorIdTarget = id_usuario_gestor !== undefined ? id_usuario_gestor : gestor;
 
-    // --- ATUALIZAÇÃO DO GESTOR VINCULADO ---
-    const gestorIdTarget = id_usuario_gestor !== undefined ? id_usuario_gestor : gestor;
+      if (gestorIdTarget !== undefined) {
+        const novoIdGestor = (gestorIdTarget && gestorIdTarget !== '') ? parseInt(gestorIdTarget, 10) : null;
 
-    // Se o campo de gestor foi enviado na requisição
-    if (gestorIdTarget !== undefined) {
-      const novoIdGestor = (gestorIdTarget && gestorIdTarget !== '') ? parseInt(gestorIdTarget, 10) : null;
-
-      // 1. Busca no banco qual é o gestor atual ativo deste funcionário
-      const [vinculoAtual] = await db.execute(
-        `SELECT id_usuario FROM gestor_funcionarios WHERE id_funcionario = ? AND data_fim IS NULL LIMIT 1`,
-        [idFunc]
-      );
-
-      const idGestorAtual = vinculoAtual.length > 0 ? vinculoAtual[0].id_usuario : null;
-
-      // 2. Só altera a tabela gestor_funcionarios se houver MUDANÇA real de gestor
-      if (novoIdGestor !== idGestorAtual) {
-        
-        // Encerra o vínculo ativo anterior
-        await db.execute(
-          `UPDATE gestor_funcionarios SET data_fim = NOW() WHERE id_funcionario = ? AND data_fim IS NULL`,
+        const [vinculoAtual] = await db.execute(
+          `SELECT id_usuario FROM gestor_funcionarios WHERE id_funcionario = ? AND data_fim IS NULL LIMIT 1`,
           [idFunc]
         );
 
-        // Se um novo gestor foi selecionado, insere ou reativa
-        if (novoIdGestor && !isNaN(novoIdGestor)) {
-          const sqlUpsertGestor = `
-            INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra, data_inicio, data_fim) 
-            VALUES (?, ?, 0, NOW(), NULL)
-            ON DUPLICATE KEY UPDATE 
-              id_obra = 0,
-              data_inicio = NOW(),
-              data_fim = NULL
-          `;
-          await db.execute(sqlUpsertGestor, [novoIdGestor, idFunc]);
+        const idGestorAtual = vinculoAtual.length > 0 ? vinculoAtual[0].id_usuario : null;
+
+        if (novoIdGestor !== idGestorAtual) {
+          await db.execute(
+            `UPDATE gestor_funcionarios SET data_fim = NOW() WHERE id_funcionario = ? AND data_fim IS NULL`,
+            [idFunc]
+          );
+
+          if (novoIdGestor && !isNaN(novoIdGestor)) {
+            const sqlUpsertGestor = `
+              INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra, data_inicio, data_fim) 
+              VALUES (?, ?, 0, NOW(), NULL)
+              ON DUPLICATE KEY UPDATE 
+                id_obra = 0,
+                data_inicio = NOW(),
+                data_fim = NULL
+            `;
+            await db.execute(sqlUpsertGestor, [novoIdGestor, idFunc]);
+          }
         }
       }
+    } catch (gestorErr) {
+      console.warn("Aviso: Não foi possível atualizar o gestor vinculado:", gestorErr.message);
     }
 
-    if (statusFormatado === 'INTEGRAÇÃO PENDENTE') {
-      const sqlNovaIntegracao = `
-        INSERT INTO integracoes_funcionarios (id_funcionario, obs, criado_em) 
-        VALUES (?, ?, NOW())
-      `;
-      await db.execute(sqlNovaIntegracao, [
-        idFunc, 
-        limparTexto(observacoes)
-      ]);
-    }
-    
     return res.json({ success: true, message: "Dados do funcionário atualizados com sucesso!" });
   } catch (err) {
-    console.error("Erro no banco ao atualizar funcionário:", err);
-    return res.status(500).json({ error: "Erro interno ao atualizar dados do funcionário no banco." });
+    console.error("Erro interno no MySQL/Backend ao atualizar funcionário:", err);
+    return res.status(500).json({ error: `Erro no servidor: ${err.message}` });
   }
 });
 

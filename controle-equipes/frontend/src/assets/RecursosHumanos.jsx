@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Trash2, Edit3, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search, Download, Eye, X, ArrowUpDown } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
-  
-export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL, mostrarMensagemGlobal }) {
+export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL: propsApiUrl, mostrarMensagemGlobal }) {
+  // Garante o uso correto da URL vinda por props ou fallback local
+  const API_URL = propsApiUrl || 'http://localhost:3001/api';
+
   const [funcionarioEmEdicao, setFuncionarioEmEdicao] = useState(null);
   const [funcionarioDetalhar, setFuncionarioDetalhar] = useState(null);
   const [listaGestores, setListaGestores] = useState([]);
@@ -60,13 +60,15 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
         nome: funcionarioEmEdicao.nome || '',
         matricula: funcionarioEmEdicao.matricula || '',
         cargo: funcionarioEmEdicao.cargo || '',
-        id_usuario_gestor: funcionarioEmEdicao.id_usuario_gestor || '',
+        // Mapeia caso venha id_usuario_gestor, gestor_id ou id_gestor
+        id_usuario_gestor: funcionarioEmEdicao.id_usuario_gestor || funcionarioEmEdicao.gestor_id || funcionarioEmEdicao.id_gestor || '',
         ativo: funcionarioEmEdicao.ativo || 'ATIVO',
         cpf: funcionarioEmEdicao.cpf || '',
         telefone: funcionarioEmEdicao.telefone || '',
-        tam_calca: funcionarioEmEdicao.tam_calca || '',
-        tam_camisa: funcionarioEmEdicao.tam_camisa || '',
-        tam_calcado: funcionarioEmEdicao.tam_calcado || '',
+        // Trata variações de nomenclatura dos tamanhos
+        tam_calca: funcionarioEmEdicao.tam_calca || funcionarioEmEdicao.tamanho_calca || '',
+        tam_camisa: funcionarioEmEdicao.tam_camisa || funcionarioEmEdicao.tamanho_camisa || '',
+        tam_calcado: funcionarioEmEdicao.tam_calcado || funcionarioEmEdicao.tamanho_calcado || funcionarioEmEdicao.tam_sapato || '',
         data_admissao: formatarDataParaInput(funcionarioEmEdicao.data_admissao),
         data_demissao: formatarDataParaInput(funcionarioEmEdicao.data_demissao),
         data_postagem_aso_pasta: formatarDataParaInput(funcionarioEmEdicao.data_postagem_aso_pasta),
@@ -92,7 +94,25 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   const totalAtivos = safeLista.filter(f => f.ativo === 'ATIVO').length;
   const totalInativos = safeLista.filter(f => f.ativo === 'INATIVO').length;
   const totalPendentes = safeLista.filter(f => f.ativo === 'INTEGRAÇÃO PENDENTE').length;
-
+  const abrirDetalhesCompleto = async (func) => {
+  try {
+    // Busca os dados completos na API usando a rota detalhada ou passando a busca
+    const res = await axios.get(`${API_URL}/rh/funcionarios-geral`);
+    if (res.data && Array.isArray(res.data)) {
+      // Procura o funcionário correspondente na lista detalhada que veio do banco
+      const completo = res.data.find(f => Number(f.id) === Number(func.id));
+      if (completo) {
+        setFuncionarioDetalhar(completo);
+        return;
+      }
+    }
+    // Fallback caso a rota falhe ou não ache
+    setFuncionarioDetalhar(func);
+  } catch (err) {
+    console.error("Erro ao buscar detalhes completos:", err);
+    setFuncionarioDetalhar(func); // Fallback
+  }
+};
   // Lógica de filtragem tripla (Status, Gestor e Nome)
   const funcionariosFiltrados = safeLista.filter(func => {
     const atendeStatus = filtroStatus === 'TODOS' || 
@@ -115,33 +135,33 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       return (b.nome || '').localeCompare(a.nome || '', 'pt-BR');
     }
     if (ordem === 'ULTIMOS_ATUALIZADOS') {
-  const extrairTimestamp = (obj) => {
-    const val = obj.atualizado_em || obj.criado_em || obj.created_at;
-    if (!val) return 0;
-    
-    // Tratamento para strings de data do MySQL no formato "YYYY-MM-DD HH:mm:ss"
-    const dataTratada = typeof val === 'string' ? val.replace(' ', 'T') : val;
-    const t = new Date(dataTratada).getTime();
-    
-    return isNaN(t) ? 0 : t;
-  };
+      const extrairTimestamp = (obj) => {
+        const val = obj.atualizado_em || obj.criado_em || obj.created_at;
+        if (!val) return 0;
+        
+        // Tratamento para strings de data do MySQL no formato "YYYY-MM-DD HH:mm:ss"
+        const dataTratada = typeof val === 'string' ? val.replace(' ', 'T') : val;
+        const t = new Date(dataTratada).getTime();
+        
+        return isNaN(t) ? 0 : t;
+      };
 
-  const timeA = extrairTimestamp(a);
-  const timeB = extrairTimestamp(b);
+      const timeA = extrairTimestamp(a);
+      const timeB = extrairTimestamp(b);
 
-  // Se as datas forem iguais ou ambas nulas, usa o ID como critério de desempate
-  if (timeB === timeA) {
-    return (b.id || 0) - (a.id || 0);
-  }
+      // Se as datas forem iguais ou ambas nulas, usa o ID como critério de desempate
+      if (timeB === timeA) {
+        return (b.id || 0) - (a.id || 0);
+      }
 
-  return timeB - timeA;
-}
+      return timeB - timeA;
+    }
     return 0;
   });
 
   const exportarParaCSV = () => {
     if (funcionariosOrdenados.length === 0) {
-      mostrarMensagemGlobal('Não há dados para exportar com os filtros atuais.', 'erro');
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Não há dados para exportar com os filtros atuais.', 'erro');
       return;
     }
 
@@ -171,51 +191,88 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     link.click();
     document.body.removeChild(link);
     
-    mostrarMensagemGlobal('Download concluído com sucesso!', 'sucesso');
+    if (mostrarMensagemGlobal) mostrarMensagemGlobal('Download concluído com sucesso!', 'sucesso');
   };
 
   const lidarComEnvio = async (e) => {
-    e.preventDefault();
-    if (!formData.nome || !formData.matricula || !formData.cargo || !formData.ativo) {
+  e.preventDefault();
+
+  // Validação de campos obrigatórios
+  if (!formData.nome || !formData.matricula || !formData.cargo || !formData.ativo) {
+    if (mostrarMensagemGlobal) {
       mostrarMensagemGlobal('Por favor, preencha todos os campos obrigatórios (*)!', 'erro');
-      return;
+    }
+    return;
+  }
+
+  try {
+    let novaLista = [];
+
+    if (funcionarioEmEdicao) {
+      // 1. EDIÇÃO (PUT)
+      await axios.put(`${API_URL}/rh/funcionarios/${funcionarioEmEdicao.id}`, formData);
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário atualizado com sucesso!', 'sucesso');
+
+      // 2. Recarrega a lista atualizada
+      if (recarregarFuncionariosGlobal) {
+        novaLista = await recarregarFuncionariosGlobal();
+      }
+
+      // 3. Atualiza o modal de detalhes caso esteja aberto com o funcionário editado
+      if (funcionarioDetalhar && Array.isArray(novaLista)) {
+        const itemAtualizado = novaLista.find(f => Number(f.id) === Number(funcionarioEmEdicao.id));
+        if (itemAtualizado) {
+          setFuncionarioDetalhar(itemAtualizado);
+        }
+      }
+
+      setFuncionarioEmEdicao(null);
+
+    } else {
+      // 4. NOVO CADASTRO (POST)
+      await axios.post(`${API_URL}/rh/funcionarios`, formData);
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário cadastrado com sucesso!', 'sucesso');
+
+      // Recarrega a lista após cadastrar
+      if (recarregarFuncionariosGlobal) {
+        await recarregarFuncionariosGlobal();
+      }
     }
 
-    try {
-      if (funcionarioEmEdicao) {
-        await axios.put(`${API_URL}/rh/funcionarios/${funcionarioEmEdicao.id}`, formData);
-        mostrarMensagemGlobal('Funcionário atualizado com sucesso!', 'sucesso');
-        setFuncionarioEmEdicao(null);
-      }
-      
-      recarregarFuncionariosGlobal();
-    } catch (err) {
-      console.error("Erro na API (RH):", err);
-      mostrarMensagemGlobal(err.response?.data?.error || 'Erro ao processar requisição dos funcionários.', 'erro');
+    // 5. Limpa os estados do formulário/modal de edição
+    if (typeof setModalAberto === 'function') setModalAberto(false);
+    if (typeof resetForm === 'function') resetForm();
+
+  } catch (err) {
+    console.error("Erro na API (RH):", err);
+    if (mostrarMensagemGlobal) {
+      mostrarMensagemGlobal(
+        err.response?.data?.error || 'Erro ao processar requisição dos funcionários.', 
+        'erro'
+      );
     }
-  };
+  }
+};
 
   const deletarFuncionario = async (id) => {
     if (!window.confirm("Tem certeza que deseja excluir permanentemente este funcionário? Isso pode afetar os vínculos ativos.")) return;
     
     try {
       await axios.delete(`${API_URL}/rh/funcionarios/${id}`);
-      mostrarMensagemGlobal('Funcionário removido com sucesso!', 'sucesso');
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário removido com sucesso!', 'sucesso');
       if (funcionarioEmEdicao?.id === id) setFuncionarioEmEdicao(null);
-      recarregarFuncionariosGlobal();
+      if (recarregarFuncionariosGlobal) recarregarFuncionariosGlobal();
     } catch (err) {
       console.error("Erro ao deletar colaborador:", err);
-      mostrarMensagemGlobal('Erro ao tentar remover o funcionário do banco de dados.', 'erro');
+      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Erro ao tentar remover o funcionário do banco de dados.', 'erro');
     }
   };
 
-  const formatarDataBR = (d) => {
-    if (!d) return '-';
-    const dataApenas = String(d).split('T')[0];
-    const partes = dataApenas.split('-');
-    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
-    return d;
-  };
+  const formatarDataBR = (data) => {
+  if (!data) return '-';
+  const d = new Date(data);
+  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+};
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
@@ -508,34 +565,37 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                           
-                          <button 
-                            onClick={() => setFuncionarioDetalhar(func)}
-                            style={{ backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                            title="Ver Detalhes do Funcionário"
-                          >
-                            <Eye style={{ width: '13px', height: '13px' }} />
-                          </button>
+                          {/* BOTÃO DETALHES CORRIGIDO */}
+                            <button 
+                              type="button"
+                              onClick={() => abrirDetalhesCompleto(func)}
+                              style={{ backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                              title="Ver Detalhes do Funcionário"
+                            >
+                              <Eye style={{ width: '13px', height: '13px' }} />
+                            </button>
 
+                          {/* BOTÃO EDITA CORRIGIDO (REMOVIDO BLOQUEIO DE PENDENTE) */}
                           <button 
-                            onClick={() => !ehPendente && setFuncionarioEmEdicao(func)}
-                            disabled={ehPendente}
+                            type="button"
+                            onClick={() => setFuncionarioEmEdicao(func)}
                             style={{ 
-                              backgroundColor: ehPendente ? '#f1f5f9' : '#fef3c7', 
-                              color: ehPendente ? '#94a3b8' : '#d97706', 
+                              backgroundColor: '#fef3c7', 
+                              color: '#d97706', 
                               border: 'none', 
                               padding: '6px', 
                               borderRadius: '4px', 
-                              cursor: ehPendente ? 'not-allowed' : 'pointer', 
+                              cursor: 'pointer', 
                               display: 'flex', 
-                              alignItems: 'center',
-                              opacity: ehPendente ? 0.6 : 1 
+                              alignItems: 'center'
                             }}
-                            title={ehPendente ? "Não é possível editar funcionários em integração pendente" : "Editar Funcionário"}
+                            title="Editar Funcionário"
                           >
                             <Edit3 style={{ width: '13px', height: '13px' }} />
                           </button>
 
                           <button 
+                            type="button"
                             onClick={() => deletarFuncionario(func.id)}
                             style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                             title="Excluir Funcionário"
@@ -554,66 +614,67 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       </div>
 
       {/* JANELA MODAL DE DETALHES COMPLETO */}
-      {funcionarioDetalhar && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: '8px', maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', border: '1px solid #cbd5e1' }}>
-            
-            <div style={{ padding: '16px 20px', backgroundColor: '#0f172a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px 8px 0 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Users style={{ width: '20px', height: '20px', color: '#38bdf8' }} />
-                <span style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>Ficha Cadastral do Colaborador</span>
-              </div>
-              <button onClick={() => setFuncionarioDetalhar(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}>
-                <X style={{ width: '20px', height: '20px' }} />
-              </button>
-            </div>
-
-            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '12px' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 'bold' }}>{funcionarioDetalhar.nome}</h3>
-                  <p style={{ margin: '2px 0 0 0', color: '#64748b' }}>Matrícula: <strong>{funcionarioDetalhar.matricula}</strong> | Cargo: <strong>{funcionarioDetalhar.cargo}</strong></p>
-                </div>
-                <span style={{ backgroundColor: funcionarioDetalhar.ativo === 'ATIVO' ? '#dcfce7' : funcionarioDetalhar.ativo === 'INATIVO' ? '#fee2e2' : '#fef3c7', color: funcionarioDetalhar.ativo === 'ATIVO' ? '#15803d' : funcionarioDetalhar.ativo === 'INATIVO' ? '#b91c1c' : '#b45309', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '11px' }}>
-                  {funcionarioDetalhar.ativo || 'ATIVO'}
-                </span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
-                <div><strong>Gestor Vinculado:</strong> {funcionarioDetalhar.gestor || funcionarioDetalhar.nome_gestor || 'Nenhum'}</div>
-                <div><strong>CPF:</strong> {funcionarioDetalhar.cpf || '-'}</div>
-                <div><strong>Telefone:</strong> {funcionarioDetalhar.telefone || '-'}</div>
-                <div><strong>Tamanho Calça:</strong> {funcionarioDetalhar.tam_calca || '-'}</div>
-                <div><strong>Tamanho Camisa:</strong> {funcionarioDetalhar.tam_camisa || '-'}</div>
-                <div><strong>Tamanho Calçado:</strong> {funcionarioDetalhar.tam_calcado || '-'}</div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
-                <div><strong>Data Admissão:</strong> {formatarDataBR(funcionarioDetalhar.data_admissao)}</div>
-                <div><strong style={{ color: funcionarioDetalhar.data_demissao ? '#b91c1c' : '#334155' }}>Data Demissão:</strong> {formatarDataBR(funcionarioDetalhar.data_demissao)}</div>
-                <div><strong>Postagem ASO / Pasta:</strong> {formatarDataBR(funcionarioDetalhar.data_postagem_aso_pasta)}</div>
-                <div><strong>Docs RH Completos:</strong> {formatarDataBR(funcionarioDetalhar.data_documentos_rh_completos)}</div>
-              </div>
-
-              <div style={{ backgroundColor: '#fffbebf', padding: '12px', borderRadius: '6px', border: '1px solid #fef3c7' }}>
-                <strong style={{ color: '#b45309', display: 'block', marginBottom: '4px' }}>Observações:</strong>
-                <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap' }}>
-                  {funcionarioDetalhar.observacoes || 'Nenhuma observação registrada.'}
-                </p>
-              </div>
-
-            </div>
-
-            <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc', borderRadius: '0 0 8px 8px' }}>
-              <button onClick={() => setFuncionarioDetalhar(null)} style={{ padding: '6px 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                Fechar
-              </button>
-            </div>
-
-          </div>
+{funcionarioDetalhar && (
+  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+    <div style={{ backgroundColor: '#fff', borderRadius: '8px', maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', border: '1px solid #cbd5e1' }}>
+      
+      <div style={{ padding: '16px 20px', backgroundColor: '#0f172a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px 8px 0 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Users style={{ width: '20px', height: '20px', color: '#38bdf8' }} />
+          <span style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>Ficha Cadastral do Colaborador</span>
         </div>
-      )}
+        <button onClick={() => setFuncionarioDetalhar(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}>
+          <X style={{ width: '20px', height: '20px' }} />
+        </button>
+      </div>
+
+      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '12px' }}>
+        
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 'bold' }}>{funcionarioDetalhar.nome || funcionarioDetalhar.nome_funcionario}</h3>
+            <p style={{ margin: '2px 0 0 0', color: '#64748b' }}>Matrícula: <strong>{funcionarioDetalhar.matricula}</strong> | Cargo: <strong>{funcionarioDetalhar.cargo}</strong></p>
+          </div>
+          <span style={{ backgroundColor: funcionarioDetalhar.ativo === 'ATIVO' ? '#dcfce7' : funcionarioDetalhar.ativo === 'INATIVO' ? '#fee2e2' : '#fef3c7', color: funcionarioDetalhar.ativo === 'ATIVO' ? '#15803d' : funcionarioDetalhar.ativo === 'INATIVO' ? '#b91c1c' : '#b45309', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '11px' }}>
+            {funcionarioDetalhar.ativo || 'ATIVO'}
+          </span>
+        </div>
+
+        {/* MAPEAMENTO COM RECURSO DE FALLBACK */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+          <div><strong>Gestor Vinculado:</strong> {funcionarioDetalhar.gestor || funcionarioDetalhar.nome_gestor || funcionarioDetalhar.gestor_nome || 'Nenhum'}</div>
+          <div><strong>CPF:</strong> {funcionarioDetalhar.cpf || '-'}</div>
+          <div><strong>Telefone:</strong> {funcionarioDetalhar.telefone || funcionarioDetalhar.celular || '-'}</div>
+          <div><strong>Tamanho Calça:</strong> {funcionarioDetalhar.tam_calca || funcionarioDetalhar.tamanho_calca || '-'}</div>
+          <div><strong>Tamanho Camisa:</strong> {funcionarioDetalhar.tam_camisa || funcionarioDetalhar.tamanho_camisa || '-'}</div>
+          <div><strong>Tamanho Calçado:</strong> {funcionarioDetalhar.tam_calcado || funcionarioDetalhar.tamanho_calcado || funcionarioDetalhar.tam_sapato || '-'}</div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+          <div><strong>Data Admissão:</strong> {formatarDataBR(funcionarioDetalhar.data_admissao || funcionarioDetalhar.admissao)}</div>
+          <div><strong style={{ color: funcionarioDetalhar.data_demissao ? '#b91c1c' : '#334155' }}>Data Demissão:</strong> {formatarDataBR(funcionarioDetalhar.data_demissao || funcionarioDetalhar.demissao)}</div>
+          <div><strong>Postagem ASO / Pasta:</strong> {formatarDataBR(funcionarioDetalhar.data_postagem_aso_pasta || funcionarioDetalhar.aso_pasta)}</div>
+          <div><strong>Docs RH Completos:</strong> {formatarDataBR(funcionarioDetalhar.data_documentos_rh_completos || funcionarioDetalhar.docs_rh)}</div>
+        </div>
+
+        <div style={{ backgroundColor: '#fffbebf', padding: '12px', borderRadius: '6px', border: '1px solid #fef3c7' }}>
+          <strong style={{ color: '#b45309', display: 'block', marginBottom: '4px' }}>Observações:</strong>
+          <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap' }}>
+            {funcionarioDetalhar.observacoes || funcionarioDetalhar.obs || 'Nenhuma observação registrada.'}
+          </p>
+        </div>
+
+      </div>
+
+      <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc', borderRadius: '0 0 8px 8px' }}>
+        <button onClick={() => setFuncionarioDetalhar(null)} style={{ padding: '6px 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+          Fechar
+        </button>
+      </div>
+
+    </div>
+  </div>
+)}
 
     </div>
   );
