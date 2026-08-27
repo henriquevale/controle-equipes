@@ -10,7 +10,7 @@ import db from '../../db.js';
 // ========================================================
 router.get('/gestor/obras-ativas', async (req, res) => {
   try {
-    const { id, cargo, incluirInativas } = req.query; 
+    const { id, cargo, incluirInativas, tipo_obra } = req.query; // 👈 1. Recebe tipo_obra
 
     if (!id) {
       return res.status(400).json({ error: "ID do usuário não foi fornecido." });
@@ -22,14 +22,11 @@ router.get('/gestor/obras-ativas', async (req, res) => {
 
     let sql = '';
 
-    // 1. Perfil MASTER ou RH visualizam todas as obras do sistema
+    // Lógica base de permissões por perfil (Master, Engenharia, Gestor)
     if (cargoUpper === 'MASTER' || cargoUpper === 'RH') {
-      sql = `SELECT * FROM obras`;
-      if (apenasAtivas) {
-        sql += ` WHERE status = 'ATIVA'`;
-      }
+      sql = `SELECT * FROM obras WHERE 1=1`;
+      if (apenasAtivas) sql += ` AND status = 'ATIVA'`;
     } 
-    // 2. Perfil ENGENHARIA (Filtra na tabela engenharia_obras)
     else if (cargoUpper === 'ENGENHARIA') {
       sql = `
         SELECT DISTINCT o.* 
@@ -37,12 +34,9 @@ router.get('/gestor/obras-ativas', async (req, res) => {
         INNER JOIN engenharia_obras eo ON o.id = eo.id_obra
         WHERE eo.id_usuario = ?
       `;
-      if (apenasAtivas) {
-        sql += ` AND o.status = 'ATIVA'`;
-      }
+      if (apenasAtivas) sql += ` AND o.status = 'ATIVA'`;
       params.push(Number(id));
     } 
-    // 3. Demais perfis (Ex: GESTOR - Filtra na tabela gestor_obras)
     else {
       sql = `
         SELECT DISTINCT o.* 
@@ -50,10 +44,19 @@ router.get('/gestor/obras-ativas', async (req, res) => {
         INNER JOIN gestor_obras go ON o.id = go.id_obra
         WHERE go.id_usuario = ?
       `;
-      if (apenasAtivas) {
-        sql += ` AND o.status = 'ATIVA'`;
-      }
+      if (apenasAtivas) sql += ` AND o.status = 'ATIVA'`;
       params.push(Number(id));
+    }
+
+    // 👈 2. Aplica o filtro de tipo_obra caso tenha sido selecionado
+    if (tipo_obra && tipo_obra !== '' && tipo_obra !== 'TODOS') {
+      const tiposArray = Array.isArray(tipo_obra) ? tipo_obra : String(tipo_obra).split(',');
+      const placeholders = tiposArray.map(() => '?').join(',');
+      
+      // Se a SQL usa alias (o.*), usa o.tipo_obra, senão tipo_obra
+      const coluna = (cargoUpper === 'MASTER' || cargoUpper === 'RH') ? 'tipo_obra' : 'o.tipo_obra';
+      sql += ` AND ${coluna} IN (${placeholders})`;
+      params.push(...tiposArray);
     }
 
     const [resultados] = await db.execute(sql, params);
@@ -766,7 +769,16 @@ router.post('/gestor/remanezar-funcionario-vincular', async (req, res) => {
 // ========================================================
 router.get('/gestor/historico-diarios', async (req, res) => {
   try {
-    const { id, cargo, id_obra, data_inicio, data_fim, status_rdo, id_gestor_filtro } = req.query;
+    const { 
+      id, 
+      cargo, 
+      id_obra, 
+      tipo_obra, 
+      data_inicio, 
+      data_fim, 
+      status_rdo, 
+      id_gestor_filtro 
+    } = req.query;
 
     if (!id) {
       return res.status(400).json({ error: "ID numérico do usuário não foi fornecido." });
@@ -840,10 +852,24 @@ router.get('/gestor/historico-diarios', async (req, res) => {
       }
     }
 
-    // 🎯 FILTRO: OBRA
+    // 🎯 FILTRO: OBRA ESPECÍFICA
     if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
       sql += ` AND r.id_obra = ? `;
       params.push(Number(id_obra));
+    }
+
+    // 🎯 NOVO FILTRO: TIPO DE OBRA (MÚLTIPLOS SELECIONADOS)
+    if (tipo_obra && tipo_obra !== '' && tipo_obra !== 'TODOS') {
+      // Converte string separada por vírgula em Array (ou mantém caso já venha como Array)
+      const tiposArray = Array.isArray(tipo_obra) 
+        ? tipo_obra 
+        : String(tipo_obra).split(',').map(t => t.trim()).filter(Boolean);
+
+      if (tiposArray.length > 0) {
+        const placeholders = tiposArray.map(() => '?').join(',');
+        sql += ` AND o.tipo_obra IN (${placeholders}) `;
+        params.push(...tiposArray);
+      }
     }
 
     // 🎯 FILTRO: INTERVALO DE DATAS
@@ -852,7 +878,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
       params.push(data_inicio, data_fim);
     }
 
-    // 🎯 FILTRO: STATUS RDO (PENDENTE vs FINALIZADO) - LÓGICA BASEADA NA ROTA 19
+    // 🎯 FILTRO: STATUS RDO (PENDENTE vs FINALIZADO)
     if (status_rdo && status_rdo !== '' && status_rdo !== 'TODOS') {
       if (status_rdo.toUpperCase() === 'PENDENTE') {
         sql += ` AND (c.status_rdo IS NULL OR UPPER(TRIM(c.status_rdo)) = 'PENDENTE') `;
@@ -1328,7 +1354,7 @@ router.delete('/gestor/equipe', async (req, res) => {
   }
 });
 // ========================================================
-// GET: RECUPERAR / COPIAR ÚLTIMO AGENDAMENTO REGISTRADO DA OBRA
+// 22. GET: RECUPERAR / COPIAR ÚLTIMO AGENDAMENTO REGISTRADO DA OBRA
 // ========================================================
 router.get('/gestor/obter-ultimo-agendamento', async (req, res) => {
   const { id_obra, data_atual } = req.query;
@@ -1372,5 +1398,39 @@ router.get('/gestor/obter-ultimo-agendamento', async (req, res) => {
   }
 });
 
+// ========================================================
+// 21. GET: Retorna os tipos de obra para preencher o filtro no front-end
+// ========================================================
+router.get('/gestor/tipos-obra', async (req, res) => {
+  try {
+    const { id, cargo } = req.query;
+
+    let sql = `
+      SELECT DISTINCT tipo_obra 
+      FROM obras 
+      WHERE tipo_obra IS NOT NULL AND tipo_obra != ''
+    `;
+    let params = [];
+
+    // Se o gestor não for MASTER/RH/ADMIN, filtra os tipos apenas das obras dele
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+    if (cargoUpper !== 'MASTER' && cargoUpper !== 'RH' && cargoUpper !== 'ADMIN') {
+      sql += ` AND id IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?) `;
+      params.push(parseInt(id));
+    }
+
+    sql += ` ORDER BY tipo_obra ASC`;
+
+    const [linhas] = await db.execute(sql, params);
+
+    // Converte a lista de objetos [{ tipo_obra: 'Urbana' }] em array simples: ['Urbana']
+    const tipos = linhas.map(item => item.tipo_obra);
+
+    return res.status(200).json(tipos);
+  } catch (err) {
+    console.error("Erro ao buscar tipos de obra:", err);
+    return res.status(500).json({ error: "Erro interno ao buscar tipos de obra." });
+  }
+});
 
 export default router;
