@@ -4,11 +4,11 @@ import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDa
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 const SERVICOS_PADRONIZADOS = [
-  "REMOÇÃO DE TACHA (UN)",
+ "REMOÇÃO DE TACHA (UN)",
   "IMPLANTAÇÃO DE TACHA (UN)",
   "PINTURA MECÂNICA (M²)",
   "PINTURA MANUAL (M²)",
@@ -18,7 +18,10 @@ const SERVICOS_PADRONIZADOS = [
   "IMPLANTAÇÃO TAE UN (UN)",
   "IMPLANTAÇÃO DE TACHÃO (UN)",
   "IMPLANTAÇÃO TERMINAL AÉREO (UN)",
-  "FRESAGEM (M²)"
+  "FRESAGEM (M²)",
+  "IMPLANTAR PLACA SOLO (UN)",
+  "IMPLANTAR PLACA AÉREA (UN)",
+  "IMPLANTAR  PÓRTICO"
 ];
 
 const MATERIAIS_PADRONIZADOS = [
@@ -34,7 +37,13 @@ const MATERIAIS_PADRONIZADOS = [
   "PLÁSTICO A FRIO - RESINA (KG)",
   "TERMOPLÁSTICO (KG)",
   "DEFENSA METÁLICA (M)",
-  "POSTE PARA DEFENSA (UN)"
+  "TAE (UN)",
+  "POSTE PARA DEFENSA (UN)",
+  "PLACA SOLO",
+  "PLACA AÉREA",
+  "PÓRTICO",
+  "SEMI/PÓRTICO"
+
 ];
 
 export default function DiarioObraTecnico({ usuarioLogado }) {
