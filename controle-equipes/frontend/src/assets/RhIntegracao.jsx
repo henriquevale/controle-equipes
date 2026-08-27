@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);
   const [obras, setObras] = useState([]);
@@ -97,9 +98,20 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
   };
 
   const handleDataTabelaChange = (campo, valor) => {
+    const valorAnterior = dadosEdicao[campo];
+
     if (!valor) {
       setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
       return;
+    }
+
+    // Atualiza o estado imediatamente para permitir digitação no input
+    setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
+
+    // Valida se a data está completa (formato AAAA-MM-DD com ano >= 1900)
+    const partes = valor.split('-');
+    if (partes.length !== 3 || partes[0].length < 4 || parseInt(partes[0]) < 1900) {
+      return; // Aguarda o preenchimento completo do ano pelo usuário
     }
 
     const novaDataStr = valor; 
@@ -115,35 +127,65 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
 
     const indexAtual = ordemEtapas.indexOf(campo);
 
+    // Validação: Não pode ser inferior ao passo anterior
     if (indexAtual > 0) {
       const campoAnterior = ordemEtapas[indexAtual - 1];
       const dataAnteriorRaw = dadosEdicao[campoAnterior];
       if (dataAnteriorRaw) {
         const dataAnteriorStr = formatarParaInput(dataAnteriorRaw);
         if (novaDataStr < dataAnteriorStr) {
-          alert(`Aviso: Esta data não pode ser inferior ao passo anterior (${dataAnteriorStr}).`);
+          const [ano, mes, dia] = dataAnteriorStr.split('-');
+          alert(`Aviso: Esta data não pode ser inferior ao passo anterior (${dia}/${mes}/${ano}).`);
+          // Reverte a alteração inválida no estado
+          setDadosEdicao(prev => ({ ...prev, [campo]: valorAnterior || '' }));
           return;
         }
       }
     }
 
+    // Validação: Não pode ser superior ao próximo passo já preenchido
     if (indexAtual < ordemEtapas.length - 1) {
       const campoProximo = ordemEtapas[indexAtual + 1];
       const dataProximaRaw = dadosEdicao[campoProximo];
       if (dataProximaRaw) {
         const dataProximaStr = formatarParaInput(dataProximaRaw);
         if (novaDataStr > dataProximaStr) {
-          alert(`Aviso: Esta data não pode ser superior ao próximo passo já preenchido (${dataProximaStr}).`);
+          const [ano, mes, dia] = dataProximaStr.split('-');
+          alert(`Aviso: Esta data não pode ser superior ao próximo passo já preenchido (${dia}/${mes}/${ano}).`);
+          // Reverte a alteração inválida no estado
+          setDadosEdicao(prev => ({ ...prev, [campo]: valorAnterior || '' }));
           return;
         }
       }
     }
-
-    setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
   };
 
   const salvarLinhaCronologia = async () => {
     if (!dadosEdicao) return;
+
+    const ordemEtapas = [
+      'data_documentos_sst',
+      'data_enviados',
+      'data_recebidos',
+      'data_postado_bex',
+      'data_analise',
+      'data_integracao_agendada',
+      'data_integracao'
+    ];
+
+    // 🛡️ TRAVA FINAL DE SEGURANÇA: Bloqueia salvamento caso haja discrepância de datas
+    for (let i = 1; i < ordemEtapas.length; i++) {
+      const campoAtual = ordemEtapas[i];
+      const campoAnterior = ordemEtapas[i - 1];
+
+      const dataAtual = formatarParaInput(dadosEdicao[campoAtual]);
+      const dataAnterior = formatarParaInput(dadosEdicao[campoAnterior]);
+
+      if (dataAtual && dataAnterior && dataAtual < dataAnterior) {
+        alert(`Erro ao salvar: Há datas inconsistentes na cronologia (uma das etapas está inferior à etapa anterior). Verifique os campos.`);
+        return;
+      }
+    }
 
     try {
       const idFunc = dadosEdicao.id_funcionario || dadosEdicao.id;
@@ -351,7 +393,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         </div>
       </div>
 
-      {/* Container com Rolagem Horizontal Habilitada */}
+      {/* Tabela de Dados */}
       {listaFiltrada.length === 0 ? (
         <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px', backgroundColor: '#f8fafc', borderRadius: '4px' }}>
           Nenhum funcionário encontrado.
@@ -447,7 +489,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                       />
                     </td>
 
-                    {/* COLUNA DE AÇÕES (GARANTIDA) */}
+                    {/* AÇÕES */}
                     <td style={{ padding: '3px', textAlign: 'center' }}>
                       {!modoEdicaoAtivo ? (
                         <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>

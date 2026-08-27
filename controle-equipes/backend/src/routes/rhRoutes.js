@@ -23,6 +23,7 @@ const formatarData = (d) => {
 
 // 1. GET: Listar todos os funcionários ativos (Tabela Geral RH)
 // GET: Listar todos os funcionários ativos com o Gestor Atual vinculado
+// GET: Listar todos os funcionários (Tabela Geral RH)
 router.get('/rh/funcionarios-geral', async (req, res) => {
   try {
     const sql = `
@@ -37,7 +38,7 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
         f.tam_calca, 
         f.tam_camisa, 
         f.tam_calcado, 
-        f.atualizado_em,
+        COALESCE(f.atualizado_em, f.data_admissao) AS atualizado_em,
         f.data_admissao, 
         f.data_demissao, 
         f.data_postagem_aso_pasta, 
@@ -47,23 +48,21 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
         -- ID do gestor vindo da tabela gestor_funcionarios
         gf.id_usuario AS id_usuario_gestor,
         
-        -- Aqui pegamos o campo 'nome' da tabela usuarios_sistema (u.nome) 
-        -- e renomeamos para 'nome_gestor' e 'gestor'
+        -- Nome do gestor (retorna NULL caso não haja gestor)
         u.nome AS nome_gestor,
         u.nome AS gestor
         
       FROM funcionarios f
       
-      -- Traz apenas o vínculo do gestor que está ativo no momento (data_fim é NULL)
+      -- LEFT JOIN para não excluir o funcionário se ele não tiver gestor
       LEFT JOIN gestor_funcionarios gf 
         ON f.id = gf.id_funcionario 
         AND gf.data_fim IS NULL
         
-      -- Relaciona com a usuarios_sistema para pegar o nome do gestor
       LEFT JOIN usuarios_sistema u 
         ON gf.id_usuario = u.id
         
-      ORDER BY f.nome ASC
+      ORDER BY f.id DESC
     `;
     
     const [rows] = await db.execute(sql);

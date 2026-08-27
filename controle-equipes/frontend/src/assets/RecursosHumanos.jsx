@@ -115,11 +115,27 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       return (b.nome || '').localeCompare(a.nome || '', 'pt-BR');
     }
     if (ordem === 'ULTIMOS_ATUALIZADOS') {
-      // Utiliza a coluna 'atualizado_em' (com fallback para criada_em/created_at se nulo)
-      const dataA = new Date(a.atualizado_em || a.criado_em || a.created_at || 0);
-      const dataB = new Date(b.atualizado_em || b.criado_em || b.created_at || 0);
-      return dataB - dataA;
-    }
+  const extrairTimestamp = (obj) => {
+    const val = obj.atualizado_em || obj.criado_em || obj.created_at;
+    if (!val) return 0;
+    
+    // Tratamento para strings de data do MySQL no formato "YYYY-MM-DD HH:mm:ss"
+    const dataTratada = typeof val === 'string' ? val.replace(' ', 'T') : val;
+    const t = new Date(dataTratada).getTime();
+    
+    return isNaN(t) ? 0 : t;
+  };
+
+  const timeA = extrairTimestamp(a);
+  const timeB = extrairTimestamp(b);
+
+  // Se as datas forem iguais ou ambas nulas, usa o ID como critério de desempate
+  if (timeB === timeA) {
+    return (b.id || 0) - (a.id || 0);
+  }
+
+  return timeB - timeA;
+}
     return 0;
   });
 
