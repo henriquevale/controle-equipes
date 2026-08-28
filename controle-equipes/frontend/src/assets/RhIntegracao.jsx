@@ -3,17 +3,16 @@ import axios from 'axios';
 import { 
   Save, Calendar, Edit2, X, Check, FileText, Send, 
   Inbox, Database, BarChart3, Clock, Milestone, 
-  Layers3, Download, Search, Trash2 
+  Layers3, Download, Search, Trash2, User 
 } from 'lucide-react';
-
-const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarregarFuncionariosGeral }) {
   const [listaIntegracoes, setListaIntegracoes] = useState([]);
   const [obras, setObras] = useState([]);
+  const [gestores, setGestores] = useState([]); // 👈 Estado para armazenar os gestores
   const [carregando, setCarregando] = useState(false);
   const [filtroEtapa, setFiltroEtapa] = useState('TODOS');
+  const [filtroGestor, setFiltroGestor] = useState('TODOS'); // 👈 Estado do filtro de Gestor
 
   // 🔍 Estado para o campo de pesquisa
   const [busca, setBusca] = useState('');
@@ -43,9 +42,19 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     }
   };
 
+  const carregarGestores = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/gestores`);
+      setGestores(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar lista de gestores:", e);
+    }
+  };
+
   useEffect(() => {
     carregarEsteira();
     carregarObras();
+    carregarGestores();
   }, []);
 
   const formatarParaInput = (dataBanco) => {
@@ -105,13 +114,11 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       return;
     }
 
-    // Atualiza o estado imediatamente para permitir digitação no input
     setDadosEdicao(prev => ({ ...prev, [campo]: valor }));
 
-    // Valida se a data está completa (formato AAAA-MM-DD com ano >= 1900)
     const partes = valor.split('-');
     if (partes.length !== 3 || partes[0].length < 4 || parseInt(partes[0]) < 1900) {
-      return; // Aguarda o preenchimento completo do ano pelo usuário
+      return;
     }
 
     const novaDataStr = valor; 
@@ -127,7 +134,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
 
     const indexAtual = ordemEtapas.indexOf(campo);
 
-    // Validação: Não pode ser inferior ao passo anterior
     if (indexAtual > 0) {
       const campoAnterior = ordemEtapas[indexAtual - 1];
       const dataAnteriorRaw = dadosEdicao[campoAnterior];
@@ -136,14 +142,12 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         if (novaDataStr < dataAnteriorStr) {
           const [ano, mes, dia] = dataAnteriorStr.split('-');
           alert(`Aviso: Esta data não pode ser inferior ao passo anterior (${dia}/${mes}/${ano}).`);
-          // Reverte a alteração inválida no estado
           setDadosEdicao(prev => ({ ...prev, [campo]: valorAnterior || '' }));
           return;
         }
       }
     }
 
-    // Validação: Não pode ser superior ao próximo passo já preenchido
     if (indexAtual < ordemEtapas.length - 1) {
       const campoProximo = ordemEtapas[indexAtual + 1];
       const dataProximaRaw = dadosEdicao[campoProximo];
@@ -152,7 +156,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         if (novaDataStr > dataProximaStr) {
           const [ano, mes, dia] = dataProximaStr.split('-');
           alert(`Aviso: Esta data não pode ser superior ao próximo passo já preenchido (${dia}/${mes}/${ano}).`);
-          // Reverte a alteração inválida no estado
           setDadosEdicao(prev => ({ ...prev, [campo]: valorAnterior || '' }));
           return;
         }
@@ -173,7 +176,6 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       'data_integracao'
     ];
 
-    // 🛡️ TRAVA FINAL DE SEGURANÇA: Bloqueia salvamento caso haja discrepância de datas
     for (let i = 1; i < ordemEtapas.length; i++) {
       const campoAtual = ordemEtapas[i];
       const campoAnterior = ordemEtapas[i - 1];
@@ -229,6 +231,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
     INTEGRACAO: listaIntegracoes.filter(f => f.data_integracao_agendada && !f.data_integracao).length,
   };
 
+  // 🔍 Filtro combinado (Busca por nome/matrícula + Filtro de Gestor + Filtro de Etapa)
   const listaFiltrada = listaIntegracoes.filter(f => {
     const termo = busca.toLowerCase().trim();
     const passaBusca = !termo || 
@@ -237,6 +240,12 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
 
     if (!passaBusca) return false;
 
+    // Filtro de Gestor
+    if (filtroGestor !== 'TODOS' && f.gestor !== filtroGestor) {
+      return false;
+    }
+
+    // Filtro de Etapa
     if (filtroEtapa === 'TODOS') return true;
     if (filtroEtapa === 'DOC_SST') return !f.data_documentos_sst;
     if (filtroEtapa === 'ENVIADOS') return f.data_documentos_sst && !f.data_enviados;
@@ -255,12 +264,13 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
       return;
     }
 
-    const cabecalho = ['Funcionario', 'Matricula', 'Cargo', 'Status', '1. Doc SST', '2. Enviados', '3. Recebidos', '4. Na BEX', '5. Analise', '6. Agendada', '7. Integracao', 'Obra', 'Observacao'];
+    const cabecalho = ['Funcionario', 'Matricula', 'Cargo', 'Gestor', 'Status', '1. Doc SST', '2. Enviados', '3. Recebidos', '4. Na BEX', '5. Analise', '6. Agendada', '7. Integracao', 'Obra', 'Observacao'];
     
     const linhas = listaFiltrada.map(f => [
       `"${(f.nome || '').replace(/"/g, '""')}"`,
       `"${(f.matricula || '').replace(/"/g, '""')}"`,
       `"${(f.cargo || '').replace(/"/g, '""')}"`,
+      `"${(f.gestor || 'Sem Gestor').replace(/"/g, '""')}"`,
       `"${(f.ativo || '').replace(/"/g, '""')}"`,
       `"${formatarParaInput(f.data_documentos_sst)}"`,
       `"${formatarParaInput(f.data_enviados)}"`,
@@ -320,7 +330,7 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
           </h3>
         </div>
 
-        {/* Campo de Pesquisa e Exportar */}
+        {/* Campo de Pesquisa, Filtro de Gestor e Exportar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search style={{ position: 'absolute', left: '8px', width: '14px', height: '14px', color: '#94a3b8' }} />
@@ -337,10 +347,34 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                 borderRadius: '4px',
                 border: '1px solid #cbd5e1',
                 outline: 'none',
-                width: '200px'
+                width: '180px'
               }}
             />
           </div>
+
+          {/* 👈 FILTRO DE GESTOR */}
+          <select
+            value={filtroGestor}
+            onChange={(e) => setFiltroGestor(e.target.value)}
+            style={{
+              height: '30px',
+              padding: '0 8px',
+              fontSize: '11px',
+              borderRadius: '4px',
+              border: '1px solid #cbd5e1',
+              backgroundColor: '#fff',
+              color: '#334155',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="TODOS">Todos os Gestores</option>
+            {gestores.map(g => (
+              <option key={g.id_usuario} value={g.nome_gestor}>
+                {g.nome_gestor}
+              </option>
+            ))}
+          </select>
 
           <button
             onClick={exportarParaCSV}
@@ -400,10 +434,11 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
         </div>
       ) : (
         <div style={{ width: '100%', overflowX: 'auto', borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <table style={{ width: '100%', minWidth: '1150px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+          <table style={{ width: '100%', minWidth: '1250px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
             <thead>
               <tr style={{ backgroundColor: '#0f172a', color: '#fff' }}>
                 <th style={{ padding: '8px 6px', border: '1px solid #334155', minWidth: '150px' }}>Funcionário / Matrícula</th>
+                <th style={{ padding: '8px 6px', border: '1px solid #334155', width: '110px' }}>Gestor</th> {/* 👈 COLUNA GESTOR */}
                 <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>1. Doc SST</th>
                 <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>2. Enviados</th>
                 <th style={{ padding: '8px 4px', border: '1px solid #334155', width: '105px' }}>3. Recebidos</th>
@@ -432,6 +467,13 @@ export default function RhIntegracao({ API_URL, mostrarMensagemGlobal, recarrega
                       <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>Matrícula: {func.matricula}</span>
                     </td>
                     
+                    {/* 👈 EXIBIÇÃO DA COLUNA GESTOR */}
+                    <td style={{ padding: '6px', color: '#475569', fontSize: '11px' }}>
+                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '110px' }} title={func.gestor}>
+                        {func.gestor || 'Sem Gestor'}
+                      </div>
+                    </td>
+
                     <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_documentos_sst)} onChange={e => handleDataTabelaChange('data_documentos_sst', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
                     <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_enviados)} onChange={e => handleDataTabelaChange('data_enviados', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>
                     <td style={{ padding: '3px' }}><input type="date" disabled={!modoEdicaoAtivo} value={formatarParaInput(itemExibido.data_recebidos)} onChange={e => handleDataTabelaChange('data_recebidos', e.target.value)} style={estiloInputTabela(!modoEdicaoAtivo)} /></td>

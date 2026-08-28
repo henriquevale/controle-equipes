@@ -329,8 +329,7 @@ router.delete('/rh/funcionarios/:id', async (req, res) => {
 // B. ROTAS DE INTEGRAÇÕES (ESTEIRA / HISTÓRICOS 1:N)
 // ========================================================
 
-// 1. GET: Listar histórico completo das integrações
-// 1. GET: Listar histórico completo das integrações
+// 1. GET: Listar histórico completo das integrações (com Gestor atualizado)
 router.get('/rh/integracoes-pendentes', async (req, res) => {
   try {
     const sql = `
@@ -338,11 +337,12 @@ router.get('/rh/integracoes-pendentes', async (req, res) => {
         i.id AS id_integracao,
         i.id_funcionario,
         i.id_obra,
-        o.nome_obra,            -- 👈 CORRIGIDO AQUI (era o.nome)
+        o.nome_obra,
         f.nome, 
         f.matricula, 
         f.cargo, 
         f.ativo,
+        COALESCE(u.nome, 'Sem Gestor') AS gestor, -- 👈 Adicionado o nome do Gestor
         i.data_documentos_sst, 
         i.data_enviados, 
         i.data_recebidos,
@@ -356,6 +356,8 @@ router.get('/rh/integracoes-pendentes', async (req, res) => {
       FROM integracoes_funcionarios i
       INNER JOIN funcionarios f ON i.id_funcionario = f.id
       LEFT JOIN obras o ON i.id_obra = o.id
+      LEFT JOIN gestor_funcionarios gf ON f.id = gf.id_funcionario AND gf.data_fim IS NULL -- 👈 Vinculo do Gestor Ativo
+      LEFT JOIN usuarios_sistema u ON gf.id_usuario = u.id -- 👈 Tabela de Usuários
       ORDER BY i.id DESC
     `;
     
