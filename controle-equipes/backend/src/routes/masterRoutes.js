@@ -638,10 +638,10 @@ router.delete('/fornecedores/:id', async (req, res) => {
 });
 
 // ========================================================
-// 15. ROTAS DE FATURAMENTO DIRETO (INCLUINDO ITENS COM CAPACIDADE DE USO)
+// 15. ROTAS DE FATURAMENTO DIRETO (INCLUINDO ITENS COM CAPACIDADE DE USO E IPI)
 // ========================================================
 
-// 15-A. GET: Listar Faturamentos Diretos com Gestor e Itens (Filtrado por Vínculo de Obra em engenharia_obras)
+// 15-A. GET: Listar Faturamentos Diretos com Gestor e Itens
 router.get('/faturamento-direto', async (req, res) => {
   try {
     const { usuario_id, id, cargo, id_obra } = req.query;
@@ -663,7 +663,6 @@ router.get('/faturamento-direto', async (req, res) => {
       const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
 
       if (!isMaster) {
-        // Filtra sempre pela tabela engenharia_obras para não-masters
         sql += ` AND fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)`;
         params.push(Number(idUsuario));
       }
@@ -717,6 +716,7 @@ router.post('/faturamento-direto', async (req, res) => {
     valor_nota_fiscal, 
     valor_frete,
     status, 
+    motivo_cancelamento, // <--- ADICIONADO
     id_gestor,
     data_solicitacao,
     observacao,
@@ -735,7 +735,7 @@ router.post('/faturamento-direto', async (req, res) => {
 
     const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
     const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
-    const usuarioAcaoId = id_usuario || gestorIdValido || 1; // Garante um id_usuario válido
+    const usuarioAcaoId = id_usuario || gestorIdValido || 1;
 
     if (usuarioAcaoId && obraIdValida) {
       const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
@@ -760,11 +760,11 @@ router.post('/faturamento-direto', async (req, res) => {
     const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
     const valorNfValido = (valor_nota_fiscal !== undefined && valor_nota_fiscal !== '' && valor_nota_fiscal !== null) ? parseFloat(valor_nota_fiscal) : 0;
 
-    // CORREÇÃO: Adicionado o 14º '?' na cláusula VALUES
+    // INSERÇÃO: Adicionada a coluna motivo_cancelamento (15 parâmetros)
     const sqlFaturamento = `
       INSERT INTO faturamentos_diretos 
-      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, valor_frete, status, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, valor_frete, status, motivo_cancelamento, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(sqlFaturamento, [
@@ -777,6 +777,7 @@ router.post('/faturamento-direto', async (req, res) => {
       valorNfValido, 
       valorFreteValido,
       statusFinal, 
+      motivo_cancelamento ? String(motivo_cancelamento).trim() : null, // <--- BIND DO CAMPO
       gestorIdValido,
       parseDate(data_solicitacao),
       observacao ? String(observacao).trim() : '',
@@ -787,10 +788,11 @@ router.post('/faturamento-direto', async (req, res) => {
     const idFaturamento = result.insertId;
 
     if (Array.isArray(itens) && itens.length > 0) {
+      // INSERÇÃO NOS ITENS: Adicionada a coluna ipi_percentual (6 parâmetros)
       const sqlItem = `
         INSERT INTO faturamento_itens 
-        (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario) 
-        VALUES (?, ?, ?, ?, ?)
+        (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario, ipi_percentual) 
+        VALUES (?, ?, ?, ?, ?, ?)
       `;
 
       const sqlMovimentacao = `
@@ -815,10 +817,10 @@ router.post('/faturamento-direto', async (req, res) => {
             matId,
             qtd,
             item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
-            parseFloat(item.valor_unitario) || 0
+            parseFloat(item.valor_unitario) || 0,
+            parseFloat(item.ipi_percentual) || 0 // <--- BIND DO IPI
           ]);
 
-          // Movimentação e Saldo SOMENTE se status for 'NF recebida e em estoque'
           if (statusFinal === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
             await connection.query(sqlMovimentacao, [
               fornecedorIdValido || 0,
@@ -851,7 +853,6 @@ router.post('/faturamento-direto', async (req, res) => {
   }
 });
 
-
 // ========================================================
 // 15-C. PUT: Atualizar Faturamento (Gera/Estorna Estoque)
 // ========================================================
@@ -868,6 +869,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     valor_nota_fiscal, 
     valor_frete,
     status, 
+    motivo_cancelamento, // <--- ADICIONADO
     id_gestor,
     data_solicitacao,
     observacao,
@@ -891,7 +893,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     try {
       await connection.beginTransaction();
 
-      // 1. Estorna os saldos com bloqueio de leitura FOR UPDATE (Previne Deadlock)
+      // 1. Estorna os saldos
       const [movsAntigas] = await connection.query(
         `SELECT material_id, destino_id AS obra_id, quantidade 
          FROM estoque_movimentacoes 
@@ -908,7 +910,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         );
       }
 
-      // 2. Limpa dados antigos vinculados ao faturamento
+      // 2. Limpa dados antigos
       await connection.query('DELETE FROM estoque_movimentacoes WHERE faturamento_id = ?', [faturamentoId]);
       await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [faturamentoId]);
 
@@ -919,6 +921,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
       const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
 
+      // UPDATE: Adicionada a coluna motivo_cancelamento
       const sqlUpdateFat = `
         UPDATE faturamentos_diretos SET 
           obra_id = ?, 
@@ -930,6 +933,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
           valor_nota_fiscal = ?, 
           valor_frete = ?, 
           status = ?, 
+          motivo_cancelamento = ?,
           id_gestor = ?,
           data_solicitacao = ?,
           observacao = ?,
@@ -948,6 +952,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         parseFloat(valor_nota_fiscal) || 0, 
         valorFreteValido,
         statusNovo, 
+        motivo_cancelamento ? String(motivo_cancelamento).trim() : null, // <--- BIND DO CAMPO
         gestorIdValido,
         parseDate(data_solicitacao), 
         observacao ? String(observacao).trim() : '',
@@ -956,15 +961,15 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         faturamentoId
       ]);
 
-      // 3. Insere os novos itens e atualiza saldo se o status for 'NF recebida e em estoque'
+      // 3. Insere os novos itens
       if (Array.isArray(itens) && itens.length > 0) {
+        // INSERÇÃO NOS ITENS: Adicionada a coluna ipi_percentual (6 parâmetros)
         const sqlItem = `
           INSERT INTO faturamento_itens 
-          (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario) 
-          VALUES (?, ?, ?, ?, ?)
+          (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario, ipi_percentual) 
+          VALUES (?, ?, ?, ?, ?, ?)
         `;
 
-        // Ajustado status de movimentação para 'CONCLUIDO' (alinhado com a rota POST)
         const sqlMovimentacao = `
           INSERT INTO estoque_movimentacoes 
           (tipo_movimentacao, origem_tipo, origem_id, destino_tipo, destino_id, material_id, quantidade, faturamento_id, data_movimentacao, status, data_solicitada, id_usuario, quem_pede_id)
@@ -987,7 +992,8 @@ router.put('/faturamento-direto/:id', async (req, res) => {
               matId,
               qtd,
               item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
-              parseFloat(item.valor_unitario) || 0
+              parseFloat(item.valor_unitario) || 0,
+              parseFloat(item.ipi_percentual) || 0 // <--- BIND DO IPI
             ]);
 
             if (statusNovo === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
@@ -1017,7 +1023,6 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     } catch (error) {
       await connection.rollback();
 
-      // Se for Deadlock (1213) e ainda houver tentativas, tenta novamente
       if (error.errno === 1213 && attempt < maxRetries - 1) {
         attempt++;
         await new Promise(resolve => setTimeout(resolve, 50 * attempt));
@@ -1031,7 +1036,6 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     }
   }
 });
-
 // ========================================================
 // DELETE: Remover faturamento (Com estorno de estoque e exclusão em cascata)
 // ========================================================

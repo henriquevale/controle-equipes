@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   FileText, Plus, Search, Edit2, Trash2, Download, Filter, 
-  Building2, Truck, User, Calendar, DollarSign, MessageSquare, Eye, X, Package, AlertCircle, CheckCircle2, Link, Paperclip, Send
+  Building2, Truck, User, Calendar, DollarSign, MessageSquare, Eye, X, Package, AlertCircle, CheckCircle2, Link, Paperclip, Send, Check
 } from 'lucide-react';
 
-//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 const API_URL = 'http://localhost:3001/api';
-
 
 export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDisponiveis: obrasProps, usuarioLogado }) {
   const [faturamentos, setFaturamentos] = useState([]);
@@ -46,7 +44,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     numero_nota_fiscal: '',
     data_nota_fiscal: '',
     valor_nota_fiscal: '',
-    valor_frete: '', // Frete global do pedido
+    valor_frete: '',
     data_envio: '',
     status: 'Solicitado',
     motivo_cancelamento: '',
@@ -60,8 +58,14 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
 
   const [form, setForm] = useState(initialForm);
 
-  // Item temporário (apenas material, quantidade e valor unitário)
-  const [tempItem, setTempItem] = useState({ material_id: '', quantidade: '', valor_unitario: '' });
+  // Item temporário (Material, Quantidade, Valor Unitário, IPI e Flag de Edição)
+  const [tempItem, setTempItem] = useState({ 
+    material_id: '', 
+    quantidade: '', 
+    valor_unitario: '', 
+    ipi_percentual: '', 
+    indexEdicaoItem: null 
+  });
 
   useEffect(() => {
     carregarDados();
@@ -75,11 +79,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
       const reqObras = (cargoUpper === 'MASTER' || cargoUpper === 'RH')
         ? axios.get(`${API_URL}/master/obras-geral`)
         : axios.get(`${API_URL}/gestor/obras-ativas`, {
-            params: {
-              id: idUsuario,
-              cargo: cargoUpper,
-              incluirInativas: 'true'
-            }
+            params: { id: idUsuario, cargo: cargoUpper, incluirInativas: 'true' }
           });
 
       const [resFat, resObras, resForn, resUser, resMat, resFornMat] = await Promise.all([
@@ -91,9 +91,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
         axios.get(`${API_URL}/fornecedor-materiais`).catch(() => ({ data: [] }))
       ]);
 
-      const listaObrasFinal = (obrasProps && obrasProps.length > 0)
-        ? obrasProps
-        : (resObras.data || []);
+      const listaObrasFinal = (obrasProps && obrasProps.length > 0) ? obrasProps : (resObras.data || []);
 
       setFaturamentos(resFat.data || []);
       setObrasDisponiveis(listaObrasFinal);
@@ -122,32 +120,37 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
       fornecedor_id: fornecedorId,
       itens: prev.fornecedor_id !== fornecedorId ? [] : prev.itens
     }));
-    setTempItem({ material_id: '', quantidade: '', valor_unitario: '' });
+    setTempItem({ material_id: '', quantidade: '', valor_unitario: '', ipi_percentual: '', indexEdicaoItem: null });
   };
 
   const handleStatusChange = (novoStatus) => {
     setForm(prev => ({
       ...prev,
       status: novoStatus,
-      data_envio: novoStatus === 'Concluído' 
-        ? (prev.data_envio || new Date().toISOString().slice(0, 10)) 
-        : ''
+      data_envio: novoStatus === 'Concluído' ? (prev.data_envio || new Date().toISOString().slice(0, 10)) : ''
     }));
   };
 
+  // Função para calcular subtotal individual considerando IPI
+  const calcularSubtotalItem = (qtd, valorUnit, ipi) => {
+    const q = parseFloat(qtd) || 0;
+    const v = parseFloat(valorUnit) || 0;
+    const i = parseFloat(ipi) || 0;
+    return q * v * (1 + (i / 100));
+  };
+
+  // Soma total dos itens com IPI aplicado
   const totalSomaItens = form.itens.reduce((acc, it) => {
-    const qtd = parseFloat(it.quantidade) || 0;
-    const vlr = parseFloat(it.valor_unitario) || 0;
-    return acc + (qtd * vlr);
+    return acc + calcularSubtotalItem(it.quantidade, it.valor_unitario, it.ipi_percentual);
   }, 0);
 
   const valorFrete = parseFloat(form.valor_frete) || 0;
   const valorNF = parseFloat(form.valor_nota_fiscal) || 0;
   const valorTotalGeral = totalSomaItens + valorFrete;
-
   const diferencaValorNF = valorNF - totalSomaItens;
 
-  const handleAdicionarItem = () => {
+  // Adicionar ou Atualizar Item na Lista
+  const handleAdicionarOuAtualizarItem = () => {
     if (!form.fornecedor_id) {
       return mostrarMensagem('Selecione primeiro o Fornecedor para habilitar os materiais.', 'erro');
     }
@@ -156,43 +159,63 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     }
 
     const materialObj = materiaisDisponiveis.find(m => String(m.id) === String(tempItem.material_id));
-    const novoItem = {
-      ...tempItem,
+    const itemProcessado = {
+      material_id: tempItem.material_id,
       nome_material: materialObj ? (materialObj.descricao || materialObj.nome) : `Material #${tempItem.material_id}`,
       quantidade: parseFloat(tempItem.quantidade) || 0,
-      valor_unitario: parseFloat(tempItem.valor_unitario) || 0
+      valor_unitario: parseFloat(tempItem.valor_unitario) || 0,
+      ipi_percentual: parseFloat(tempItem.ipi_percentual) || 0
     };
 
-    const novosItens = [...form.itens, novoItem];
-    const valorTotalItens = novosItens.reduce((acc, it) => acc + (it.quantidade * it.valor_unitario), 0);
+    let novosItens = [...form.itens];
+
+    if (tempItem.indexEdicaoItem !== null) {
+      novosItens[tempItem.indexEdicaoItem] = itemProcessado;
+    } else {
+      novosItens.push(itemProcessado);
+    }
+
+    const novoTotalItens = novosItens.reduce((acc, it) => acc + calcularSubtotalItem(it.quantidade, it.valor_unitario, it.ipi_percentual), 0);
 
     setForm({
       ...form,
       itens: novosItens,
-      valor_nota_fiscal: form.valor_nota_fiscal ? form.valor_nota_fiscal : (valorTotalItens > 0 ? valorTotalItens.toFixed(2) : '')
+      valor_nota_fiscal: form.valor_nota_fiscal ? form.valor_nota_fiscal : (novoTotalItens > 0 ? novoTotalItens.toFixed(2) : '')
     });
 
-    setTempItem({ material_id: '', quantidade: '', valor_unitario: '' });
+    setTempItem({ material_id: '', quantidade: '', valor_unitario: '', ipi_percentual: '', indexEdicaoItem: null });
+  };
+
+  const handleIniciarEdicaoItem = (index) => {
+    const item = form.itens[index];
+    setTempItem({
+      material_id: item.material_id || '',
+      quantidade: item.quantidade || '',
+      valor_unitario: item.valor_unitario || '',
+      ipi_percentual: item.ipi_percentual || '',
+      indexEdicaoItem: index
+    });
+  };
+
+  const handleCancelarEdicaoItem = () => {
+    setTempItem({ material_id: '', quantidade: '', valor_unitario: '', ipi_percentual: '', indexEdicaoItem: null });
   };
 
   const handleRemoverItem = (index) => {
     const novosItens = form.itens.filter((_, i) => i !== index);
     setForm({ ...form, itens: novosItens });
+    if (tempItem.indexEdicaoItem === index) {
+      handleCancelarEdicaoItem();
+    }
   };
 
   const handleFilesChange = (e) => {
     const files = Array.from(e.target.files);
-    setForm(prev => ({
-      ...prev,
-      arquivos_nf: [...prev.arquivos_nf, ...files]
-    }));
+    setForm(prev => ({ ...prev, arquivos_nf: [...prev.arquivos_nf, ...files] }));
   };
 
   const handleRemoverArquivo = (index) => {
-    setForm(prev => ({
-      ...prev,
-      arquivos_nf: prev.arquivos_nf.filter((_, i) => i !== index)
-    }));
+    setForm(prev => ({ ...prev, arquivos_nf: prev.arquivos_nf.filter((_, i) => i !== index) }));
   };
 
   const handleSubmit = async (e) => {
@@ -250,8 +273,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
       if (!data) return '';
       try {
         const d = new Date(data);
-        if (isNaN(d.getTime())) return '';
-        return d.toISOString().slice(0, 10);
+        return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
       } catch (e) {
         return '';
       }
@@ -282,11 +304,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
 
   const handleExcluir = async (fat) => {
     const idParaExcluir = typeof fat === 'object' ? (fat.id || fat.id_faturamento || fat._id) : fat;
-
-    if (!idParaExcluir) {
-      return mostrarMensagem('ID do registro não encontrado para exclusão.', 'erro');
-    }
-
+    if (!idParaExcluir) return mostrarMensagem('ID do registro não encontrado.', 'erro');
     if (!window.confirm(`Tem certeza que deseja excluir o registro #${idParaExcluir}?`)) return;
 
     try {
@@ -295,18 +313,14 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
       carregarDados();
     } catch (e) {
       console.error("Erro ao excluir registro:", e);
-      if (e.response && e.response.status === 404) {
-        mostrarMensagem('Rota de exclusão não encontrada no servidor (Erro 404). Verifique a URL da API no Backend.', 'erro');
-      } else {
-        mostrarMensagem('Erro ao excluir registro.', 'erro');
-      }
+      mostrarMensagem('Erro ao excluir registro.', 'erro');
     }
   };
 
   const limparForm = () => {
     setEditandoId(null);
     setForm(initialForm);
-    setTempItem({ material_id: '', quantidade: '', valor_unitario: '' });
+    setTempItem({ material_id: '', quantidade: '', valor_unitario: '', ipi_percentual: '', indexEdicaoItem: null });
   };
 
   const handleDownloadModal = (item) => {
@@ -318,9 +332,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
   };
 
   const handleDownloadCSV = () => {
-    if (faturamentosFiltrados.length === 0) {
-      return mostrarMensagem('Nenhum registro para exportar.', 'erro');
-    }
+    if (faturamentosFiltrados.length === 0) return mostrarMensagem('Nenhum registro para exportar.', 'erro');
 
     let csvContent = 'data:text/csv;charset=utf-8,\uFEFF';
     csvContent += 'ID;OBRA_ID;PEDIDO_CONCESSIONARIA;PEDIDO_INTERNO;BOLETIM_MEDICAO;FORNECEDOR_ID;NUMERO_NF;DATA_NF;VALOR_NF;VALOR_FRETE;VALOR_TOTAL;DATA_ENVIO;STATUS;MOTIVO_CANCELAMENTO;ID_GESTOR;URL_EMAIL;DATA_SOLICITACAO;OBSERVACAO\n';
@@ -398,6 +410,12 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     flexDirection: 'column',
     gap: '10px'
   };
+
+  const tempSubtotalCalculado = calcularSubtotalItem(
+    tempItem.quantidade, 
+    tempItem.valor_unitario, 
+    tempItem.ipi_percentual
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -517,15 +535,15 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
             </div>
           </div>
 
-          {/* SEÇÃO 3: ITENS DO PEDIDO E FRETE DO PEDIDO */}
+          {/* SEÇÃO 3: ITENS DO PEDIDO E FRETE */}
           <div style={sectionCardStyle}>
             <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Package style={{ width: '14px', height: '14px' }} />
               3. Itens do Pedido & Frete
             </div>
 
-            {/* ADICIONAR MATERIAL */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', alignItems: 'flex-end' }}>
+            {/* ENTRADA / EDIÇÃO DE MATERIAL */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '8px', alignItems: 'flex-end' }}>
               <div>
                 <label style={labelStyle}>Material / Insumo</label>
                 <select 
@@ -571,7 +589,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
               </div>
 
               <div>
-                <label style={labelStyle}>Valor Unitário (R$)</label>
+                <label style={labelStyle}>Valor Unit. (R$)</label>
                 <input 
                   type="number" 
                   step="0.01" 
@@ -587,28 +605,78 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
                 />
               </div>
 
-              <button 
-                type="button" 
-                onClick={handleAdicionarItem}
-                disabled={!form.fornecedor_id}
-                style={{ 
-                  height: '34px', 
-                  padding: '0 12px', 
-                  backgroundColor: !form.fornecedor_id ? '#94a3b8' : '#0284c7', 
-                  color: '#fff', 
-                  border: 'none', 
-                  borderRadius: '6px', 
-                  fontWeight: 'bold', 
-                  cursor: !form.fornecedor_id ? 'not-allowed' : 'pointer', 
-                  fontSize: '11px', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '4px' 
-                }}
-              >
-                <Plus style={{ width: '14px', height: '14px' }} /> Add
-              </button>
+              <div>
+                <label style={labelStyle}>IPI (%)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  placeholder="0.00%" 
+                  value={tempItem.ipi_percentual} 
+                  disabled={!form.fornecedor_id}
+                  onChange={e => setTempItem({ ...tempItem, ipi_percentual: e.target.value })} 
+                  style={{ 
+                    ...inputStyle, 
+                    backgroundColor: !form.fornecedor_id ? '#f1f5f9' : '#fff',
+                    cursor: !form.fornecedor_id ? 'not-allowed' : 'default'
+                  }} 
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button 
+                  type="button" 
+                  onClick={handleAdicionarOuAtualizarItem}
+                  disabled={!form.fornecedor_id}
+                  style={{ 
+                    height: '34px', 
+                    padding: '0 12px', 
+                    backgroundColor: !form.fornecedor_id ? '#94a3b8' : tempItem.indexEdicaoItem !== null ? '#16a34a' : '#0284c7', 
+                    color: '#fff', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    fontWeight: 'bold', 
+                    cursor: !form.fornecedor_id ? 'not-allowed' : 'pointer', 
+                    fontSize: '11px', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '4px' 
+                  }}
+                >
+                  {tempItem.indexEdicaoItem !== null ? (
+                    <><Check style={{ width: '14px', height: '14px' }} /> Atualizar</>
+                  ) : (
+                    <><Plus style={{ width: '14px', height: '14px' }} /> Add</>
+                  )}
+                </button>
+
+                {tempItem.indexEdicaoItem !== null && (
+                  <button 
+                    type="button" 
+                    onClick={handleCancelarEdicaoItem}
+                    style={{ 
+                      height: '34px', 
+                      padding: '0 8px', 
+                      backgroundColor: '#64748b', 
+                      color: '#fff', 
+                      border: 'none', 
+                      borderRadius: '6px', 
+                      fontWeight: 'bold', 
+                      cursor: 'pointer', 
+                      fontSize: '11px' 
+                    }}
+                  >
+                    <X style={{ width: '14px', height: '14px' }} />
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* PREVISÃO DO SUBTOTAL COM IPI */}
+            {(tempItem.quantidade || tempItem.valor_unitario) && (
+              <div style={{ fontSize: '10px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '4px 8px', borderRadius: '4px', alignSelf: 'flex-start' }}>
+                Prévia do Item (com IPI): <strong>R$ {tempSubtotalCalculado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </div>
+            )}
 
             {/* TABELA DE MATERIAIS ADICIONADOS */}
             {form.itens.length > 0 && (
@@ -619,30 +687,40 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
                       <th style={{ padding: '6px 8px' }}>Material</th>
                       <th style={{ padding: '6px 8px' }}>Qtd.</th>
                       <th style={{ padding: '6px 8px' }}>Vlr. Unit.</th>
-                      <th style={{ padding: '6px 8px' }}>Subtotal</th>
-                      <th style={{ padding: '6px 8px', textAlign: 'center' }}>Ação</th>
+                      <th style={{ padding: '6px 8px' }}>IPI (%)</th>
+                      <th style={{ padding: '6px 8px' }}>Total do Item</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center' }}>Ações</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {form.itens.map((it, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '6px 8px' }}>{it.nome_material}</td>
-                        <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{it.quantidade}</td>
-                        <td style={{ padding: '6px 8px' }}>R$ {parseFloat(it.valor_unitario || 0).toFixed(2)}</td>
-                        <td style={{ padding: '6px 8px', fontWeight: 'bold', color: '#16a34a' }}>
-                          R$ {((parseFloat(it.quantidade) || 0) * (parseFloat(it.valor_unitario) || 0)).toFixed(2)}
-                        </td>
-                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                          <button type="button" onClick={() => handleRemoverItem(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}>
-                            <Trash2 style={{ width: '12px', height: '12px' }} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {form.itens.map((it, idx) => {
+                      const totalItem = calcularSubtotalItem(it.quantidade, it.valor_unitario, it.ipi_percentual);
+                      const isEditingThis = tempItem.indexEdicaoItem === idx;
+
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isEditingThis ? '#f0f9ff' : 'transparent' }}>
+                          <td style={{ padding: '6px 8px', fontWeight: isEditingThis ? 'bold' : 'normal' }}>{it.nome_material}</td>
+                          <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{it.quantidade}</td>
+                          <td style={{ padding: '6px 8px' }}>R$ {parseFloat(it.valor_unitario || 0).toFixed(2)}</td>
+                          <td style={{ padding: '6px 8px', color: '#d97706' }}>{parseFloat(it.ipi_percentual || 0).toFixed(2)}%</td>
+                          <td style={{ padding: '6px 8px', fontWeight: 'bold', color: '#16a34a' }}>
+                            R$ {totalItem.toFixed(2)}
+                          </td>
+                          <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                            <button type="button" onClick={() => handleIniciarEdicaoItem(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', marginRight: '6px' }} title="Editar item">
+                              <Edit2 style={{ width: '12px', height: '12px' }} />
+                            </button>
+                            <button type="button" onClick={() => handleRemoverItem(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }} title="Remover item">
+                              <Trash2 style={{ width: '12px', height: '12px' }} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 'bold' }}>
-                      <td colSpan="3" style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>Soma dos Itens:</td>
+                      <td colSpan="4" style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>Soma dos Itens (c/ IPI):</td>
                       <td style={{ padding: '8px', color: '#0284c7', fontSize: '12px' }}>
                         R$ {totalSomaItens.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
@@ -653,7 +731,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
               </div>
             )}
 
-            {/* CAMPO FRETE INDEPENDENTE (DENTRO DA SEÇÃO 3) */}
+            {/* FRETE INDEPENDENTE */}
             <div style={{ marginTop: '6px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               <div style={{ flex: 1, maxWidth: '250px' }}>
                 <label style={{ ...labelStyle, color: '#d97706', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -670,7 +748,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
               </div>
 
               <div style={{ fontSize: '11px', textAlign: 'right', backgroundColor: '#fff8f0', border: '1px solid #ffedd5', padding: '6px 12px', borderRadius: '6px' }}>
-                <span style={{ color: '#64748b' }}>Total de Insumos + Frete: </span>
+                <span style={{ color: '#64748b' }}>Total de Insumos (+IPI) + Frete: </span>
                 <strong style={{ color: '#d97706', fontSize: '12px' }}>
                   R$ {valorTotalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
@@ -729,6 +807,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
               </div>
             </div>
 
+            {/* DIVERGÊNCIA FISCAL */}
             <div style={{ 
               padding: '10px 12px', 
               borderRadius: '6px', 
@@ -747,7 +826,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
                 )}
                 <div>
                   <div style={{ fontWeight: 'bold', color: Math.abs(diferencaValorNF) < 0.01 && valorNF > 0 ? '#15803d' : diferencaValorNF !== 0 && valorNF > 0 ? '#991b1b' : '#334155' }}>
-                    Soma Itens: R$ {totalSomaItens.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    Soma Itens (c/ IPI): R$ {totalSomaItens.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     {valorFrete > 0 && ` | Frete: R$ ${valorFrete.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     <span style={{ marginLeft: '8px', color: '#0f172a', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px' }}>
                       Total Geral: R$ {valorTotalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -889,7 +968,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
           </div>
         </div>
 
-        {/* TABELA DE DADOS */}
+        {/* TABELA DE DADOS PRINCIPAL */}
         <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
             <thead>
@@ -1039,20 +1118,25 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
                       <th style={{ padding: '8px' }}>Material</th>
                       <th style={{ padding: '8px' }}>Qtd.</th>
                       <th style={{ padding: '8px' }}>Vlr. Unit.</th>
-                      <th style={{ padding: '8px' }}>Subtotal</th>
+                      <th style={{ padding: '8px' }}>IPI (%)</th>
+                      <th style={{ padding: '8px' }}>Total do Item</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {itemModal.itens.map((it, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '8px' }}>{it.nome_material || `Material #${it.material_id}`}</td>
-                        <td style={{ padding: '8px', fontWeight: 'bold' }}>{it.quantidade}</td>
-                        <td style={{ padding: '8px' }}>R$ {parseFloat(it.valor_unitario || 0).toFixed(2)}</td>
-                        <td style={{ padding: '8px', fontWeight: 'bold', color: '#16a34a' }}>
-                          R$ {(parseFloat(it.quantidade || 0) * parseFloat(it.valor_unitario || 0)).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
+                    {itemModal.itens.map((it, idx) => {
+                      const totalItem = calcularSubtotalItem(it.quantidade, it.valor_unitario, it.ipi_percentual);
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '8px' }}>{it.nome_material || `Material #${it.material_id}`}</td>
+                          <td style={{ padding: '8px', fontWeight: 'bold' }}>{it.quantidade}</td>
+                          <td style={{ padding: '8px' }}>R$ {parseFloat(it.valor_unitario || 0).toFixed(2)}</td>
+                          <td style={{ padding: '8px', color: '#d97706' }}>{parseFloat(it.ipi_percentual || 0).toFixed(2)}%</td>
+                          <td style={{ padding: '8px', fontWeight: 'bold', color: '#16a34a' }}>
+                            R$ {totalItem.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (
