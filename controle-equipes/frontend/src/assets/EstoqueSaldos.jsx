@@ -8,9 +8,10 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
   const [termoBusca, setTermoBusca] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
 
-  // Estados dos filtros de Base e Obra
+  // Estados dos filtros de Base, Obra e Fornecedores
   const [bases, setBases] = useState([]);
   const [obras, setObras] = useState([]);
+  const [fornecedores, setFornecedores] = useState([]);
   const [baseObras, setBaseObras] = useState([]);
   const [baseSelecionada, setBaseSelecionada] = useState('');
   const [obraSelecionada, setObraSelecionada] = useState('');
@@ -30,21 +31,48 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     carregarEstoque();
   }, [baseSelecionada, obraSelecionada]);
 
-  // Carrega Bases, Obras e o vínculo (base_obras)
+  // Carrega Bases, Obras, Fornecedores e o vínculo (base_obras)
   const carregarLocais = async () => {
     try {
-      const res = await axios.get(`${API_URL}/master/locais`);
-      const basesDados = res.data.bases || [];
-      const obrasDados = res.data.obras || [];
-      const vinculosDados = res.data.baseObras || [];
+      const [resLocais, resForn] = await Promise.all([
+        axios.get(`${API_URL}/master/locais`).catch(() => ({ data: {} })),
+        axios.get(`${API_URL}/fornecedores`).catch(() => ({ data: [] }))
+      ]);
+
+      const basesDados = resLocais.data.bases || [];
+      const obrasDados = resLocais.data.obras || [];
+      const vinculosDados = resLocais.data.baseObras || [];
 
       setBases(basesDados);
       setObras(obrasDados);
       setBaseObras(vinculosDados);
       setObrasFiltradas(obrasDados);
+      setFornecedores(resForn.data || []);
     } catch (e) {
       console.error("Erro ao carregar locais:", e);
     }
+  };
+
+  // Função para resolver o nome amigável da Entidade (Base, Obra ou Fornecedor)
+  const getNomeEntidade = (tipo, id) => {
+    if (!id && tipo !== 'FORNECEDOR') return '-';
+    
+    const tipoUpper = String(tipo || '').toUpperCase();
+    const idNum = Number(id);
+
+    if (tipoUpper === 'FORNECEDOR') {
+      const f = fornecedores.find(x => Number(x.id) === idNum);
+      return f ? `${f.nome_fantasia || f.razao_social}` : `Fornecedor #${id}`;
+    }
+    if (tipoUpper === 'BASE') {
+      const b = bases.find(x => Number(x.id) === idNum);
+      return b ? `Base: ${b.nome}` : `Base #${id}`;
+    }
+    if (tipoUpper === 'OBRA') {
+      const o = obras.find(x => Number(x.id) === idNum);
+      return o ? `Obra: ${o.nome_obra || o.nome}` : `Obra #${id}`;
+    }
+    return '-';
   };
 
   const handleBaseChange = (e) => {
@@ -378,9 +406,12 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                               {m.status || 'PENDENTE'}
                             </span>
                           </td>
+
+                          {/* CORREÇÃO REALIZADA AQUI */}
                           <td style={{ padding: '8px', color: '#475569' }}>
-                            {m.origem_tipo} #{m.origem_id || '-'} → {m.destino_tipo} #{m.destino_id || '-'}
+                            {getNomeEntidade(m.origem_tipo, m.origem_id)} → {getNomeEntidade(m.destino_tipo, m.destino_id)}
                           </td>
+
                           <td style={{ padding: '8px', color: '#64748b' }}>
                             {m.data_movimentacao ? m.data_movimentacao.split('T')[0] : '-'}
                           </td>
