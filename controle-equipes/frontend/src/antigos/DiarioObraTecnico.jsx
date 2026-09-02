@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff, LogOut } from 'lucide-react';
+import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 const SERVICOS_PADRONIZADOS = [
-  "REMOÇÃO DE TACHA (UN)",
+ "REMOÇÃO DE TACHA (UN)",
   "IMPLANTAÇÃO DE TACHA (UN)",
   "PINTURA MECÂNICA (M²)",
   "PINTURA MANUAL (M²)",
@@ -42,6 +43,7 @@ const MATERIAIS_PADRONIZADOS = [
   "PLACA AÉREA",
   "PÓRTICO",
   "SEMI/PÓRTICO"
+
 ];
 
 export default function DiarioObraTecnico({ usuarioLogado }) {
@@ -66,7 +68,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [observacoesContratada, setObservacoesContratada] = useState('');
   const [statusDiario, setStatusDiario] = useState('Normal');
 
-  const [liberarEquipeAoSalvar, setLiberarEquipeAoSalvar] = useState(false);
   const [listaVeiculos, setListaVeiculos] = useState([]);
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
 
@@ -77,23 +78,24 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     new Set(efetivoAgendado.map(f => String(f.equipe || 'GERAL').trim().toUpperCase()))
   ).filter(Boolean);
 
+  // 1. Carrega as obras apenas uma vez ao iniciar a tela
   useEffect(() => {
     carregarObrasIniciais();
   }, []);
 
+  // 2. EXCLUSIVO PARA VEÍCULOS: Dispara de forma independente
   useEffect(() => {
     carregarVeiculosDoSistema(); 
   }, [dataDiario]); 
 
-  // BUSCAR DADOS DO RDO E EFETIVO AO ALTERAR OBRA OU DATA
+  // 3. Mantém o que já busca o efetivo dos agendamentos
   useEffect(() => {
     if (idObraSelecionada && dataDiario) {
+      buscarEfetivoVindoDoAgendamento();
+      setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
+      setMateriaisLancados([{ material: '', quantidade: '' }]);
       setSalvoComSucesso(false);
       setStatusDiario('Normal'); 
-      setLiberarEquipeAoSalvar(false);
-      setObservacoesContratada('');
-      
-      buscarEfetivoVindoDoAgendamento();
     } else {
       setEfetivoAgendado([]);
       setAtividadesLancadas([]);
@@ -101,21 +103,16 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setEquipeConfirmada(false);
     }
   }, [idObraSelecionada, dataDiario]);
-  
-  // AJUSTE LINHAS VAZIAS PARA INSERÇÃO SE NÃO HOUVER DADOS E ESTIVER NORMAL
+
   useEffect(() => {
     if (rdoInterrompido) {
       setAtividadesLancadas([]);
       setMateriaisLancados([]);
-    } else if (idObraSelecionada && equipeConfirmada) {
-      if (atividadesLancadas.length === 0) {
-        setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-      }
-      if (materiaisLancados.length === 0) {
-        setMateriaisLancados([{ material: '', quantidade: '' }]);
-      }
+    } else if (idObraSelecionada && equipeConfirmada && atividadesLancadas.length === 0) {
+      setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
+      setMateriaisLancados([{ material: '', quantidade: '' }]);
     }
-  }, [statusDiario, equipeConfirmada]);
+  }, [statusDiario]);
 
   useEffect(() => {
     if (listaDeEquipesDisponiveis.length > 0 && !equipeConfirmada) {
@@ -146,6 +143,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }
   };
 
+  // Alteração AQUI: Atualiza APENAS no estado local do RDO (não envia PUT para a frota do banco)
   const handleMudarStatusVeiculo = (idVeiculo, novoStatus) => {
     setListaVeiculos(prev => 
       prev.map(v => v.id === idVeiculo ? { ...v, status: novoStatus } : v)
@@ -187,28 +185,25 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setMostrarGridExcelObra(true);
   };
   
-const buscarEfetivoVindoDoAgendamento = async () => {
+  const buscarEfetivoVindoDoAgendamento = async () => {
     setLoading(true);
     setErroPainel('');
     setEfetivoAgendado([]);
     try {
       const user = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
       if (!user.id) {
-        setErroPainel('Sessão expirada. Reconecte-se.');
+        setErroPainel('Sessão expirada. reconecte-se.');
         return;
       }
 
-      // 1. Busca os colaboradores agendados/alocados para a obra e data
       const params = { data_diario: dataDiario, id_obra: idObraSelecionada };
-      const resEfetivo = await axios.get(`${API_URL}/gestor/diario-efetivo`, { params });
+      const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, { params });
       
-      const dadosEfetivo = Array.isArray(resEfetivo.data) ? resEfetivo.data : (resEfetivo.data.efetivo || []);
-
-      if (dadosEfetivo && dadosEfetivo.length > 0) {
+      if (res.data && res.data.length > 0) {
         const idsVistos = new Set();
         const listaSemDuplicados = [];
 
-        dadosEfetivo.forEach(item => {
+        res.data.forEach(item => {
           const isFolguista = String(item.equipe).toUpperCase() === 'FOLGUISTAS';
           const chaveUnica = isFolguista ? String(item.id_funcionario) : `${item.id_funcionario}-${item.turno}`;
 
@@ -217,22 +212,16 @@ const buscarEfetivoVindoDoAgendamento = async () => {
             
             const equipeFormatada = item.equipe ? String(item.equipe).trim().toUpperCase() : 'GERAL';
 
-            let statusPresencaPadrao = item.status_presenca;
-            if (!statusPresencaPadrao || statusPresencaPadrao.toUpperCase() === 'ALOCADO') {
-              statusPresencaPadrao = 'Presente';
-            }
-
             listaSemDuplicados.push({
               id_funcionario: item.id_funcionario,
               name: item.nome,
               cargo: item.cargo,
               matricula: item.matricula,
-              statusPresenca: isFolguista ? 'Folga' : statusPresencaPadrao, 
-              statusCustomizado: item.observacao || '',
+              statusPresenca: isFolguista ? 'Folga' : 'Presente', 
+              statusCustomizado: '',
               turno: isFolguista ? 'DIURNO e NOTURNO' : (item.turno || 'DIURNO'), 
               equipe: equipeFormatada,
-              id_veiculo: item.id_veiculo || '',
-              liberado: Boolean(item.liberado)
+              id_veiculo: item.id_veiculo || ''
             });
           }
         });
@@ -240,47 +229,9 @@ const buscarEfetivoVindoDoAgendamento = async () => {
       } else {
         setEfetivoAgendado([]);
       }
-
-      // 2. Busca o diário técnico completo (produção e materiais salvos anteriormente)
-      if (equipeSelecionadaFiltro && equipeSelecionadaFiltro !== 'GERAL') {
-        const resCompleto = await axios.get(`${API_URL}/gestor/salvar-diario-completo`, {
-          params: {
-            data_diario: dataDiario,
-            id_obra: idObraSelecionada,
-            equipe: equipeSelecionadaFiltro
-          }
-        });
-
-        if (resCompleto.data && resCompleto.data.existe) {
-          const rdoSalvo = resCompleto.data;
-
-          if (rdoSalvo.atividades_tachas && rdoSalvo.atividades_tachas.length > 0) {
-            setAtividadesLancadas(rdoSalvo.atividades_tachas);
-          } else {
-            setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-          }
-
-          if (rdoSalvo.materials_apontados && rdoSalvo.materials_apontados.length > 0) {
-            setMateriaisLancados(rdoSalvo.materials_apontados);
-          } else {
-            setMateriaisLancados([{ material: '', quantidade: '' }]);
-          }
-
-          if (rdoSalvo.observacoes) {
-            setObservacoesContratada(rdoSalvo.observacoes);
-          }
-        } else {
-          setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-          setMateriaisLancados([{ material: '', quantidade: '' }]);
-        }
-      } else {
-        setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-        setMateriaisLancados([{ material: '', quantidade: '' }]);
-      }
-
     } catch (err) {
       console.error(err);
-      setErroPainel('Erro ao buscar a escala ou dados salvos para esta data.');
+      setErroPainel('Erro ao buscar a escala planejada para esta data.');
     } finally {
       setLoading(false);
     }
@@ -410,10 +361,8 @@ const buscarEfetivoVindoDoAgendamento = async () => {
 
       const efetivoMapeado = [];
       efetivoFiltradoPorEquipe.forEach(f => {
-        const statusFormatado = f.statusPresenca === 'Outros' 
-          ? 'OUTROS' 
-          : (f.statusPresenca ? f.statusPresenca.toUpperCase() : 'PRESENTE');
-
+        const statusOriginal = f.statusPresenca === 'Outros' ? f.statusCustomizado : f.statusPresenca;
+        
         const veiculoDados = listaVeiculos.find(v => v.id_funcionario && String(v.id_funcionario) === String(f.id_funcionario));
 
         const baseFuncionario = {
@@ -421,11 +370,9 @@ const buscarEfetivoVindoDoAgendamento = async () => {
           nome: f.name, 
           cargo: f.cargo, 
           matricula: f.matricula,
-          status_presenca: statusFormatado, 
-          observacao: f.statusPresenca === 'Outros' ? f.statusCustomizado : (f.observacao || null), 
+          status_presenca: statusOriginal.toUpperCase(), 
+          observacao: f.statusPresenca === 'Outros' ? f.statusCustomizado : null, 
           equipe: f.equipe || 'Geral',
-          liberado: liberarEquipeAoSalvar ? 1 : (f.liberado ? 1 : 0),
-          data_hora_liberacao: liberarEquipeAoSalvar ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
           
           id_veiculo: veiculoDados ? veiculoDados.id : null,
           placa_veiculo: veiculoDados ? veiculoDados.placa : null,
@@ -433,7 +380,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
           modelo_veiculo: veiculoDados ? veiculoDados.modelo : null,
           ano_veiculo: veiculoDados ? veiculoDados.ano : null,
           tipo_veiculo: veiculoDados ? veiculoDados.tipo : null,
-          status_veiculo: veiculoDados ? veiculoDados.status : null
+          status_veiculo: veiculoDados ? veiculoDados.status : null // Status alterado só do RDO enviado para a gravação do histórico
         };
 
         if (f.turno === 'DIURNO e NOTURNO') {
@@ -450,7 +397,6 @@ const buscarEfetivoVindoDoAgendamento = async () => {
         id_gestor: usuarioLogado?.id,
         equipe: equipeSelecionadaFiltro, 
         status: statusDiario, 
-        liberar_equipe: liberarEquipeAoSalvar,
         efetivo_confirmado: efetivoMapeado,
         atividades_tachas: atividadesFiltradas, 
         materials_apontados: materiaisFiltradas, 
@@ -458,21 +404,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
       };
       
       await axios.post(`${API_URL}/gestor/salvar-diario-completo`, payload);
-      
-      if (liberarEquipeAoSalvar) {
-        setEfetivoAgendado(prev => prev.map(f => {
-          if (String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase()) {
-            return { ...f, liberado: true };
-          }
-          return f;
-        }));
-      }
-
-      const msgSucesso = liberarEquipeAoSalvar 
-        ? `✓ RDO salvo e equipe LIBERADA com sucesso!` 
-        : `✓ RDO Completo salvo com sucesso com o status: ${statusDiario}`;
-
-      setStatusEnvio({ texto: msgSucesso, tipo: "sucesso" });
+      setStatusEnvio({ texto: `✓ RDO Completo salvo com sucesso com o status: ${statusDiario}`, tipo: "sucesso" });
       setSalvoComSucesso(true);
       setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 4000);
     } catch (err) {
@@ -527,16 +459,11 @@ const buscarEfetivoVindoDoAgendamento = async () => {
         const v = (listaVeiculos || []).find(ve => ve.id_funcionario && String(ve.id_funcionario) === String(f.id_funcionario));
         const veiculoText = v ? `${v.placa} (${v.modelo}) - ${v.status}` : 'Nenhum';
 
-        const baseStatus = f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase();
-        const statusTexto = f.liberado 
-          ? `${baseStatus} (🟡 LIBERADO)` 
-          : baseStatus;
-
         return [
           String(f?.name || '---'), 
           String(f?.cargo || '---'), 
           String(f?.turno || 'DIURNO'), 
-          statusTexto,
+          f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase(),
           veiculoText
         ];
       });
@@ -620,7 +547,6 @@ const buscarEfetivoVindoDoAgendamento = async () => {
   const totalPresentes = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Presente' || f.statusPresenca === 'Integração').length;
   const totalFolgas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Folga').length;
   const totalFaltas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Faltou').length;
-  const totalLiberados = funcionariosDaEquipe.filter(f => f.liberado).length;
 
   const idsFuncionariosNaEquipe = new Set(
     funcionariosDaEquipe
@@ -648,7 +574,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
       {/* BLOCO 1: ESCOPO DE SELEÇÃO */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
         <div style={{ padding: '8px 12px', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', borderBottom: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569' }}>
-          <span></span>
+          <span>CONTEXT: RDO_INTEGRADO_PRODUCAO_E_MATERIAIS;</span>
         </div>
         
         <div style={{ padding: '12px 16px', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: idObraSelecionada ? '1px dashed #cbd5e1' : 'none' }}>
@@ -688,7 +614,6 @@ const buscarEfetivoVindoDoAgendamento = async () => {
                 setEquipeConfirmada(false);
                 setEquipeSelecionadaFiltro('GERAL');
                 setStatusDiario('Normal');
-                setLiberarEquipeAoSalvar(false);
               }} 
               style={{ height: '32px', padding: '0 12px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
             >
@@ -879,9 +804,6 @@ const buscarEfetivoVindoDoAgendamento = async () => {
                   <span style={{ backgroundColor: '#e2fbe8', color: '#15803d', padding: '2px 6px', borderRadius: '3px' }}>Pres: <strong>{totalPresentes}</strong></span>
                   <span style={{ backgroundColor: '#fffbeb', color: '#b45309', padding: '2px 6px', borderRadius: '3px' }}>Folg: <strong>{totalFolgas}</strong></span>
                   <span style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '2px 6px', borderRadius: '3px' }}>Falt: <strong>{totalFaltas}</strong></span>
-                  {totalLiberados > 0 && (
-                    <span style={{ backgroundColor: '#fef9c3', color: '#854d0e', padding: '2px 6px', borderRadius: '3px' }}>Liberados: <strong>{totalLiberados}</strong></span>
-                  )}
                 </div>
               )}
             </div>
@@ -897,40 +819,33 @@ const buscarEfetivoVindoDoAgendamento = async () => {
                     .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase())
                     .map((func, index) => {
                       const indexGlobal = efetivoAgendado.findIndex(original => original.id_funcionario === func.id_funcionario && original.turno === func.turno);
-                      const estaLiberado = func.liberado;
-
                       return (
-                        <div key={`${func.id_funcionario}-${func.turno}-${index}`} style={{ border: estaLiberado ? '1px solid #fde047' : '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: estaLiberado ? '#fefce8' : '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div key={`${func.id_funcionario}-${func.turno}-${index}`} style={{ border: '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <div>
-                            <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '2px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span>{func.name}</span>
-                              {estaLiberado && (
-                                <span style={{ fontSize: '9px', backgroundColor: '#fef08a', color: '#854d0e', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>
-                                  🟡 LIBERADO
-                                </span>
-                              )}
-                            </div>
+                            <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '2px', textTransform: 'uppercase' }}>{func.name}</div>
                             <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '6px' }}>{func.cargo} | <span style={{ fontWeight: 'bold' }}>{func.turno}</span></div>
                             
-                            <select 
-                              value={func.statusPresenca} 
-                              onChange={e => handleMudarStatusPresenca(indexGlobal, e.target.value)}
-                              style={{ width: '100%', height: '26px', padding: '0 4px', fontSize: '11px', fontWeight: 'bold' }}
-                            >
-                              <option value="Presente">Presente</option>
-                              <option value="Folga">Folga</option>
-                              <option value="Faltou">Faltou</option>
-                              <option value="Integração">Integração</option>
-                              <option value="Outros">Outros</option>
-                            </select>
+                            <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                              <select 
+                                value={func.statusPresenca} 
+                                onChange={e => handleMudarStatusPresenca(indexGlobal, e.target.value)}
+                                style={{ flex: 1, height: '26px', padding: '0 4px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px' }}
+                              >
+                                <option value="Presente">Presente</option>
+                                <option value="Folga">Folga</option>
+                                <option value="Faltou">Faltou</option>
+                                <option value="Integração">Integração</option>
+                                <option value="Outros">Outros</option>
+                              </select>
+                            </div>
 
                             {func.statusPresenca === 'Outros' && (
-                              <input
-                                type="text"
-                                placeholder="Especifique o motivo..."
-                                value={func.statusCustomizado || ''}
+                              <input 
+                                type="text" 
+                                placeholder="Motivo..." 
+                                value={func.statusCustomizado || ''} 
                                 onChange={e => handleMudarTextoCustomizado(indexGlobal, e.target.value)}
-                                style={{ marginTop: '4px', height: '24px', padding: '0 6px', fontSize: '10px', width: '100%', boxSizing: 'border-box' }}
+                                style={{ width: '100%', height: '24px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }}
                               />
                             )}
                           </div>
@@ -1011,27 +926,13 @@ const buscarEfetivoVindoDoAgendamento = async () => {
           </div>
 
           {/* PAINEL DE OPERAÇÕES FINAIS */}
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', marginTop: '10px' }}>
-            
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold', color: liberarEquipeAoSalvar ? '#854d0e' : '#475569', fontSize: '11px', userSelect: 'none' }}>
-              <input 
-                type="checkbox" 
-                checked={liberarEquipeAoSalvar} 
-                onChange={e => setLiberarEquipeAoSalvar(e.target.checked)} 
-                style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#ca8a04' }}
-              />
-              <LogOut size={16} color={liberarEquipeAoSalvar ? '#ca8a04' : '#64748b'} />
-              <span>Liberar esta equipe ao salvar RDO (Permite realocação em outra obra no mesmo turno)</span>
-            </label>
-
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button type="button" onClick={exportarParaPDF} style={{ height: '36px', padding: '0 16px', backgroundColor: '#475569', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <FileText size={16} /> Exportar PDF
-              </button>
-              <button type="button" onClick={salvarDiarioCompleto} style={{ height: '36px', padding: '0 20px', backgroundColor: liberarEquipeAoSalvar ? '#ca8a04' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <Save size={16} /> {liberarEquipeAoSalvar ? 'Salvar RDO e Liberar Equipe' : 'Salvar RDO no Banco'}
-              </button>
-            </div>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+            <button type="button" onClick={exportarParaPDF} style={{ height: '36px', padding: '0 16px', backgroundColor: '#475569', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <FileText size={16} /> Exportar PDF
+            </button>
+            <button type="button" onClick={salvarDiarioCompleto} style={{ height: '36px', padding: '0 20px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Save size={16} /> Salvar RDO no Banco
+            </button>
           </div>
         </>
       )}

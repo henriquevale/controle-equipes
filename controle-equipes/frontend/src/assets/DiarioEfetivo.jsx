@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios'; 
-import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle, MoveHorizontal, Search } from 'lucide-react';
+import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle, MoveHorizontal, Search, Lock } from 'lucide-react';
 
 export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   const API_URL = 'http://localhost:3001/api';
-  //const API_URL = 'https://controle-equipes.onrender.com/api'; 
   //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
   // --- FILTROS PRIMÁRIOS DE CABEÇALHO ---
@@ -19,14 +18,16 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   // --- DADOS DO SISTEMA ---
   const [todosFuncionarios, setTodosFuncionarios] = useState([]);
+  const [listaCompletaFuncionarios, setListaCompletaFuncionarios] = useState([]); // Base completa para o Resumo
   const [alocacoesDoDia, setAlocacoesDoDia] = useState([]);
   const [todosOsAgendamentosDoDia, setTodosOsAgendamentosDoDia] = useState([]);
   const [listaVeiculos, setListaVeiculos] = useState([]);
+  const [equipesBloqueadas, setEquipesBloqueadas] = useState([]);
 
   // --- CONTROLE DE EQUIPES LOCAIS (POR OBRA E TURNO) ---
   const [equipesLocais, setEquipesLocais] = useState([]); 
   const [nomeNovaEquipe, setNomeNovaEquipe] = useState('');
-
+  
   // --- CONTROLE DE VISIBILIDADE DE PAINÉIS/TABELAS ---
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
   const [mostrarResumoOcupacao, setMostrarResumoOcupacao] = useState(false);
@@ -52,11 +53,26 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   useEffect(() => {
     if (obraFiltro) {
       carregarAlocacoesDaObra();
+      carregarEquipesBloqueadas();
     }
     carregarTodosOsAgendamentosDoDia();
     carregarFuncionariosDoGestor();
     carregarVeiculosDoGestor(); 
   }, [dataSelecionada, obraFiltro, turnoAtivo]);
+
+  // --- BUSCAR EQUIPES FINALIZADAS (TRAVADAS) ---
+  const carregarEquipesBloqueadas = async () => {
+    if (!obraFiltro || !dataSelecionada) return;
+    try {
+      const res = await axios.get(`${API_URL}/gestor/equipes-finalizadas`, {
+        params: { data_diario: dataSelecionada, id_obra: obraFiltro }
+      });
+      setEquipesBloqueadas(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar status de bloqueio das equipes:", e);
+      setEquipesBloqueadas([]);
+    }
+  };
 
   // --- COPIAR ÚLTIMO AGENDAMENTO/ESCALA REGISTRADO ---
   const handleCopiarUltimoAgendamento = async () => {
@@ -99,10 +115,15 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
       carregarAlocacoesDaObra();
       carregarTodosOsAgendamentosDoDia();
+      carregarFuncionariosDoGestor();
 
     } catch (err) {
       console.error("Erro ao copiar último agendamento:", err);
-      alert(err.response?.data?.error || "Erro ao copiar a escala do agendamento anterior.");
+      if (err.response?.status === 403) {
+        alert(`🔒 ${err.response.data.error}`);
+      } else {
+        alert(err.response?.data?.error || "Erro ao copiar a escala do agendamento anterior.");
+      }
     }
   };
 
@@ -173,9 +194,21 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   const carregarFuncionariosDoGestor = async () => {
     try {
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-      const params = { id: usuario?.id, cargo: usuario?.cargo, data_diario: dataSelecionada };
+      
+      const params = { 
+        id: usuario?.id, 
+        cargo: usuario?.cargo, 
+        data_diario: dataSelecionada,
+        turno: turnoAtivo
+      };
       const res = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { params });
       setTodosFuncionarios(res.data && res.data.funcionarios ? res.data.funcionarios : []);
+
+      const resGeral = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { 
+        params: { id: usuario?.id, cargo: usuario?.cargo, data_diario: dataSelecionada } 
+      });
+      setListaCompletaFuncionarios(resGeral.data && resGeral.data.funcionarios ? resGeral.data.funcionarios : []);
+
     } catch (e) {
       console.error("Erro ao carregar colaboradores:", e);
     }
@@ -227,18 +260,31 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           String(eq.id_obra) === String(obraFiltro)
   );
 
-  // --- DISPONIBILIDADE EM TEMPO REAL POR TURNO ---
-  const funcionariosAlocadosNoTurnoIds = todosOsAgendamentosDoDia
-    .filter(a => String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
-    .map(a => Number(a.id_funcionario));
+  // --- DISPONIBILIDADE EM TEMPO REAL POR TURNO (LÓGICA AJUSTADA) ---
+  const funcionariosDisponiveisNoTurno = useMemo(() => {
+    const baseFuncionarios = todosFuncionarios.length > 0 
+      ? todosFuncionarios 
+      : listaCompletaFuncionarios;
 
-  const funcionariosDisponiveisNoTurno = todosFuncionarios.filter(f => {
-    const estaLivreNoTurno = !funcionariosAlocadosNoTurnoIds.includes(Number(f.id));
-    const nomeOuMatricula = `${f.nome || ''} ${f.matricula || ''} ${f.cargo || ''}`.toLowerCase();
-    const atendeFiltroBusca = nomeOuMatricula.includes(termoBuscaDisponiveis.toLowerCase().trim());
+    return baseFuncionarios.filter(func => {
+      const idFunc = Number(func.id_funcionario || func.id);
 
-    return estaLivreNoTurno && atendeFiltroBusca;
-  });
+      const termo = termoBuscaDisponiveis.toLowerCase().trim();
+      const nomeMatch = (func.nome || func.name || '').toLowerCase().includes(termo);
+      const cargoMatch = (func.cargo || '').toLowerCase().includes(termo);
+      const matMatch = String(func.matricula || '').toLowerCase().includes(termo);
+
+      if (termo && !nomeMatch && !cargoMatch && !matMatch) {
+        return false;
+      }
+
+      const jaEstaAlocadoNaTela = alocacoesDoDia.some(
+        a => Number(a.id_funcionario) === idFunc && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
+      );
+
+      return !jaEstaAlocadoNaTela;
+    });
+  }, [todosFuncionarios, listaCompletaFuncionarios, alocacoesDoDia, turnoAtivo, termoBuscaDisponiveis]);
 
   // --- CRIAÇÃO DE EQUIPE ---
   const handleCriarEquipe = (e) => {
@@ -266,122 +312,214 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     setNomeNovaEquipe('');
   };
 
-// --- ALOCAÇÃO DO COLABORADOR À EQUIPE (OTIMIZADO) ---
-const handleAlocarParaEquipe = async (idFuncionario, nomeEquipe) => {
-  if (!obraFiltro) {
-    alert("⚠️ Selecione uma Obra ativa!");
-    return;
-  }
+  // --- ALOCAÇÃO DO COLABORADOR À EQUIPE ---
+  const handleAlocarParaEquipe = async (idFuncionario, nomeEquipe) => {
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa!");
+      return;
+    }
 
-  const funcObj = todosFuncionarios.find(f => Number(f.id) === Number(idFuncionario));
-  if (!funcObj) return;
+    if (equipesBloqueadas.includes(nomeEquipe.toUpperCase())) {
+      alert(`🔒 A equipe '${nomeEquipe}' já foi finalizada no RDO desta data e está bloqueada para alterações.`);
+      return;
+    }
 
-  const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-  const ehFolguista = nomeEquipe.toUpperCase() === 'FOLGUISTAS';
+    const funcObj = todosFuncionarios.find(f => Number(f.id_funcionario || f.id) === Number(idFuncionario));
+    if (!funcObj) return;
 
-  let listaAtualizada = [...alocacoesDoDia];
+    const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
+    const ehFolguista = nomeEquipe.toUpperCase() === 'FOLGUISTAS';
 
-  if (ehFolguista) {
-    listaAtualizada = listaAtualizada.filter(a => Number(a.id_funcionario) !== Number(idFuncionario));
+    let listaAtualizada = [...alocacoesDoDia];
 
-    ['DIURNO', 'NOTURNO'].forEach(t => {
-      listaAtualizada.push({
-        id_funcionario: funcObj.id,
+    if (ehFolguista) {
+      listaAtualizada = listaAtualizada.filter(a => Number(a.id_funcionario) !== Number(idFuncionario));
+
+      ['DIURNO', 'NOTURNO'].forEach(t => {
+        listaAtualizada.push({
+          id_funcionario: funcObj.id_funcionario || funcObj.id,
+          id_obra: Number(obraFiltro),
+          id_gestor: usuario?.id || null,
+          nome: funcObj.nome || funcObj.name,
+          cargo: funcObj.cargo || 'N/D',
+          matricula: funcObj.matricula || '',
+          turno: t,
+          status_presenca: 'Folga',
+          observacao: 'Folga Programada (Escala)',
+          equipe: 'FOLGUISTAS',
+          id_veiculo: null
+        });
+      });
+    } else {
+      const novaAloc = {
+        id_funcionario: funcObj.id_funcionario || funcObj.id,
         id_obra: Number(obraFiltro),
         id_gestor: usuario?.id || null,
-        nome: funcObj.nome,
+        nome: funcObj.nome || funcObj.name,
         cargo: funcObj.cargo || 'N/D',
         matricula: funcObj.matricula || '',
-        turno: t,
-        status_presenca: 'Folga',
-        observacao: 'Folga Programada (Escala)',
-        equipe: 'FOLGUISTAS',
-        id_veiculo: null
-      });
-    });
-  } else {
-    const novaAloc = {
-      id_funcionario: funcObj.id,
-      id_obra: Number(obraFiltro),
-      id_gestor: usuario?.id || null,
-      nome: funcObj.nome,
-      cargo: funcObj.cargo || 'N/D',
-      matricula: funcObj.matricula || '',
-      turno: turnoAtivo,
-      status_presenca: 'ALOCADO',
-      observacao: '',
-      equipe: nomeEquipe,
-      id_veiculo: null
-    };
-    listaAtualizada.push(novaAloc);
-  }
-
-  // Atualização otimista na tela (sensação de resposta instantânea)
-  setAlocacoesDoDia(listaAtualizada);
-
-  try {
-    await axios.post(`${API_URL}/gestor/diario-efetivo`, {
-      data_diario: dataSelecionada,
-      id_obra: Number(obraFiltro),
-      efetivo: listaAtualizada
-    });
-    
-    // Atualiza apenas a lista global sem travar a interface
-    carregarTodosOsAgendamentosDoDia();
-  } catch (err) {
-    console.error("Erro ao alocar funcionário:", err);
-    alert("Erro ao salvar alocação no servidor.");
-    carregarAlocacoesDaObra();
-  }
-};
-
-// --- EXCLUSÃO DE EQUIPE (SEM DUPLICAR REQUISIÇÕES) ---
-const handleDeletarEquipe = async (nomeEquipeDeletar) => {
-  if (!obraFiltro) {
-    alert("⚠️ Selecione uma Obra ativa!");
-    return;
-  }
-
-  if (!window.confirm(`Tem certeza que deseja apagar a equipe "${nomeEquipeDeletar}"? Os colaboradores alocados nela voltarão para a lista de disponíveis e o registro da equipe será excluído.`)) {
-    return;
-  }
-
-  try {
-    // 1. Remove do backend (que já remove da controle_diarios_equipe e do diario_efetivo)
-    await axios.delete(`${API_URL}/gestor/equipe`, {
-      params: {
-        nome_equipe: nomeEquipeDeletar,
         turno: turnoAtivo,
-        id_obra: Number(obraFiltro),
-        data_diario: dataSelecionada
-      }
-    });
-
-    // 2. Atualiza os estados locais instantaneamente sem refazer um POST pesado
-    const listaAtualizada = alocacoesDoDia.filter(
-      a => !(a.equipe.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
-    );
+        status_presenca: 'ALOCADO',
+        observacao: '',
+        equipe: nomeEquipe,
+        id_veiculo: null
+      };
+      listaAtualizada.push(novaAloc);
+    }
 
     setAlocacoesDoDia(listaAtualizada);
-    setEquipesLocais(prev => prev.filter(
-      eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && eq.turno.toUpperCase() === turnoAtivo.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
-    ));
 
-    carregarTodosOsAgendamentosDoDia();
+    try {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        equipe: nomeEquipe,
+        funcionarios: listaAtualizada.filter(a => a.equipe.toUpperCase() === nomeEquipe.toUpperCase())
+      });
+      
+      await carregarTodosOsAgendamentosDoDia();
+      await carregarFuncionariosDoGestor();
+    } catch (err) {
+      console.error("Erro ao alocar funcionário:", err);
+      if (err.response?.status === 403) {
+        alert(`🔒 ${err.response.data.error}`);
+      } else {
+        alert("Erro ao salvar alocação no servidor.");
+      }
+      carregarAlocacoesDaObra();
+    }
+  };
 
-  } catch (err) {
-    console.error("Erro ao deletar equipe:", err);
-    alert("⚠️ Erro ao excluir a equipe do banco de dados.");
-  }
-};
+  // --- REMOVER COLABORADOR DA EQUIPE ---
+  const handleRemoverDaEquipe = async (idFuncionario) => {
+    const membro = alocacoesDoDia.find(a => Number(a.id_funcionario) === Number(idFuncionario));
+    if (!membro) return;
+
+    if (equipesBloqueadas.includes(membro.equipe.toUpperCase())) {
+      alert(`🔒 A equipe '${membro.equipe}' já teve o RDO finalizado e está bloqueada.`);
+      return;
+    }
+
+    const listaAtualizada = alocacoesDoDia.filter(a => Number(a.id_funcionario) !== Number(idFuncionario));
+    setAlocacoesDoDia(listaAtualizada);
+
+    try {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        equipe: membro.equipe,
+        funcionarios: listaAtualizada.filter(a => a.equipe.toUpperCase() === membro.equipe.toUpperCase())
+      });
+
+      await carregarTodosOsAgendamentosDoDia();
+      await carregarFuncionariosDoGestor();
+    } catch (err) {
+      console.error("Erro ao remover funcionário da equipe:", err);
+      if (err.response?.status === 403) {
+        alert(`🔒 ${err.response.data.error}`);
+      } else {
+        alert("Erro ao atualizar equipe no servidor.");
+      }
+      carregarAlocacoesDaObra();
+    }
+  };
+
+  // --- ALTERAR VEÍCULO ATRIBUÍDO AO COLABORADOR ---
+  const handleAlterarVeiculoFuncionario = async (idFuncionario, idVeiculo) => {
+    const membro = alocacoesDoDia.find(a => Number(a.id_funcionario) === Number(idFuncionario));
+    if (!membro) return;
+
+    if (equipesBloqueadas.includes(membro.equipe.toUpperCase())) {
+      alert(`🔒 A equipe '${membro.equipe}' já foi finalizada no RDO desta data.`);
+      return;
+    }
+
+    const idVeicTratado = idVeiculo ? Number(idVeiculo) : null;
+
+    const listaAtualizada = alocacoesDoDia.map(a => {
+      if (Number(a.id_funcionario) === Number(idFuncionario)) {
+        return { ...a, id_veiculo: idVeicTratado };
+      }
+      return a;
+    });
+
+    setAlocacoesDoDia(listaAtualizada);
+
+    try {
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        equipe: membro.equipe,
+        funcionarios: listaAtualizada.filter(a => a.equipe.toUpperCase() === membro.equipe.toUpperCase())
+      });
+
+      carregarTodosOsAgendamentosDoDia();
+    } catch (err) {
+      console.error("Erro ao alterar veículo:", err);
+      if (err.response?.status === 403) {
+        alert(`🔒 ${err.response.data.error}`);
+      } else {
+        alert("Erro ao salvar veículo no servidor.");
+      }
+      carregarAlocacoesDaObra();
+    }
+  };
+
+  // --- EXCLUSÃO DE EQUIPE ---
+  const handleDeletarEquipe = async (nomeEquipeDeletar) => {
+    if (!obraFiltro) {
+      alert("⚠️ Selecione uma Obra ativa!");
+      return;
+    }
+
+    if (equipesBloqueadas.includes(nomeEquipeDeletar.toUpperCase())) {
+      alert(`🔒 A equipe '${nomeEquipeDeletar}' já teve seu RDO finalizado e não pode ser excluída.`);
+      return;
+    }
+
+    if (!window.confirm(`Tem certeza que deseja apagar a equipe "${nomeEquipeDeletar}"? Os colaboradores alocados nela voltarão para a lista de disponíveis e o registro da equipe será excluído.`)) {
+      return;
+    }
+
+    try {
+      await axios.delete(`${API_URL}/gestor/equipe`, {
+        params: {
+          nome_equipe: nomeEquipeDeletar,
+          turno: turnoAtivo,
+          id_obra: Number(obraFiltro),
+          data_diario: dataSelecionada
+        }
+      });
+
+      const listaAtualizada = alocacoesDoDia.filter(
+        a => !(a.equipe.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
+      );
+
+      setAlocacoesDoDia(listaAtualizada);
+      setEquipesLocais(prev => prev.filter(
+        eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && eq.turno.toUpperCase() === turnoAtivo.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
+      ));
+
+      await carregarTodosOsAgendamentosDoDia();
+      await carregarFuncionariosDoGestor();
+
+    } catch (err) {
+      console.error("Erro ao deletar equipe:", err);
+      if (err.response?.status === 403) {
+        alert(`🔒 ${err.response.data.error}`);
+      } else {
+        alert("⚠️ Erro ao excluir a equipe do banco de dados.");
+      }
+    }
+  };
 
   // --- REMANEJAMENTO DE GESTOR DE ENGENHARIA ---
   const handleIniciarRemanejamento = async (funcionario) => {
     try {
       await carregarGestoresParaModal();
       setRemanejamentoDados({
-        id_funcionario: funcionario.id,
-        nome_funcionario: funcionario.nome,
+        id_funcionario: funcionario.id_funcionario || funcionario.id,
+        nome_funcionario: funcionario.nome || funcionario.name,
         id_gestor_destino: ''
       });
       setModalAberto(true);
@@ -415,9 +553,11 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
       alert(`📢 NOTIFICAÇÃO ENVIADA COM SUCESSO!\n\nColaborador ${remanejamentoDados.nome_funcionario} foi transferido para o Gestor ${gestorDestinoObj.nome}.`);
 
       setModalAberto(false);
-      carregarAlocacoesDaObra();
-      carregarTodosOsAgendamentosDoDia();
-      carregarFuncionariosDoGestor();
+      
+      // RE-FETCH SÍNCRONO PARA GARANTIR QUE O COLABORADOR REAPAREÇA OU SEJA REMOVIDO CORRETAMENTE DA INTERFACE
+      await carregarAlocacoesDaObra();
+      await carregarTodosOsAgendamentosDoDia();
+      await carregarFuncionariosDoGestor();
     } catch (err) {
       console.error(err);
       alert("Erro ao realizar transferência do colaborador.");
@@ -431,8 +571,12 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
     );
     
     if (ag) {
-      if (ag.status_presenca === 'Folga' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS') {
+      const statusUpper = String(ag.status_presenca || '').toUpperCase();
+      if (statusUpper === 'FOLGA' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS') {
         return { texto: 'FOLGA', corBg: '#fef2f2', corTxt: '#991b1b' };
+      }
+      if (ag.liberado === 1) {
+        return { texto: 'LIBERADO', corBg: '#fef9c3', corTxt: '#854d0e' };
       }
       const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(ag.id_obra));
       const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${ag.id_obra}`;
@@ -454,27 +598,23 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
     return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
   };
 
-  // RENDEREIZAÇÃO DE BADGE REAL DO VEÍCULO (Mantém o status original vindo do banco/frota)
-  const renderBadgeStatusVeiculo = (statusOriginal) => {
-    const st = statusOriginal ? String(statusOriginal).toUpperCase().trim() : 'DISPONÍVEL';
-    
-    let bg = '#dcfce7', text = '#166534', icone = <CheckCircle style={{ width: '11px', height: '11px' }} />;
+  // --- FILTRO DE FUNCIONÁRIOS DISPONÍVEIS PARA REMANEJAMENTO ---
+  const baseFuncionariosResumo = listaCompletaFuncionarios.length > 0 ? listaCompletaFuncionarios : todosFuncionarios;
 
-    if (st === 'EM MANUTENÇÃO' || st === 'MANUTENÇÃO') { 
-      bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '11px', height: '11px' }} />;
-    } else if (st === 'INATIVO' || st === 'INDISPONÍVEL') { 
-      bg = '#f3f4f6'; text = '#4b5563'; icone = <AlertTriangle style={{ width: '11px', height: '11px' }} />; 
-    }
-
-    return (
-      <span style={{ backgroundColor: bg, color: text, padding: '3px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-        {icone} {st}
-      </span>
+  const funcionariosDisponiveisParaRemanejamento = baseFuncionariosResumo.filter(func => {
+    const idFunc = func.id_funcionario || func.id;
+    const agendamentosDoFuncionario = todosOsAgendamentosDoDia.filter(
+      ag => String(ag.id_funcionario) === String(idFunc)
     );
-  };
 
-  const funcionariosDisponiveisParaRemanejamento = todosFuncionarios.filter(func => {
-    return !todosOsAgendamentosDoDia.some(ag => String(ag.id_funcionario) === String(func.id));
+    if (agendamentosDoFuncionario.length === 0) return true;
+
+    const totalmenteLiberado = agendamentosDoFuncionario.every(ag => {
+      const st = String(ag.status_presenca || '').toUpperCase();
+      return Number(ag.liberado) === 1 || st === 'LIBERADO' || st === 'FOLGA' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS';
+    });
+
+    return totalmenteLiberado;
   });
 
   return (
@@ -561,12 +701,12 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
         <form onSubmit={handleCriarEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flex: '1 1 300px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>
-              Nome da Nova Equipe (Exclusiva para Turno {turnoAtivo})
+              Nome da Equipe (Turno {turnoAtivo})
             </label>
             <input 
               required
               type="text" 
-              placeholder="Ex: EQUIPE ALFA, ESCAVAÇÃO..." 
+              placeholder="Ex: EQUIPE HORIZONTAL, VERTICAL..." 
               value={nomeNovaEquipe}
               onChange={e => setNomeNovaEquipe(e.target.value)}
               style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: '500', boxSizing: 'border-box' }}
@@ -588,7 +728,7 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
             style={{ height: '36px', padding: '0 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
             title="Cria o painel de Folguistas para ambos os turnos (Diurno + Noturno)"
           >
-            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe Folguista (Ambos os Turnos)
+            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe de Folga (Ambos os Turnos)
           </button>
         </div>
         
@@ -654,35 +794,43 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                 {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : `Todos os colaboradores já foram alocados para o turno ${turnoAtivo}!`}
               </div>
             ) : (
-              funcionariosDisponiveisNoTurno.map(f => (
-                <div 
-                  key={`disp-${f.id}`} 
-                  style={{ padding: '8px', border: '1px solid #e2e8f0', borderRadius: '4px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '6px' }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{f.nome}</div>
-                    <div style={{ fontSize: '9px', color: '#64748b' }}>{f.cargo} | MAT: {f.matricula || '—'}</div>
-                  </div>
+              funcionariosDisponiveisNoTurno.map(f => {
+                const idFunc = f.id_funcionario || f.id;
+                return (
+                  <div 
+                    key={`disp-${idFunc}`} 
+                    style={{ padding: '8px', border: '1px solid #e2e8f0', borderRadius: '4px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{f.nome || f.name}</div>
+                      <div style={{ fontSize: '9px', color: '#64748b' }}>{f.cargo} | MAT: {f.matricula || '—'}</div>
+                    </div>
 
-                  {equipesDoTurnoAtivo.length > 0 && (
-                    <select
-                      defaultValue=""
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAlocarParaEquipe(f.id, e.target.value);
-                          e.target.value = "";
-                        }
-                      }}
-                      style={{ fontSize: '10px', padding: '3px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
-                    >
-                      <option value="" disabled>+ Mover para Equipe ({turnoAtivo})...</option>
-                      {equipesDoTurnoAtivo.map(eq => (
-                        <option key={`opt-${eq.nome}`} value={eq.nome}>{eq.nome}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              ))
+                    {equipesDoTurnoAtivo.length > 0 && (
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleAlocarParaEquipe(idFunc, e.target.value);
+                            e.target.value = "";
+                          }
+                        }}
+                        style={{ fontSize: '10px', padding: '3px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        <option value="" disabled>+ Mover para Equipe ({turnoAtivo})...</option>
+                        {equipesDoTurnoAtivo.map(eq => {
+                          const bloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
+                          return (
+                            <option key={`opt-${eq.nome}`} value={eq.nome} disabled={bloqueada}>
+                              {eq.nome} {bloqueada ? '🔒 (RDO Finalizado)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -695,16 +843,34 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
             </div>
           ) : (
             equipesDoTurnoAtivo.map((eq) => {
+              const estaBloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
               const integrantes = alocacoesDoDia.filter(
                 a => a.equipe.toUpperCase() === eq.nome.toUpperCase() && 
                      String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
               );
 
               return (
-                <div key={`card-eq-${eq.nome}-${eq.turno}`} style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <div 
+                  key={`card-eq-${eq.nome}-${eq.turno}`} 
+                  style={{ 
+                    backgroundColor: '#fff', 
+                    border: estaBloqueada ? '2px solid #f59e0b' : '1px solid #cbd5e1', 
+                    borderRadius: '6px', 
+                    overflow: 'hidden', 
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    opacity: estaBloqueada ? 0.9 : 1 
+                  }}
+                >
                   
+                  {/* BARRA DE TRAVA DE RDO FINALIZADO */}
+                  {estaBloqueada && (
+                    <div style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '4px 8px', fontSize: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                      <Lock style={{ width: '12px', height: '12px' }} /> RDO FINALIZADO (ESCALA BLOQUEADA)
+                    </div>
+                  )}
+
                   {/* Cabeçalho do Card da Equipe */}
-                  <div style={{ backgroundColor: '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ backgroundColor: estaBloqueada ? '#334155' : '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{eq.nome}</div>
                       <div style={{ fontSize: '9px', color: '#94a3b8' }}>TURNO: {eq.turno}</div>
@@ -715,19 +881,20 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                         {integrantes.length} Colaboradores
                       </span>
 
-                      {/* BOTÃO EXCLUIR EQUIPE */}
-                      <button
-                        type="button"
-                        onClick={() => handleDeletarEquipe(eq.nome)}
-                        title="Excluir esta equipe"
-                        style={{ border: 'none', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                      >
-                        <Trash2 style={{ width: '13px', height: '13px' }} />
-                      </button>
+                      {!estaBloqueada && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeletarEquipe(eq.nome)}
+                          title="Excluir esta equipe"
+                          style={{ border: 'none', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                        >
+                          <Trash2 style={{ width: '13px', height: '13px' }} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {/* Integrantes da Equipe com Seleção de Veículo Exclusivo */}
+                  {/* Integrantes da Equipe */}
                   <div style={{ padding: '8px', minHeight: '120px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#fafafa' }}>
                     {integrantes.length === 0 ? (
                       <div style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '16px' }}>
@@ -735,12 +902,10 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                       </div>
                     ) : (
                       integrantes.map((membro) => {
-                        // 1. Veículos ordenados por placa
                         const veiculosOrdenados = [...listaVeiculos].sort((a, b) => 
                           (a.placa || '').localeCompare(b.placa || '')
                         );
 
-                        // 2. Oculta veículos que já foram atribuídos no turno atual, exceto o do próprio membro
                         const veiculosDisponiveisOuAtual = veiculosOrdenados.filter(v => {
                           const ocupante = todosOsAgendamentosDoDia.find(
                             a => Number(a.id_veiculo) === Number(v.id) &&
@@ -761,23 +926,25 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                                 <div style={{ fontSize: '8px', color: '#64748b' }}>{membro.cargo}</div>
                               </div>
 
-                              <button 
-                                type="button" 
-                                onClick={() => handleRemoverDaEquipe(membro.id_funcionario)}
-                                title="Remover da equipe (retorna para disponíveis)"
-                                style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
-                              >
-                                <X style={{ width: '14px', height: '14px' }} />
-                              </button>
+                              {!estaBloqueada && (
+                                <button 
+                                  type="button" 
+                                  onClick={() => handleRemoverDaEquipe(membro.id_funcionario)}
+                                  title="Remover da equipe (retorna para disponíveis)"
+                                  style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                                >
+                                  <X style={{ width: '14px', height: '14px' }} />
+                                </button>
+                              )}
                             </div>
 
-                            {/* CAMPO DE ASSOCIAÇÃO EXCLUSIVA DO VEÍCULO */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                               <Car style={{ width: '12px', height: '12px', color: '#2563eb' }} />
                               <select
+                                disabled={estaBloqueada}
                                 value={membro.id_veiculo || ''}
                                 onChange={(e) => handleAlterarVeiculoFuncionario(membro.id_funcionario, e.target.value)}
-                                style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
+                                style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: estaBloqueada ? '#f1f5f9' : '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
                               >
                                 <option value="">-- Sem Veículo Atribuído --</option>
                                 {veiculosDisponiveisOuAtual.map(v => (
@@ -802,9 +969,7 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
 
       </div>
 
-
-
-{/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
+      {/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -837,7 +1002,6 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                 <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
                 <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
                 <th style={{ padding: '10px 12px' }}>Obs</th>
-                {/* ❌ Célula "Ação" removida daqui */}
               </tr>
             </thead>
             <tbody>
@@ -850,7 +1014,6 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                 if (alocsFiltradas.length === 0) {
                   return (
                     <tr>
-                      {/* ✅ colSpan ajustado para 6 (eram 7) */}
                       <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
                         Nenhum colaborador alocado para os critérios selecionados.
                       </td>
@@ -892,7 +1055,6 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                       <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
                         {aloc.observacao || '—'}
                       </td>
-                      {/* ❌ Botão de remoção tirado daqui */}
                     </tr>
                   );
                 });
@@ -929,13 +1091,14 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                 </tr>
               </thead>
               <tbody>
-                {todosFuncionarios.map((func, index) => {
-                  const statusDiurno = obterStatusPorTurno(func.id, 'DIURNO');
-                  const statusNoturno = obterStatusPorTurno(func.id, 'NOTURNO');
+                {baseFuncionariosResumo.map((func, index) => {
+                  const idFunc = func.id_funcionario || func.id;
+                  const statusDiurno = obterStatusPorTurno(idFunc, 'DIURNO');
+                  const statusNoturno = obterStatusPorTurno(idFunc, 'NOTURNO');
                   return (
-                    <tr key={`resumo-${func.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                    <tr key={`resumo-${idFunc}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                       <td style={{ padding: '10px 12px' }}>
-                        <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{func.nome}</div>
+                        <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{func.nome || func.name}</div>
                         <div style={{ fontSize: '9px', color: '#64748b' }}>{func.cargo} | MAT: {func.matricula || '—'}</div>
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
@@ -1056,26 +1219,29 @@ const handleDeletarEquipe = async (nomeEquipeDeletar) => {
                 {funcionariosDisponiveisParaRemanejamento.length === 0 ? (
                   <tr>
                     <td colSpan="4" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum colaborador livre para remanejamento técnico hoje.
+                      Nenhum colaborador livre ou liberado para remanejamento técnico hoje.
                     </td>
                   </tr>
                 ) : (
-                  funcionariosDisponiveisParaRemanejamento.map((func, idx) => (
-                    <tr key={`reman-item-${func.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>{func.nome}</td>
-                      <td style={{ padding: '10px 12px', color: '#334155' }}>{func.cargo || '—'}</td>
-                      <td style={{ padding: '10px 12px', color: '#475569' }}>{func.matricula || '—'}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleIniciarRemanejamento(func)}
-                          style={{ backgroundColor: '#65a30d', color: '#fff', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
-                        >
-                          Transferir de Gestor
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  funcionariosDisponiveisParaRemanejamento.map((func, idx) => {
+                    const idFunc = func.id_funcionario || func.id;
+                    return (
+                      <tr key={`reman-item-${idFunc}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>{func.nome || func.name}</td>
+                        <td style={{ padding: '10px 12px', color: '#334155' }}>{func.cargo || '—'}</td>
+                        <td style={{ padding: '10px 12px', color: '#475569' }}>{func.matricula || '—'}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleIniciarRemanejamento(func)}
+                            style={{ backgroundColor: '#65a30d', color: '#fff', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                          >
+                            Transferir de Gestor
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
