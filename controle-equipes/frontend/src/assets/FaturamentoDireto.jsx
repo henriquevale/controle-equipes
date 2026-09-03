@@ -5,7 +5,23 @@ import {
   Building2, Truck, User, Calendar, DollarSign, MessageSquare, Eye, X, Package, AlertCircle, CheckCircle2, Link, Paperclip, Send, Check
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+// Função auxiliar declarada no escopo global do módulo para converter valores de forma segura
+const parseNum = (val) => {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (typeof val === 'string') val = val.replace(',', '.');
+  const n = parseFloat(val);
+  return isNaN(n) ? 0 : n;
+};
+
+// Função para calcular subtotal individual considerando IPI e tratamento decimal
+const calcularSubtotalItem = (qtd, valorUnit, ipi) => {
+  const q = parseNum(qtd);
+  const v = parseNum(valorUnit);
+  const i = parseNum(ipi);
+
+  return q * v * (1 + (i / 100));
+};
 
 export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDisponiveis: obrasProps, usuarioLogado }) {
   const [faturamentos, setFaturamentos] = useState([]);
@@ -131,21 +147,13 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     }));
   };
 
-  // Função para calcular subtotal individual considerando IPI
-  const calcularSubtotalItem = (qtd, valorUnit, ipi) => {
-    const q = parseFloat(qtd) || 0;
-    const v = parseFloat(valorUnit) || 0;
-    const i = parseFloat(ipi) || 0;
-    return q * v * (1 + (i / 100));
-  };
-
   // Soma total dos itens com IPI aplicado
   const totalSomaItens = form.itens.reduce((acc, it) => {
     return acc + calcularSubtotalItem(it.quantidade, it.valor_unitario, it.ipi_percentual);
   }, 0);
 
-  const valorFrete = parseFloat(form.valor_frete) || 0;
-  const valorNF = parseFloat(form.valor_nota_fiscal) || 0;
+  const valorFrete = parseNum(form.valor_frete);
+  const valorNF = parseNum(form.valor_nota_fiscal);
   const valorTotalGeral = totalSomaItens + valorFrete;
   const diferencaValorNF = valorNF - totalSomaItens;
 
@@ -162,9 +170,9 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     const itemProcessado = {
       material_id: tempItem.material_id,
       nome_material: materialObj ? (materialObj.descricao || materialObj.nome) : `Material #${tempItem.material_id}`,
-      quantidade: parseFloat(tempItem.quantidade) || 0,
-      valor_unitario: parseFloat(tempItem.valor_unitario) || 0,
-      ipi_percentual: parseFloat(tempItem.ipi_percentual) || 0
+      quantidade: parseNum(tempItem.quantidade),
+      valor_unitario: parseNum(tempItem.valor_unitario),
+      ipi_percentual: parseNum(tempItem.ipi_percentual)
     };
 
     let novosItens = [...form.itens];
@@ -233,15 +241,15 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
 
     const payload = {
       obra_id: form.obra_id,
-      numero_pedido_obra: form.numero_pedido_concessionaria,
+      numero_pedido_obra: form.numero_pedido_interno, // Corrigido para enviar o pedido interno
       numero_pedido_concessionaria: form.numero_pedido_concessionaria,
       numero_pedido_interno: form.numero_pedido_interno,
       boletim_medicao: form.boletim_medicao,
       fornecedor_id: form.fornecedor_id,
       numero_nota_fiscal: form.numero_nota_fiscal,
       data_nota_fiscal: form.data_nota_fiscal || null,
-      valor_nota_fiscal: form.valor_nota_fiscal || 0,
-      valor_frete: form.valor_frete || 0,
+      valor_nota_fiscal: parseNum(form.valor_nota_fiscal),
+      valor_frete: parseNum(form.valor_frete),
       status: form.status,
       id_gestor: form.id_gestor,
       data_solicitacao: form.data_solicitacao,
@@ -270,41 +278,39 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     }
   };
 
-const handleEditar = (fat) => {
-  const formatarDataInput = (data) => {
-    if (!data) return '';
-    try {
-      const d = new Date(data);
-      return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-    } catch (e) {
-      return '';
-    }
-  };
+  const handleEditar = (fat) => {
+    const formatarDataInput = (data) => {
+      if (!data) return '';
+      try {
+        const d = new Date(data);
+        return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+      } catch (e) {
+        return '';
+      }
+    };
 
-  setEditandoId(fat.id);
-  setForm({
-    obra_id: fat.obra_id || '',
-    // Garante que o Pedido Concessionária leia da propriedade certa
-    numero_pedido_concessionaria: fat.numero_pedido_concessionaria || '',
-    // Garante a leitura do Pedido Interno/Obra tanto de numero_pedido_interno quanto de numero_pedido_obra
-    numero_pedido_interno: fat.numero_pedido_interno || fat.numero_pedido_obra || fat.pedido_interno || '', 
-    boletim_medicao: fat.boletim_medicao ? String(fat.boletim_medicao).replace(/\s+/g, '').toUpperCase() : '',
-    fornecedor_id: fat.fornecedor_id || '',
-    numero_nota_fiscal: fat.numero_nota_fiscal || '',
-    data_nota_fiscal: formatarDataInput(fat.data_nota_fiscal),
-    valor_nota_fiscal: fat.valor_nota_fiscal || '',
-    valor_frete: fat.valor_frete || '',
-    data_envio: formatarDataInput(fat.data_envio),
-    status: fat.status || 'Solicitado',
-    motivo_cancelamento: fat.motivo_cancelamento || '',
-    id_gestor: fat.id_gestor || fat.gestor || fat.gestor_id || '',
-    url_email: fat.url_email || '',
-    arquivos_nf: [],
-    observacao: fat.observacao || '',
-    data_solicitacao: formatarDataInput(fat.data_solicitacao) || new Date().toISOString().slice(0, 10),
-    itens: Array.isArray(fat.itens) ? fat.itens : []
-  });
-};
+    setEditandoId(fat.id);
+    setForm({
+      obra_id: fat.obra_id || '',
+      numero_pedido_concessionaria: fat.numero_pedido_concessionaria || '',
+      numero_pedido_interno: fat.numero_pedido_interno || fat.numero_pedido_obra || fat.pedido_interno || '', 
+      boletim_medicao: fat.boletim_medicao ? String(fat.boletim_medicao).replace(/\s+/g, '').toUpperCase() : '',
+      fornecedor_id: fat.fornecedor_id || '',
+      numero_nota_fiscal: fat.numero_nota_fiscal || '',
+      data_nota_fiscal: formatarDataInput(fat.data_nota_fiscal),
+      valor_nota_fiscal: fat.valor_nota_fiscal || '',
+      valor_frete: fat.valor_frete || '',
+      data_envio: formatarDataInput(fat.data_envio),
+      status: fat.status || 'Solicitado',
+      motivo_cancelamento: fat.motivo_cancelamento || '',
+      id_gestor: fat.id_gestor || fat.gestor || fat.gestor_id || '',
+      url_email: fat.url_email || '',
+      arquivos_nf: [],
+      observacao: fat.observacao || '',
+      data_solicitacao: formatarDataInput(fat.data_solicitacao) || new Date().toISOString().slice(0, 10),
+      itens: Array.isArray(fat.itens) ? fat.itens : []
+    });
+  };
 
   const handleExcluir = async (fat) => {
     const idParaExcluir = typeof fat === 'object' ? (fat.id || fat.id_faturamento || fat._id) : fat;
@@ -343,8 +349,8 @@ const handleEditar = (fat) => {
 
     faturamentosFiltrados.forEach((f) => {
       const idGestor = f.id_gestor || f.gestor || f.gestor_id;
-      const vNf = parseFloat(f.valor_nota_fiscal) || 0;
-      const vFr = parseFloat(f.valor_frete) || 0;
+      const vNf = parseNum(f.valor_nota_fiscal);
+      const vFr = parseNum(f.valor_frete);
       const vTot = vNf + vFr;
       const linha = `"${f.id}";"${f.obra_id}";"${f.numero_pedido_concessionaria || f.numero_pedido_obra || ''}";"${f.numero_pedido_interno || ''}";"${f.boletim_medicao || ''}";"${f.fornecedor_id}";"${f.numero_nota_fiscal || ''}";"${f.data_nota_fiscal || ''}";"${vNf}";"${vFr}";"${vTot}";"${f.data_envio || ''}";"${f.status}";"${f.motivo_cancelamento || ''}";"${idGestor || ''}";"${f.url_email || ''}";"${f.data_solicitacao || ''}";"${(f.observacao || '').replace(/"/g, '""')}"`;
       csvContent += linha + '\n';
@@ -578,8 +584,7 @@ const handleEditar = (fat) => {
               <div>
                 <label style={labelStyle}>Quantidade</label>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
                   placeholder="0.00" 
                   value={tempItem.quantidade} 
                   disabled={!form.fornecedor_id}
@@ -595,8 +600,7 @@ const handleEditar = (fat) => {
               <div>
                 <label style={labelStyle}>Valor Unit. (R$)</label>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
                   placeholder="0.00" 
                   value={tempItem.valor_unitario} 
                   disabled={!form.fornecedor_id}
@@ -612,8 +616,7 @@ const handleEditar = (fat) => {
               <div>
                 <label style={labelStyle}>IPI (%)</label>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
                   placeholder="0.00%" 
                   value={tempItem.ipi_percentual} 
                   disabled={!form.fornecedor_id}
@@ -705,8 +708,8 @@ const handleEditar = (fat) => {
                         <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isEditingThis ? '#f0f9ff' : 'transparent' }}>
                           <td style={{ padding: '6px 8px', fontWeight: isEditingThis ? 'bold' : 'normal' }}>{it.nome_material}</td>
                           <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{it.quantidade}</td>
-                          <td style={{ padding: '6px 8px' }}>R$ {parseFloat(it.valor_unitario || 0).toFixed(2)}</td>
-                          <td style={{ padding: '6px 8px', color: '#d97706' }}>{parseFloat(it.ipi_percentual || 0).toFixed(2)}%</td>
+                          <td style={{ padding: '6px 8px' }}>R$ {parseNum(it.valor_unitario).toFixed(2)}</td>
+                          <td style={{ padding: '6px 8px', color: '#d97706' }}>{parseNum(it.ipi_percentual).toFixed(2)}%</td>
                           <td style={{ padding: '6px 8px', fontWeight: 'bold', color: '#16a34a' }}>
                             R$ {totalItem.toFixed(2)}
                           </td>
@@ -742,8 +745,7 @@ const handleEditar = (fat) => {
                   <Truck style={{ width: '13px', height: '13px' }} /> Valor do Frete (Pedido Geral)
                 </label>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
                   placeholder="0.00" 
                   value={form.valor_frete} 
                   onChange={e => setForm({ ...form, valor_frete: e.target.value })} 
@@ -782,8 +784,7 @@ const handleEditar = (fat) => {
               <div>
                 <label style={labelStyle}>Valor NF (R$)</label>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
                   placeholder="0.00" 
                   value={form.valor_nota_fiscal} 
                   onChange={e => setForm({ ...form, valor_nota_fiscal: e.target.value })} 
@@ -1002,8 +1003,8 @@ const handleEditar = (fat) => {
                   const gestorObj = gestoresDisponiveis.find(g => String(g.id) === String(idGestorRegistro));
                   const nomeGestorExibir = fat.gestor_nome || (gestorObj ? gestorObj.nome : (idGestorRegistro ? `ID: ${idGestorRegistro}` : '-'));
 
-                  const valNfReg = parseFloat(fat.valor_nota_fiscal) || 0;
-                  const valFreteReg = parseFloat(fat.valor_frete) || 0;
+                  const valNfReg = parseNum(fat.valor_nota_fiscal);
+                  const valFreteReg = parseNum(fat.valor_frete);
                   const valTotalReg = valNfReg + valFreteReg;
 
                   return (
@@ -1013,10 +1014,10 @@ const handleEditar = (fat) => {
                         <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '2px' }}>{fornObj ? fornObj.nome_fantasia : `Forn. ID: ${fat.fornecedor_id}`}</div>
                       </td>
                       <td style={{ padding: '10px 12px' }}>
-  <div>Ped. Concess: <span style={{ fontWeight: 'bold' }}>{fat.numero_pedido_concessionaria || '-'}</span></div>
-  <div>Ped. Interno: <span style={{ fontWeight: 'bold', color: '#475569' }}>{fat.numero_pedido_interno || fat.numero_pedido_obra || '-'}</span></div>
-  <div style={{ fontSize: '10px', color: '#0284c7', fontWeight: 'bold' }}>BM: {fat.boletim_medicao || '-'}</div>
-</td>
+                        <div>Ped. Concess: <span style={{ fontWeight: 'bold' }}>{fat.numero_pedido_concessionaria || '-'}</span></div>
+                        <div>Ped. Interno: <span style={{ fontWeight: 'bold', color: '#475569' }}>{fat.numero_pedido_interno || fat.numero_pedido_obra || '-'}</span></div>
+                        <div style={{ fontSize: '10px', color: '#0284c7', fontWeight: 'bold' }}>BM: {fat.boletim_medicao || '-'}</div>
+                      </td>
                       <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{fat.numero_nota_fiscal || '-'}</td>
                       <td style={{ padding: '10px 12px', color: '#475569' }}>
                         <div>NF: {fat.data_nota_fiscal ? new Date(fat.data_nota_fiscal).toLocaleDateString('pt-BR') : '-'}</div>
@@ -1087,8 +1088,8 @@ const handleEditar = (fat) => {
               <div><strong>Obra:</strong> {obrasDisponiveis.find(o => String(o.id) === String(itemModal.obra_id))?.nome_obra || itemModal.obra_id}</div>
               <div><strong>Fornecedor:</strong> {fornecedoresDisponiveis.find(f => String(f.id) === String(itemModal.fornecedor_id))?.nome_fantasia || itemModal.fornecedor_id}</div>
               <div><strong>Boletim Medição:</strong> {itemModal.boletim_medicao || '-'}</div>
-<div><strong>Nº Pedido (Concessionária):</strong> {itemModal.numero_pedido_concessionaria || '-'}</div>
-<div><strong>Nº Pedido (Interno):</strong> {itemModal.numero_pedido_interno || itemModal.numero_pedido_obra || '-'}</div>
+              <div><strong>Nº Pedido (Concessionária):</strong> {itemModal.numero_pedido_concessionaria || '-'}</div>
+              <div><strong>Nº Pedido (Interno):</strong> {itemModal.numero_pedido_interno || itemModal.numero_pedido_obra || '-'}</div>
               <div><strong>Status:</strong> <span style={{ fontWeight: 'bold', color: itemModal.status === 'Cancelado' ? '#dc2626' : '#2563eb' }}>{itemModal.status}</span></div>
               {itemModal.status === 'Cancelado' && (
                 <div style={{ gridColumn: 'span 2', color: '#dc2626' }}><strong>Motivo do Cancelamento:</strong> {itemModal.motivo_cancelamento || '-'}</div>
@@ -1102,10 +1103,10 @@ const handleEditar = (fat) => {
               <div><strong>Nº Nota Fiscal:</strong> {itemModal.numero_nota_fiscal || '-'}</div>
               <div><strong>Data da NF:</strong> {itemModal.data_nota_fiscal ? new Date(itemModal.data_nota_fiscal).toLocaleDateString('pt-BR') : '-'}</div>
               <div><strong>Data de Envio:</strong> {itemModal.data_envio ? new Date(itemModal.data_envio).toLocaleDateString('pt-BR') : '-'}</div>
-              <div><strong>Valor NF:</strong> R$ {parseFloat(itemModal.valor_nota_fiscal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-              <div><strong>Valor Frete:</strong> R$ {parseFloat(itemModal.valor_frete || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+              <div><strong>Valor NF:</strong> R$ {parseNum(itemModal.valor_nota_fiscal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+              <div><strong>Valor Frete:</strong> R$ {parseNum(itemModal.valor_frete).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
               <div style={{ gridColumn: 'span 2', fontWeight: 'bold', fontSize: '12px', color: '#15803d', backgroundColor: '#dcfce7', padding: '6px 8px', borderRadius: '4px' }}>
-                Valor Total (NF + Frete): R$ {(parseFloat(itemModal.valor_nota_fiscal || 0) + parseFloat(itemModal.valor_frete || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                Valor Total (NF + Frete): R$ {(parseNum(itemModal.valor_nota_fiscal) + parseNum(itemModal.valor_frete)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </div>
             </div>
 
@@ -1133,8 +1134,8 @@ const handleEditar = (fat) => {
                         <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '8px' }}>{it.nome_material || `Material #${it.material_id}`}</td>
                           <td style={{ padding: '8px', fontWeight: 'bold' }}>{it.quantidade}</td>
-                          <td style={{ padding: '8px' }}>R$ {parseFloat(it.valor_unitario || 0).toFixed(2)}</td>
-                          <td style={{ padding: '8px', color: '#d97706' }}>{parseFloat(it.ipi_percentual || 0).toFixed(2)}%</td>
+                          <td style={{ padding: '8px' }}>R$ {parseNum(it.valor_unitario).toFixed(2)}</td>
+                          <td style={{ padding: '8px', color: '#d97706' }}>{parseNum(it.ipi_percentual).toFixed(2)}%</td>
                           <td style={{ padding: '8px', fontWeight: 'bold', color: '#16a34a' }}>
                             R$ {totalItem.toFixed(2)}
                           </td>
