@@ -33,7 +33,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   const [mostrarResumoOcupacao, setMostrarResumoOcupacao] = useState(false);
   const [mostrarResumoVeiculos, setMostrarResumoVeiculos] = useState(false);
   const [mostrarRemanejamento, setMostrarRemanejamento] = useState(false);
-
+  const [mostrarEfetivoEscalado, setMostrarEfetivoEscalado] = useState(false);
   // --- MODAL DE REMANEJAMENTO DE GESTOR ---
   const [modalAberto, setModalAberto] = useState(false);
   const [remanejamentoDados, setRemanejamentoDados] = useState({
@@ -278,9 +278,14 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         return false;
       }
 
-      const jaEstaAlocadoNaTela = alocacoesDoDia.some(
-        a => Number(a.id_funcionario) === idFunc && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
-      );
+      const jaEstaAlocadoNaTela = alocacoesDoDia.some(a => {
+      const mesmoFunc = Number(a.id_funcionario) === idFunc;
+      const mesmoTurno = String(a.turno).toUpperCase() === turnoAtivo.toUpperCase();
+      const estaLiberado = Number(a.liberado) === 1 || String(a.status_presenca).toUpperCase() === 'LIBERADO';
+      
+        // Se está no mesmo turno E NÃO está liberado, considera ocupado/bloqueado
+        return mesmoFunc && mesmoTurno && !estaLiberado;
+      });
 
       return !jaEstaAlocadoNaTela;
     });
@@ -695,66 +700,66 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         </div>
       </div>
 
-      {/* 2. BARRA DE CRIAR EQUIPES E FOLGUISTAS */}
-      <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-        
-        <form onSubmit={handleCriarEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flex: '1 1 300px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>
-              Nome da Equipe (Turno {turnoAtivo})
-            </label>
-            <input 
-              required
-              type="text" 
-              placeholder="Ex: EQUIPE HORIZONTAL, VERTICAL..." 
-              value={nomeNovaEquipe}
-              onChange={e => setNomeNovaEquipe(e.target.value)}
-              style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: '500', boxSizing: 'border-box' }}
-            />
-          </div>
+{/* 2. BARRA DE CRIAR EQUIPES E FOLGUISTAS */}
+<div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px' }}>
+  
+  <form onSubmit={handleCriarEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flex: '1 1 300px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+      <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>
+        Nome da Equipe (Turno {turnoAtivo})
+      </label>
+      <input 
+        required
+        type="text" 
+        placeholder="Ex: EQUIPE HORIZONTAL, VERTICAL..." 
+        value={nomeNovaEquipe}
+        onChange={e => setNomeNovaEquipe(e.target.value)}
+        style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: '500', boxSizing: 'border-box' }}
+      />
+    </div>
 
-          <button 
-            type="submit" 
-            style={{ height: '36px', padding: '0 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe ({turnoAtivo})
-          </button>
-        </form>
+    <button 
+      type="submit" 
+      style={{ height: '36px', padding: '0 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+    >
+      <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe ({turnoAtivo})
+    </button>
+  </form>
 
-        <div style={{ borderLeft: '1px solid #cbd5e1', paddingLeft: '12px', display: 'flex', alignItems: 'center' }}>
-          <button 
-            type="button" 
-            onClick={handleCriarEquipeFolguista}
-            style={{ height: '36px', padding: '0 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
-            title="Cria o painel de Folguistas para ambos os turnos (Diurno + Noturno)"
-          >
-            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe de Folga (Ambos os Turnos)
-          </button>
-        </div>
-        
-        <button
-          type="button"
-          onClick={handleCopiarUltimoAgendamento}
-          style={{
-            height: '36px',
-            padding: '0 16px',
-            backgroundColor: '#0284c7',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            fontSize: '11px',
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            whiteSpace: 'nowrap'
-          }}
-          title="Copia a formação de equipes e veículos do último dia em que houve agendamento para esta obra"
-        >
-          📋 Copiar Últimos Agendamentos
-        </button> 
-      </div>  
+  <div style={{ borderLeft: '1px solid #cbd5e1', paddingLeft: '12px' }}>
+    <button 
+      type="button" 
+      onClick={handleCriarEquipeFolguista}
+      style={{ height: '36px', padding: '0 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+      title="Cria o painel de Folguistas para ambos os turnos (Diurno + Noturno)"
+    >
+      <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe de Folga (Ambos os Turnos)
+    </button>
+  </div>
+  
+  <button
+    type="button"
+    onClick={handleCopiarUltimoAgendamento}
+    style={{
+      height: '36px',
+      padding: '0 16px',
+      backgroundColor: '#0284c7',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '4px',
+      fontWeight: 'bold',
+      fontSize: '11px',
+      cursor: 'pointer',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      whiteSpace: 'nowrap'
+    }}
+    title="Copia a formação de equipes e veículos do último dia em que houve agendamento para esta obra"
+  >
+    📋 Copiar Últimos Agendamentos
+  </button> 
+</div>
        
       {/* 3. PAINEL DINÂMICO DE ALOCAÇÃO */}
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '16px', alignItems: 'start' }}>
@@ -969,100 +974,116 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
       </div>
 
-      {/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
-          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Users style={{ width: '16px', height: '16px', color: '#475569' }} />
-            Efetivo Escalado na Obra ({alocacoesDoDia.length} Registro(s))
-          </div>
+{/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
+<div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
+  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: mostrarEfetivoEscalado ? '16px' : '0', borderBottom: mostrarEfetivoEscalado ? '1px solid #e2e8f0' : 'none', paddingBottom: mostrarEfetivoEscalado ? '12px' : '0' }}>
+    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <Users style={{ width: '16px', height: '16px', color: '#475569' }} />
+      Efetivo Escalado na Obra ({alocacoesDoDia.length} Registro(s))
+    </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase' }}>Filtrar Equipe:</label>
-            <select
-              value={filtroEquipeTabela}
-              onChange={(e) => setFiltroEquipeTabela(e.target.value)}
-              style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', fontWeight: '500', color: '#334155' }}
-            >
-              <option value="TODAS">⚠️ TODAS AS EQUIPES</option>
-              {[...new Set(alocacoesDoDia.map(a => a.equipe).filter(Boolean))].map(eq => (
-                <option key={eq} value={eq}>{eq.toUpperCase()}</option>
-              ))}
-            </select>
-          </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {mostrarEfetivoEscalado && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase' }}>Filtrar Equipe:</label>
+          <select
+            value={filtroEquipeTabela}
+            onChange={(e) => setFiltroEquipeTabela(e.target.value)}
+            style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', fontWeight: '500', color: '#334155' }}
+          >
+            <option value="TODAS">⚠️ TODAS AS EQUIPES</option>
+            {[...new Set(alocacoesDoDia.map(a => a.equipe).filter(Boolean))].map(eq => (
+              <option key={eq} value={eq}>{eq.toUpperCase()}</option>
+            ))}
+          </select>
         </div>
+      )}
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#0f172a', color: '#fff', textTransform: 'uppercase' }}>
-                <th style={{ padding: '10px 12px' }}>Colaborador / Matrícula</th>
-                <th style={{ padding: '10px 12px' }}>Cargo</th>
-                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Turno</th>
-                <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
-                <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
-                <th style={{ padding: '10px 12px' }}>Obs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const alocsFiltradas = alocacoesDoDia.filter(aloc => {
-                  if (filtroEquipeTabela === 'TODAS') return true;
-                  return String(aloc.equipe).toUpperCase().trim() === filtroEquipeTabela.toUpperCase().trim();
-                });
+      {/* BOTÃO DE VISIBILIDADE */}
+      <button 
+        type="button"
+        onClick={() => setMostrarEfetivoEscalado(!mostrarEfetivoEscalado)}
+        style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e293b' }}
+      >
+        {mostrarEfetivoEscalado ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
+        {mostrarEfetivoEscalado ? 'Ocultar Tabela' : 'Ver Tabela'}
+      </button>
+    </div>
+  </div>
 
-                if (alocsFiltradas.length === 0) {
-                  return (
-                    <tr>
-                      <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                        Nenhum colaborador alocado para os critérios selecionados.
-                      </td>
-                    </tr>
-                  );
-                }
+  {mostrarEfetivoEscalado && (
+    <div style={{ overflowX: 'auto', marginTop: '12px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+        <thead>
+          <tr style={{ backgroundColor: '#0f172a', color: '#fff', textTransform: 'uppercase' }}>
+            <th style={{ padding: '10px 12px' }}>Colaborador / Matrícula</th>
+            <th style={{ padding: '10px 12px' }}>Cargo</th>
+            <th style={{ padding: '10px 12px', textAlign: 'center' }}>Turno</th>
+            <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
+            <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
+            <th style={{ padding: '10px 12px' }}>Obs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(() => {
+            const alocsFiltradas = alocacoesDoDia.filter(aloc => {
+              if (filtroEquipeTabela === 'TODAS') return true;
+              return String(aloc.equipe).toUpperCase().trim() === filtroEquipeTabela.toUpperCase().trim();
+            });
 
-                return alocsFiltradas.map((aloc, index) => {
-                  const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
-                                      String(aloc.status_presenca).toUpperCase() === 'FOLGA';
-                  const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
+            if (alocsFiltradas.length === 0) {
+              return (
+                <tr>
+                  <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                    Nenhum colaborador alocado para os critérios selecionados.
+                  </td>
+                </tr>
+              );
+            }
 
-                  return (
-                    <tr 
-                      key={`aloc-row-${aloc.id_funcionario}-${aloc.turno}-${index}`} 
-                      style={{ 
-                        borderBottom: '1px solid #e2e8f0', 
-                        backgroundColor: ehFolguista ? '#fef2f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') 
-                      }}
-                    >
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
-                          {aloc.nome}
-                        </div>
-                        <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#334155' }}>{aloc.cargo || '—'}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span style={{ backgroundColor: ehFolguista ? '#fee2e2' : '#e2e8f0', color: ehFolguista ? '#991b1b' : '#1e293b', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px' }}>
-                          {aloc.turno || '—'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : '#1e3a8a' }}>
-                        {aloc.equipe || 'Geral'}
-                      </td>
-                      <td style={{ padding: '10px 12px', fontWeight: '500', color: '#16a34a' }}>
-                        {veiculoUtilizado ? `🚗 ${veiculoUtilizado.placa} (${veiculoUtilizado.modelo})` : '—'}
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
-                        {aloc.observacao || '—'}
-                      </td>
-                    </tr>
-                  );
-                });
-              })()}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            return alocsFiltradas.map((aloc, index) => {
+              const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
+                                  String(aloc.status_presenca).toUpperCase() === 'FOLGA';
+              const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
+
+              return (
+                <tr 
+                  key={`aloc-row-${aloc.id_funcionario}-${aloc.turno}-${index}`} 
+                  style={{ 
+                    borderBottom: '1px solid #e2e8f0', 
+                    backgroundColor: ehFolguista ? '#fef2f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') 
+                  }}
+                >
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
+                      {aloc.nome}
+                    </div>
+                    <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#334155' }}>{aloc.cargo || '—'}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                    <span style={{ backgroundColor: ehFolguista ? '#fee2e2' : '#e2e8f0', color: ehFolguista ? '#991b1b' : '#1e293b', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px' }}>
+                      {aloc.turno || '—'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : '#1e3a8a' }}>
+                    {aloc.equipe || 'Geral'}
+                  </td>
+                  <td style={{ padding: '10px 12px', fontWeight: '500', color: '#16a34a' }}>
+                    {veiculoUtilizado ? `🚗 ${veiculoUtilizado.placa} (${veiculoUtilizado.modelo})` : '—'}
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
+                    {aloc.observacao || '—'}
+                  </td>
+                </tr>
+              );
+            });
+          })()}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
 
       {/* 7. RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>

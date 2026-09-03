@@ -85,14 +85,15 @@ router.get('/gestor/funcionarios-disponiveis', async (req, res) => {
         condicaoTurno = "AND UPPER(TRIM(turno)) = UPPER(TRIM(?))";
       }
 
+      // Regra: Exclui da lista apenas o colaborador que possui registro ATIVO (liberado = 0/NULL e status != 'LIBERADO') na mesma data/turno.
       filtroExclusaoAgendamento = `
         AND f.id NOT IN (
           SELECT id_funcionario 
           FROM diario_efetivo 
-          WHERE data_diario = ? 
+          WHERE DATE(data_diario) = DATE(?) 
             ${condicaoTurno}
-            AND (liberado IS NULL OR liberado = 0 OR liberado = false)
-            AND UPPER(TRIM(COALESCE(status_presenca, ''))) NOT IN ('LIBERADO', 'FOLGA')
+            AND (liberado IS NULL OR liberado = 0 OR liberado = false OR liberado = '0')
+            AND UPPER(TRIM(COALESCE(status_presenca, ''))) != 'LIBERADO'
         )
       `;
       
@@ -192,7 +193,7 @@ router.get('/gestor/diario-efetivo', async (req, res) => {
 // 5. POST: SALVAR / ATUALIZAR APONTAMENTOS DE EFETIVO
 // ========================================================
 router.post('/gestor/diario-efetivo', async (req, res) => {
-  const { data_diario, id_obra, equipe } = req.body;
+  const { data_diario, id_obra, equipe, turno } = req.body;
   const listaFuncionarios = req.body.funcionarios || req.body.efetivo || []; 
 
   if (!data_diario || !id_obra || !Array.isArray(listaFuncionarios)) {
@@ -230,10 +231,11 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 
     const [veiculosRemovidos] = await connection.execute(queryVeiculosAnteriores, paramsVeiculosAnteriores);
 
+    // Remoção dos dados antigos da equipe e turno correspondente
     if (equipeTratada) {
       await connection.execute(
-        "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?", 
-        [data_diario, parseInt(id_obra), equipeTratada]
+        "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ? AND UPPER(TRIM(turno)) = ?", 
+        [data_diario, parseInt(id_obra), equipeTratada, turno ? String(turno).trim().toUpperCase() : 'DIURNO']
       );
     } else {
       await connection.execute(
@@ -254,7 +256,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 
         if (!idFuncionario || !nomeFuncionario) continue; 
 
-        let statusCru = f.status_presenca && String(f.status_presenca).trim().toUpperCase() === 'FOLGA' ? 'FOLGA' : 'ALOCADO';
+        let statusCru = f.status_presenca ? String(f.status_presenca).trim().toUpperCase() : 'ALOCADO';
         const equipeFuncionario = f.equipe ? String(f.equipe).trim().toUpperCase() : (equipeTratada || 'GERAL');
         const idVeiculoValido = f.id_veiculo ? parseInt(f.id_veiculo) : null;
 
@@ -262,7 +264,8 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
           veiculosAlocadosAtualmente.add(idVeiculoValido);
         }
 
-        valoresParaInserir.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        // Adicionando liberado e data_hora_liberacao
+        valoresParaInserir.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         paramsInsercao.push(
           data_diario,
           parseInt(id_obra),
@@ -271,18 +274,20 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
           nomeFuncionario,
           f.cargo ? String(f.cargo) : null,
           f.matricula ? String(f.matricula) : null,
-          f.turno || 'DIURNO', 
+          f.turno || turno || 'DIURNO', 
           statusCru, 
           f.observacao && f.observacao.trim() !== '' ? String(f.observacao) : null,
           equipeFuncionario,
-          idVeiculoValido
+          idVeiculoValido,
+          f.liberado ? 1 : 0,
+          f.data_hora_liberacao || null
         );
       }
 
       if (valoresParaInserir.length > 0) {
         const sqlInsert = `
           INSERT INTO diario_efetivo 
-          (data_diario, id_obra, id_funcionario, id_gestor, nome, cargo, matricula, turno, status_presenca, observacao, equipe, id_veiculo) 
+          (data_diario, id_obra, id_funcionario, id_gestor, nome, cargo, matricula, turno, status_presenca, observacao, equipe, id_veiculo, liberado, data_hora_liberacao) 
           VALUES ${valoresParaInserir.join(', ')}
         `;
         await connection.execute(sqlInsert, paramsInsercao);
