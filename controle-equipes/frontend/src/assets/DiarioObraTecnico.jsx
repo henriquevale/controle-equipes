@@ -84,23 +84,28 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   useEffect(() => {
     carregarVeiculosDoSistema(); 
   }, [dataDiario]); 
-
-  // BUSCAR DADOS DO RDO E EFETIVO AO ALTERAR OBRA OU DATA
   useEffect(() => {
-    if (idObraSelecionada && dataDiario) {
-      setSalvoComSucesso(false);
-      setStatusDiario('Normal'); 
-      setLiberarEquipeAoSalvar(false);
-      setObservacoesContratada('');
-      
-      buscarEfetivoVindoDoAgendamento();
-    } else {
-      setEfetivoAgendado([]);
-      setAtividadesLancadas([]);
-      setMateriaisLancados([]);
-      setEquipeConfirmada(false);
-    }
-  }, [idObraSelecionada, dataDiario]);
+  if (idObraSelecionada && dataDiario && equipeSelecionadaFiltro) {
+    buscarEfetivoVindoDoAgendamento();
+  }
+}, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
+  // BUSCAR DADOS DO RDO E EFETIVO AO ALTERAR OBRA OU DATA
+// CARREGAR EFETIVO E DADOS AO ALTERAR A OBRA, DATA OU EQUIPE
+useEffect(() => {
+  if (idObraSelecionada && dataDiario) {
+    setSalvoComSucesso(false);
+    setStatusDiario('Normal'); 
+    setLiberarEquipeAoSalvar(false);
+    setObservacoesContratada('');
+    
+    buscarEfetivoVindoDoAgendamento();
+  } else {
+    setEfetivoAgendado([]);
+    setAtividadesLancadas([]);
+    setMateriaisLancados([]);
+    setEquipeConfirmada(false);
+  }
+}, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
   
   // AJUSTE LINHAS VAZIAS PARA INSERÇÃO SE NÃO HOUVER DADOS E ESTIVER NORMAL
   useEffect(() => {
@@ -188,103 +193,78 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   };
   
 const buscarEfetivoVindoDoAgendamento = async () => {
+  try {
+    if (!idObraSelecionada || !dataDiario) return;
+
     setLoading(true);
-    setErroPainel('');
-    setEfetivoAgendado([]);
+
+    let colaboradoresCarregados = [];
+
+    // 1. Tenta buscar agendamento prévio (se a rota existir)
     try {
-      const user = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-      if (!user.id) {
-        setErroPainel('Sessão expirada. Reconecte-se.');
-        return;
-      }
-
-      // 1. Busca os colaboradores agendados/alocados para a obra e data
-      const params = { data_diario: dataDiario, id_obra: idObraSelecionada };
-      const resEfetivo = await axios.get(`${API_URL}/gestor/diario-efetivo`, { params });
-      
-      const dadosEfetivo = Array.isArray(resEfetivo.data) ? resEfetivo.data : (resEfetivo.data.efetivo || []);
-
-      if (dadosEfetivo && dadosEfetivo.length > 0) {
-        const idsVistos = new Set();
-        const listaSemDuplicados = [];
-
-        dadosEfetivo.forEach(item => {
-          const isFolguista = String(item.equipe).toUpperCase() === 'FOLGUISTAS';
-          const chaveUnica = isFolguista ? String(item.id_funcionario) : `${item.id_funcionario}-${item.turno}`;
-
-          if (!idsVistos.has(chaveUnica)) {
-            idsVistos.add(chaveUnica);
-            
-            const equipeFormatada = item.equipe ? String(item.equipe).trim().toUpperCase() : 'GERAL';
-
-            let statusPresencaPadrao = item.status_presenca;
-            if (!statusPresencaPadrao || statusPresencaPadrao.toUpperCase() === 'ALOCADO') {
-              statusPresencaPadrao = 'Presente';
-            }
-
-            listaSemDuplicados.push({
-              id_funcionario: item.id_funcionario,
-              name: item.nome,
-              cargo: item.cargo,
-              matricula: item.matricula,
-              statusPresenca: isFolguista ? 'Folga' : statusPresencaPadrao, 
-              statusCustomizado: item.observacao || '',
-              turno: isFolguista ? 'DIURNO e NOTURNO' : (item.turno || 'DIURNO'), 
-              equipe: equipeFormatada,
-              id_veiculo: item.id_veiculo || '',
-              liberado: Boolean(item.liberado)
-            });
-          }
-        });
-        setEfetivoAgendado(listaSemDuplicados);
-      } else {
-        setEfetivoAgendado([]);
-      }
-
-      // 2. Busca o diário técnico completo (produção e materiais salvos anteriormente)
-      if (equipeSelecionadaFiltro && equipeSelecionadaFiltro !== 'GERAL') {
-        const resCompleto = await axios.get(`${API_URL}/gestor/salvar-diario-completo`, {
-          params: {
-            data_diario: dataDiario,
-            id_obra: idObraSelecionada,
-            equipe: equipeSelecionadaFiltro
-          }
-        });
-
-        if (resCompleto.data && resCompleto.data.existe) {
-          const rdoSalvo = resCompleto.data;
-
-          if (rdoSalvo.atividades_tachas && rdoSalvo.atividades_tachas.length > 0) {
-            setAtividadesLancadas(rdoSalvo.atividades_tachas);
-          } else {
-            setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-          }
-
-          if (rdoSalvo.materials_apontados && rdoSalvo.materials_apontados.length > 0) {
-            setMateriaisLancados(rdoSalvo.materials_apontados);
-          } else {
-            setMateriaisLancados([{ material: '', quantidade: '' }]);
-          }
-
-          if (rdoSalvo.observacoes) {
-            setObservacoesContratada(rdoSalvo.observacoes);
-          }
-        } else {
-          setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-          setMateriaisLancados([{ material: '', quantidade: '' }]);
+      const resEfetivo = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
+        params: { 
+          id_obra: idObraSelecionada, 
+          data_diario: dataDiario
         }
-      } else {
-        setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-        setMateriaisLancados([{ material: '', quantidade: '' }]);
+      });
+      colaboradoresCarregados = Array.isArray(resEfetivo.data) ? resEfetivo.data : [];
+    } catch (errEfetivo) {
+      // Se der 404 no agendamento, ignora e segue para carregar o RDO salvo
+      if (errEfetivo.response?.status !== 404) {
+        console.warn("Rota de agendamento não encontrada ou sem dados prévios.");
       }
-
-    } catch (err) {
-      console.error(err);
-      setErroPainel('Erro ao buscar a escala ou dados salvos para esta data.');
-    } finally {
-      setLoading(false);
     }
-  };
+
+    // 2. Busca o RDO completo salvo no banco
+    const resCompleto = await axios.get(`${API_URL}/gestor/salvar-diario-completo`, {
+      params: { 
+        id_obra: idObraSelecionada, 
+        data_diario: dataDiario, 
+        equipe: equipeSelecionadaFiltro 
+      }
+    });
+
+    if (resCompleto.data && resCompleto.data.existe) {
+      const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado } = resCompleto.data;
+
+      // Restaura o Status do Diário e Observações
+      setStatusDiario(status || 'Normal');
+      setObservacoesContratada(observacoes || '');
+
+      // Restaura Atividades e Materiais
+      setAtividadesLancadas(atividades_tachas || []);
+      setMateriaisLancados(materials_apontados || []);
+
+      // Se já existiam colaboradores salvos no RDO, utiliza eles
+      if (efetivo_confirmado && efetivo_confirmado.length > 0) {
+        colaboradoresCarregados = efetivo_confirmado.map(colab => ({
+          ...colab,
+          nome: colab.nome || colab.nome,
+          statusPresenca: colab.status_presenca || colab.statusPresenca || 'Presente'
+        }));
+      }
+    } else {
+      // Se não houver diário salvo no banco, limpa para estado limpo
+      setAtividadesLancadas([]);
+      setMateriaisLancados([]);
+      setObservacoesContratada('');
+      setStatusDiario('Normal');
+    }
+
+    setEfetivoAgendado(colaboradoresCarregados);
+
+  } catch (error) {
+    // Se a rota do RDO dar 404, avisa no console de forma detalhada
+    if (error.response?.status === 404) {
+      console.error(`404 Not Found: Verifique a URL do backend em gestorRoutes.js -> ${error.config?.url}`);
+    } else {
+      console.error("Erro ao buscar dados do RDO:", error);
+    }
+  } finally {
+    setLoading(false);
+  }
+};
 
   const selecionarObra = (obra) => {
     setIdObraSelecionada(obra.id);
@@ -377,8 +357,8 @@ const buscarEfetivoVindoDoAgendamento = async () => {
       efetivoFiltradoPorEquipe.forEach(f => {
         if (f.id_funcionario) {
           if (idsVistos.has(f.id_funcionario)) {
-            if (!nomesDuplicados.includes(f.name)) {
-              nomesDuplicados.push(f.name);
+            if (!nomesDuplicados.includes(f.nome)) {
+              nomesDuplicados.push(f.nome);
             }
           }
           idsVistos.add(f.id_funcionario);
@@ -418,7 +398,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
 
         const baseFuncionario = {
           id_funcionario: f.id_funcionario || null, 
-          nome: f.name, 
+          nome: f.nome, 
           cargo: f.cargo, 
           matricula: f.matricula,
           status_presenca: statusFormatado, 
@@ -533,7 +513,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
           : baseStatus;
 
         return [
-          String(f?.name || '---'), 
+          String(f?.nome || '---'), 
           String(f?.cargo || '---'), 
           String(f?.turno || 'DIURNO'), 
           statusTexto,
@@ -833,7 +813,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
                             <td style={{ padding: '10px 12px', color: '#334155' }}>{veiculo.marca} {veiculo.modelo} ({veiculo.ano})</td>
                             <td style={{ padding: '10px 12px', color: '#64748b' }}>{veiculo.tipo}</td>
                             <td style={{ padding: '10px 12px', fontWeight: '500', color: '#1e293b' }}>
-                              {motorista ? `${motorista.name} (${motorista.cargo})` : (veiculo.id_funcionario ? `ID Funcionário: #${veiculo.id_funcionario}` : 'Sem Motorista')}
+                              {motorista ? `${motorista.nome} (${motorista.cargo})` : (veiculo.id_funcionario ? `ID Funcionário: #${veiculo.id_funcionario}` : 'Sem Motorista')}
                             </td>
                             <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                               <select
@@ -903,7 +883,7 @@ const buscarEfetivoVindoDoAgendamento = async () => {
                         <div key={`${func.id_funcionario}-${func.turno}-${index}`} style={{ border: estaLiberado ? '1px solid #fde047' : '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: estaLiberado ? '#fefce8' : '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '2px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span>{func.name}</span>
+                              <span>{func.nome}</span>
                               {estaLiberado && (
                                 <span style={{ fontSize: '9px', backgroundColor: '#fef08a', color: '#854d0e', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>
                                   🟡 LIBERADO

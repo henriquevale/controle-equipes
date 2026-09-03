@@ -363,13 +363,13 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
        WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
       [data_diario, obraIdValida, equipeMaiuscula]
     );
-
+/*
     if (statusAtual.length > 0 && statusAtual[0].status_rdo === 'FINALIZADO') {
       connection.release();
       return res.status(403).json({ 
         mensagem: `O RDO da equipe '${equipeMaiuscula}' já foi finalizado e está travado para alterações.` 
       });
-    }
+    }*/
 
     await connection.beginTransaction();
     await connection.execute('SET FOREIGN_KEY_CHECKS = 0');
@@ -530,8 +530,9 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
   const equipeMaiusculaBusca = String(equipe).trim().toUpperCase();
 
   try {
+    // Incluído o campo 'status' para retornar a situação do diário (Ex: Normal, Choveu, etc.)
     const sqlMestre = `
-      SELECT id, observacoes, id_gestor 
+      SELECT id, status, observacoes, id_gestor 
       FROM diario_obra 
       WHERE id_obra = ? AND data_diario = ? AND equipe = ?
     `;
@@ -543,6 +544,7 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
 
     const diarioId = mestreRows[0].id;
 
+    // Substitua o bloco sqlEfetivo antigo por este corrigido:
     const sqlEfetivo = `
       SELECT 
         dec.id_funcionario,
@@ -560,8 +562,8 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
       FROM diario_efetivo_confirmado dec
       INNER JOIN funcionarios f ON dec.id_funcionario = f.id
       LEFT JOIN diario_efetivo de ON de.id_funcionario = dec.id_funcionario 
-         AND de.data_diario = dec.data_diario 
-         AND de.id_obra = dec.id_obra
+        AND de.data_diario = dec.data_diario 
+        AND de.id_obra = dec.id_obra
       LEFT JOIN veiculos v ON de.id_veiculo = v.id
       WHERE dec.id_diario = ?
       ORDER BY f.nome ASC
@@ -588,6 +590,7 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
       id_obra: parseInt(id_obra),
       id_gestor: mestreRows[0].id_gestor,
       equipe: equipeMaiusculaBusca,
+      status: mestreRows[0].status || "Normal",
       observacoes: mestreRows[0].observacoes || "",
       efetivo_confirmado: efetivoRows, 
       atividades_tachas: atividadesRows,
