@@ -716,7 +716,7 @@ router.post('/faturamento-direto', async (req, res) => {
     valor_nota_fiscal, 
     valor_frete,
     status, 
-    motivo_cancelamento, // <--- ADICIONADO
+    motivo_cancelamento,
     id_gestor,
     data_solicitacao,
     observacao,
@@ -754,22 +754,25 @@ router.post('/faturamento-direto', async (req, res) => {
 
     const statusFinal = status || 'Solicitado';
     const boletimFormatado = boletim_medicao ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() : null;
-    const pedidoRaw = numero_pedido_obra ?? numero_pedido_concessionaria;
-    const pedidoObraValido = (pedidoRaw !== undefined && pedidoRaw !== '' && pedidoRaw !== null) ? parseInt(pedidoRaw) : 0;
     const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
     const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
     const valorNfValido = (valor_nota_fiscal !== undefined && valor_nota_fiscal !== '' && valor_nota_fiscal !== null) ? parseFloat(valor_nota_fiscal) : 0;
 
-    // INSERÇÃO: Adicionada a coluna motivo_cancelamento (15 parâmetros)
+    //Tratamento individual para ambos os pedidos
+    const pedObraValido = (numero_pedido_obra !== undefined && numero_pedido_obra !== null) ? String(numero_pedido_obra).trim() : '';
+    const pedConcessionariaValido = (numero_pedido_concessionaria !== undefined && numero_pedido_concessionaria !== null) ? String(numero_pedido_concessionaria).trim() : '';
+
+    // INSERÇÃO: Adicionados numero_pedido_obra e numero_pedido_concessionaria (16 parâmetros)
     const sqlFaturamento = `
       INSERT INTO faturamentos_diretos 
-      (obra_id, numero_pedido_obra, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, valor_frete, status, motivo_cancelamento, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (obra_id, numero_pedido_obra, numero_pedido_concessionaria, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, valor_frete, status, motivo_cancelamento, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(sqlFaturamento, [
       obraIdValida, 
-      pedidoObraValido, 
+      pedObraValido, 
+      pedConcessionariaValido,
       boletimFormatado, 
       fornecedorIdValido, 
       numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
@@ -777,7 +780,7 @@ router.post('/faturamento-direto', async (req, res) => {
       valorNfValido, 
       valorFreteValido,
       statusFinal, 
-      motivo_cancelamento ? String(motivo_cancelamento).trim() : null, // <--- BIND DO CAMPO
+      motivo_cancelamento ? String(motivo_cancelamento).trim() : null,
       gestorIdValido,
       parseDate(data_solicitacao),
       observacao ? String(observacao).trim() : '',
@@ -788,7 +791,6 @@ router.post('/faturamento-direto', async (req, res) => {
     const idFaturamento = result.insertId;
 
     if (Array.isArray(itens) && itens.length > 0) {
-      // INSERÇÃO NOS ITENS: Adicionada a coluna ipi_percentual (6 parâmetros)
       const sqlItem = `
         INSERT INTO faturamento_itens 
         (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario, ipi_percentual) 
@@ -818,7 +820,7 @@ router.post('/faturamento-direto', async (req, res) => {
             qtd,
             item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
             parseFloat(item.valor_unitario) || 0,
-            parseFloat(item.ipi_percentual) || 0 // <--- BIND DO IPI
+            parseFloat(item.ipi_percentual) || 0
           ]);
 
           if (statusFinal === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
@@ -869,7 +871,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     valor_nota_fiscal, 
     valor_frete,
     status, 
-    motivo_cancelamento, // <--- ADICIONADO
+    motivo_cancelamento,
     id_gestor,
     data_solicitacao,
     observacao,
@@ -915,17 +917,20 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [faturamentoId]);
 
       const boletimFormatado = boletim_medicao ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() : '';
-      const pedidoRaw = numero_pedido_obra ?? numero_pedido_concessionaria;
-      const pedidoObraValido = (pedidoRaw !== undefined && pedidoRaw !== '' && pedidoRaw !== null) ? parseInt(pedidoRaw) : 0;
       const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
       const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
       const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
 
-      // UPDATE: Adicionada a coluna motivo_cancelamento
+      //Tratamento individual para ambos os pedidos
+      const pedObraValido = (numero_pedido_obra !== undefined && numero_pedido_obra !== null) ? String(numero_pedido_obra).trim() : '';
+      const pedConcessionariaValido = (numero_pedido_concessionaria !== undefined && numero_pedido_concessionaria !== null) ? String(numero_pedido_concessionaria).trim() : '';
+
+      // UPDATE: Atualiza individualmente os campos numero_pedido_obra e numero_pedido_concessionaria
       const sqlUpdateFat = `
         UPDATE faturamentos_diretos SET 
           obra_id = ?, 
           numero_pedido_obra = ?, 
+          numero_pedido_concessionaria = ?, 
           boletim_medicao = ?, 
           fornecedor_id = ?, 
           numero_nota_fiscal = ?, 
@@ -944,7 +949,8 @@ router.put('/faturamento-direto/:id', async (req, res) => {
 
       await connection.query(sqlUpdateFat, [
         obraIdValida, 
-        pedidoObraValido, 
+        pedObraValido, 
+        pedConcessionariaValido,
         boletimFormatado, 
         fornecedorIdValido, 
         numero_nota_fiscal ? String(numero_nota_fiscal).trim() : '', 
@@ -952,7 +958,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         parseFloat(valor_nota_fiscal) || 0, 
         valorFreteValido,
         statusNovo, 
-        motivo_cancelamento ? String(motivo_cancelamento).trim() : null, // <--- BIND DO CAMPO
+        motivo_cancelamento ? String(motivo_cancelamento).trim() : null,
         gestorIdValido,
         parseDate(data_solicitacao), 
         observacao ? String(observacao).trim() : '',
@@ -963,7 +969,6 @@ router.put('/faturamento-direto/:id', async (req, res) => {
 
       // 3. Insere os novos itens
       if (Array.isArray(itens) && itens.length > 0) {
-        // INSERÇÃO NOS ITENS: Adicionada a coluna ipi_percentual (6 parâmetros)
         const sqlItem = `
           INSERT INTO faturamento_itens 
           (faturamento_id, material_id, quantidade, capacidade_uso, valor_unitario, ipi_percentual) 
@@ -993,7 +998,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
               qtd,
               item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
               parseFloat(item.valor_unitario) || 0,
-              parseFloat(item.ipi_percentual) || 0 // <--- BIND DO IPI
+              parseFloat(item.ipi_percentual) || 0
             ]);
 
             if (statusNovo === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {

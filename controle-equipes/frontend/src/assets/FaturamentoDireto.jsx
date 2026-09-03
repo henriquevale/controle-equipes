@@ -234,6 +234,8 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     const payload = {
       obra_id: form.obra_id,
       numero_pedido_obra: form.numero_pedido_concessionaria,
+      numero_pedido_concessionaria: form.numero_pedido_concessionaria,
+      numero_pedido_interno: form.numero_pedido_interno,
       boletim_medicao: form.boletim_medicao,
       fornecedor_id: form.fornecedor_id,
       numero_nota_fiscal: form.numero_nota_fiscal,
@@ -268,39 +270,41 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     }
   };
 
-  const handleEditar = (fat) => {
-    const formatarDataInput = (data) => {
-      if (!data) return '';
-      try {
-        const d = new Date(data);
-        return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-      } catch (e) {
-        return '';
-      }
-    };
-
-    setEditandoId(fat.id);
-    setForm({
-      obra_id: fat.obra_id || '',
-      numero_pedido_concessionaria: fat.numero_pedido_obra || fat.numero_pedido_concessionaria || '',
-      numero_pedido_interno: fat.numero_pedido_interno || '',
-      boletim_medicao: fat.boletim_medicao ? String(fat.boletim_medicao).replace(/\s+/g, '').toUpperCase() : '',
-      fornecedor_id: fat.fornecedor_id || '',
-      numero_nota_fiscal: fat.numero_nota_fiscal || '',
-      data_nota_fiscal: formatarDataInput(fat.data_nota_fiscal),
-      valor_nota_fiscal: fat.valor_nota_fiscal || '',
-      valor_frete: fat.valor_frete || '',
-      data_envio: formatarDataInput(fat.data_envio),
-      status: fat.status || 'Solicitado',
-      motivo_cancelamento: fat.motivo_cancelamento || '',
-      id_gestor: fat.id_gestor || fat.gestor || fat.gestor_id || '',
-      url_email: fat.url_email || '',
-      arquivos_nf: [],
-      observacao: fat.observacao || '',
-      data_solicitacao: formatarDataInput(fat.data_solicitacao) || new Date().toISOString().slice(0, 10),
-      itens: Array.isArray(fat.itens) ? fat.itens : []
-    });
+const handleEditar = (fat) => {
+  const formatarDataInput = (data) => {
+    if (!data) return '';
+    try {
+      const d = new Date(data);
+      return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+    } catch (e) {
+      return '';
+    }
   };
+
+  setEditandoId(fat.id);
+  setForm({
+    obra_id: fat.obra_id || '',
+    // Garante que o Pedido Concessionária leia da propriedade certa
+    numero_pedido_concessionaria: fat.numero_pedido_concessionaria || '',
+    // Garante a leitura do Pedido Interno/Obra tanto de numero_pedido_interno quanto de numero_pedido_obra
+    numero_pedido_interno: fat.numero_pedido_interno || fat.numero_pedido_obra || fat.pedido_interno || '', 
+    boletim_medicao: fat.boletim_medicao ? String(fat.boletim_medicao).replace(/\s+/g, '').toUpperCase() : '',
+    fornecedor_id: fat.fornecedor_id || '',
+    numero_nota_fiscal: fat.numero_nota_fiscal || '',
+    data_nota_fiscal: formatarDataInput(fat.data_nota_fiscal),
+    valor_nota_fiscal: fat.valor_nota_fiscal || '',
+    valor_frete: fat.valor_frete || '',
+    data_envio: formatarDataInput(fat.data_envio),
+    status: fat.status || 'Solicitado',
+    motivo_cancelamento: fat.motivo_cancelamento || '',
+    id_gestor: fat.id_gestor || fat.gestor || fat.gestor_id || '',
+    url_email: fat.url_email || '',
+    arquivos_nf: [],
+    observacao: fat.observacao || '',
+    data_solicitacao: formatarDataInput(fat.data_solicitacao) || new Date().toISOString().slice(0, 10),
+    itens: Array.isArray(fat.itens) ? fat.itens : []
+  });
+};
 
   const handleExcluir = async (fat) => {
     const idParaExcluir = typeof fat === 'object' ? (fat.id || fat.id_faturamento || fat._id) : fat;
@@ -342,7 +346,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
       const vNf = parseFloat(f.valor_nota_fiscal) || 0;
       const vFr = parseFloat(f.valor_frete) || 0;
       const vTot = vNf + vFr;
-      const linha = `"${f.id}";"${f.obra_id}";"${f.numero_pedido_concessionaria || ''}";"${f.numero_pedido_interno || ''}";"${f.boletim_medicao || ''}";"${f.fornecedor_id}";"${f.numero_nota_fiscal || ''}";"${f.data_nota_fiscal || ''}";"${vNf}";"${vFr}";"${vTot}";"${f.data_envio || ''}";"${f.status}";"${f.motivo_cancelamento || ''}";"${idGestor || ''}";"${f.url_email || ''}";"${f.data_solicitacao || ''}";"${(f.observacao || '').replace(/"/g, '""')}"`;
+      const linha = `"${f.id}";"${f.obra_id}";"${f.numero_pedido_concessionaria || f.numero_pedido_obra || ''}";"${f.numero_pedido_interno || ''}";"${f.boletim_medicao || ''}";"${f.fornecedor_id}";"${f.numero_nota_fiscal || ''}";"${f.data_nota_fiscal || ''}";"${vNf}";"${vFr}";"${vTot}";"${f.data_envio || ''}";"${f.status}";"${f.motivo_cancelamento || ''}";"${idGestor || ''}";"${f.url_email || ''}";"${f.data_solicitacao || ''}";"${(f.observacao || '').replace(/"/g, '""')}"`;
       csvContent += linha + '\n';
     });
 
@@ -455,7 +459,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
 
               <div>
                 <label style={labelStyle}>Nº Pedido (Concessionária)</label>
-                <input type="number" placeholder="Ex: 101" value={form.numero_pedido_concessionaria} onChange={e => setForm({ ...form, numero_pedido_concessionaria: e.target.value })} style={inputStyle} />
+                <input type="text" placeholder="Ex: 4800102339" value={form.numero_pedido_concessionaria} onChange={e => setForm({ ...form, numero_pedido_concessionaria: e.target.value })} style={inputStyle} />
               </div>
 
               <div>
@@ -1009,10 +1013,10 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
                         <div style={{ fontSize: '10px', color: '#0369a1', marginTop: '2px' }}>{fornObj ? fornObj.nome_fantasia : `Forn. ID: ${fat.fornecedor_id}`}</div>
                       </td>
                       <td style={{ padding: '10px 12px' }}>
-                        <div>Ped. Concess: <span style={{ fontWeight: 'bold' }}>{fat.numero_pedido_concessionaria || fat.numero_pedido_obra || '-'}</span></div>
-                        <div>Ped. Interno: <span style={{ fontWeight: 'bold', color: '#475569' }}>{fat.numero_pedido_interno || '-'}</span></div>
-                        <div style={{ fontSize: '10px', color: '#0284c7', fontWeight: 'bold' }}>BM: {fat.boletim_medicao || '-'}</div>
-                      </td>
+  <div>Ped. Concess: <span style={{ fontWeight: 'bold' }}>{fat.numero_pedido_concessionaria || '-'}</span></div>
+  <div>Ped. Interno: <span style={{ fontWeight: 'bold', color: '#475569' }}>{fat.numero_pedido_interno || fat.numero_pedido_obra || '-'}</span></div>
+  <div style={{ fontSize: '10px', color: '#0284c7', fontWeight: 'bold' }}>BM: {fat.boletim_medicao || '-'}</div>
+</td>
                       <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{fat.numero_nota_fiscal || '-'}</td>
                       <td style={{ padding: '10px 12px', color: '#475569' }}>
                         <div>NF: {fat.data_nota_fiscal ? new Date(fat.data_nota_fiscal).toLocaleDateString('pt-BR') : '-'}</div>
@@ -1083,8 +1087,8 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
               <div><strong>Obra:</strong> {obrasDisponiveis.find(o => String(o.id) === String(itemModal.obra_id))?.nome_obra || itemModal.obra_id}</div>
               <div><strong>Fornecedor:</strong> {fornecedoresDisponiveis.find(f => String(f.id) === String(itemModal.fornecedor_id))?.nome_fantasia || itemModal.fornecedor_id}</div>
               <div><strong>Boletim Medição:</strong> {itemModal.boletim_medicao || '-'}</div>
-              <div><strong>Nº Pedido (Concessionária):</strong> {itemModal.numero_pedido_concessionaria || itemModal.numero_pedido_obra || '-'}</div>
-              <div><strong>Nº Pedido (Interno):</strong> {itemModal.numero_pedido_interno || '-'}</div>
+<div><strong>Nº Pedido (Concessionária):</strong> {itemModal.numero_pedido_concessionaria || '-'}</div>
+<div><strong>Nº Pedido (Interno):</strong> {itemModal.numero_pedido_interno || itemModal.numero_pedido_obra || '-'}</div>
               <div><strong>Status:</strong> <span style={{ fontWeight: 'bold', color: itemModal.status === 'Cancelado' ? '#dc2626' : '#2563eb' }}>{itemModal.status}</span></div>
               {itemModal.status === 'Cancelado' && (
                 <div style={{ gridColumn: 'span 2', color: '#dc2626' }}><strong>Motivo do Cancelamento:</strong> {itemModal.motivo_cancelamento || '-'}</div>
