@@ -487,13 +487,12 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         ]);
       }
     }
-
-    await connection.execute(
-      `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo) 
-       VALUES (?, ?, ?, 'FINALIZADO') 
-       ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO'`,
-      [data_diario, obraIdValida, equipeMaiuscula]
-    );
+      await connection.execute(
+        `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo, status_operacional) 
+        VALUES (?, ?, ?, 'FINALIZADO', ?) 
+        ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO', status_operacional = VALUES(status_operacional)`,
+        [data_diario, obraIdValida, equipeMaiuscula, statusTratadoDiario]
+      );
 
     await connection.execute('SET FOREIGN_KEY_CHECKS = 1');
     await connection.commit();
@@ -792,6 +791,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
       data_inicio, 
       data_fim, 
       status_rdo, 
+      status_operacional, // <-- NOVO PARÂMETRO
       id_gestor_filtro 
     } = req.query;
 
@@ -808,9 +808,9 @@ router.get('/gestor/historico-diarios', async (req, res) => {
         r.id_obra,
         r.equipe, 
         o.nome_obra,
-        o.codigo_obra,
         u.nome AS nome_gestor,
         IFNULL(c.status_rdo, 'PENDENTE') AS status_rdo,
+        IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')) AS status_operacional,
         COUNT(DISTINCT r.id_funcionario) AS total_efetivo,
         GROUP_CONCAT(DISTINCT r.nome ORDER BY r.nome SEPARATOR ', ') AS nomes_efetivo,
         IFNULL(do.observacoes, '') AS observacoes,
@@ -895,15 +895,35 @@ router.get('/gestor/historico-diarios', async (req, res) => {
       }
     }
 
+    // --- FILTRO ATUALIZADO: STATUS OPERACIONAL ---
+    if (status_operacional && status_operacional !== '' && status_operacional !== 'TODOS') {
+      const stOp = status_operacional.toUpperCase().trim();
+      
+      if (stOp === 'OUTROS') {
+        // Busca tudo que NÃO seja Normal, Choveu/Chuva ou Material/Insumo
+        sql += ` 
+          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%NORMAL%'
+          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%CHOVEU%'
+          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%CHUVA%'
+          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%MATERIAL%'
+          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%INSUMO%'
+        `;
+      } else {
+        sql += ` AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) LIKE ? `;
+        params.push(`%${stOp}%`);
+      }
+    }
+
     sql += `
       GROUP BY 
         r.data_diario, 
         r.id_obra, 
         r.equipe, 
         o.nome_obra, 
-        o.codigo_obra, 
         u.nome, 
         c.status_rdo, 
+        c.status_operacional,
+        do.status,
         do.observacoes, 
         do.id
       ORDER BY r.data_diario DESC, r.equipe ASC
@@ -918,7 +938,6 @@ router.get('/gestor/historico-diarios', async (req, res) => {
     res.status(500).json({ error: "Erro interno no servidor ao carregar histórico." });
   }
 });
-
 // ========================================================
 // 18. GET: HISTÓRICO DE PRESENÇA CONSOLIDADO (UNIFICADO)
 // ========================================================

@@ -15,7 +15,6 @@ import {
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; 
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function HistoricoMateriais({ id, cargo }) {
@@ -25,6 +24,7 @@ export default function HistoricoMateriais({ id, cargo }) {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [statusRdo, setStatusRdo] = useState('');
+  const [statusOperacionalFiltro, setStatusOperacionalFiltro] = useState('');
   const [idGestorFiltro, setIdGestorFiltro] = useState('');
   
   const [tiposDisponiveis, setTiposDisponiveis] = useState([]);
@@ -106,6 +106,7 @@ export default function HistoricoMateriais({ id, cargo }) {
           data_inicio: dataInicio || undefined, 
           data_fim: dataFim || undefined,
           status_rdo: statusRdo || undefined,
+          status_operacional: statusOperacionalFiltro || undefined,
           id_gestor_filtro: idGestorFiltro || undefined,
           id_gestor: idGestorFiltro || undefined
         }
@@ -119,7 +120,7 @@ export default function HistoricoMateriais({ id, cargo }) {
     } finally {
       setLoading(false);
     }
-  }, [id, cargo, idObra, tiposSelecionados, dataInicio, dataFim, statusRdo, idGestorFiltro]);
+  }, [id, cargo, idObra, tiposSelecionados, dataInicio, dataFim, statusRdo, statusOperacionalFiltro, idGestorFiltro]);
 
   // DISPARO AUTOMÁTICO DA BUSCA AO MONTAR E SEMPRE QUE OS FILTROS MUDAREM
   useEffect(() => {
@@ -215,6 +216,38 @@ export default function HistoricoMateriais({ id, cargo }) {
     );
   };
 
+  const renderizarBadgeStatusOperacional = (statusOp) => {
+    const st = statusOp ? String(statusOp).toUpperCase().trim() : 'NORMAL';
+
+    if (st === 'NORMAL') {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc' }}>
+          NORMAL
+        </span>
+      );
+    }
+    if (st.includes('CHOVEU') || st.includes('CHUVA')) {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0e7ff', color: '#3730a3', border: '1px solid #a5b4fc' }}>
+          🌧️ {st}
+        </span>
+      );
+    }
+    if (st.includes('MATERIAL') || st.includes('INSUMO')) {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
+          ⚠️ {st}
+        </span>
+      );
+    }
+
+    return (
+      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}>
+        {st}
+      </span>
+    );
+  };
+
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: '#f8fafc', minHeight: '100vh', boxSizing: 'border-box' }}>
       
@@ -224,11 +257,11 @@ export default function HistoricoMateriais({ id, cargo }) {
           <Filter style={{ width: '14px', height: '14px', color: '#ea580c' }} /> FILTROS DE MATERIAIS
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', alignItems: 'flex-start' }}>
           
           {/* Gestor / Encarregado */}
           {isMaster && (
-            <div style={{ flex: '1', minWidth: '180px' }}>
+            <div>
               <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
                 GESTOR / ENCARREGADO
               </label>
@@ -247,8 +280,8 @@ export default function HistoricoMateriais({ id, cargo }) {
             </div>
           )}
 
-          {/* FILTRO TIPO DE OBRA (DROPDOWN MODERNO COM CHECKBOXES) */}
-          <div style={{ flex: '1', minWidth: '180px', position: 'relative' }}>
+          {/* FILTRO TIPO DE OBRA */}
+          <div style={{ position: 'relative' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
               TIPO DE OBRA ({tiposSelecionados.length > 0 ? `${tiposSelecionados.length} sel.` : 'TODOS'})
             </label>
@@ -345,7 +378,7 @@ export default function HistoricoMateriais({ id, cargo }) {
           </div>
 
           {/* Obra Vinculada */}
-          <div style={{ flex: '1', minWidth: '180px' }}>
+          <div>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
               OBRA VINCULADA
             </label>
@@ -360,7 +393,7 @@ export default function HistoricoMateriais({ id, cargo }) {
           </div>
 
           {/* Status do RDO */}
-          <div style={{ width: '140px' }}>
+          <div>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
               STATUS DO RDO
             </label>
@@ -375,8 +408,26 @@ export default function HistoricoMateriais({ id, cargo }) {
             </select>
           </div>
 
+          {/* STATUS OPERACIONAL */}
+          <div>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
+              STATUS OPERACIONAL
+            </label>
+            <select 
+              value={statusOperacionalFiltro} 
+              onChange={e => setStatusOperacionalFiltro(e.target.value)} 
+              style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#334155', fontSize: '12px' }}
+            >
+              <option value="">-- Todos os Status --</option>
+              <option value="NORMAL">NORMAL</option>
+              <option value="CHOVEU">CHOVEU / CHUVA</option>
+              <option value="MATERIAL">SEM INSUMO / MATERIAL</option>
+              <option value="OUTROS">OUTROS</option>
+            </select>
+          </div>
+
           {/* Data Inicial */}
-          <div style={{ width: '130px' }}>
+          <div>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
               DATA INICIAL
             </label>
@@ -389,7 +440,7 @@ export default function HistoricoMateriais({ id, cargo }) {
           </div>
 
           {/* Data Final */}
-          <div style={{ width: '130px' }}>
+          <div>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>
               DATA FINAL
             </label>
@@ -447,17 +498,20 @@ export default function HistoricoMateriais({ id, cargo }) {
             <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum lançamento de material localizado com as configurações atuais.</div>
           ) : (
             <>
-              {/* CARDS MOBILE (MANTENDO CORES DA INTERFACE) */}
+              {/* CARDS MOBILE */}
               <div className="mobile-cards-view" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {listaDiarios.map((rdo, index) => (
                   <div key={rdo.id || index} style={{ border: '1px solid #e2e8f0', borderRadius: '4px', padding: '12px', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontWeight: 'bold', fontSize: '12px', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</span>
-                      {renderizarBadgeStatus(rdo.status_rdo)}
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {renderizarBadgeStatusOperacional(rdo.status_operacional)}
+                        {renderizarBadgeStatus(rdo.status_rdo)}
+                      </div>
                     </div>
                     
                     <div style={{ fontSize: '12px', color: '#334155' }}>
-                      <strong>Obra:</strong> [{rdo.codigo_obra}] {rdo.nome_obra}
+                      <strong>Obra:</strong> {rdo.nome_obra}
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
@@ -490,7 +544,7 @@ export default function HistoricoMateriais({ id, cargo }) {
                 ))}
               </div>
 
-              {/* TABELA DESKTOP (CORES ORIGINAIS PRESERVADAS) */}
+              {/* TABELA DESKTOP */}
               <div className="desktop-table-view" style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                   <thead>
@@ -498,7 +552,7 @@ export default function HistoricoMateriais({ id, cargo }) {
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>DATA</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>EQUIPE</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>STATUS RDO</th>
-                      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>CÓD. OBRA</th>
+                      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>STATUS OPERACIONAL</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>NOME DA OBRA</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>EFETIVO ATIVO</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>MATERIAIS RELATADOS</th>
@@ -530,8 +584,8 @@ export default function HistoricoMateriais({ id, cargo }) {
                           <td style={{ padding: '10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                             {renderizarBadgeStatus(rdo.status_rdo)}
                           </td>
-                          <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>
-                            {rdo.codigo_obra}
+                          <td style={{ padding: '10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {renderizarBadgeStatusOperacional(rdo.status_operacional)}
                           </td>
                           <td style={{ padding: '10px', fontWeight: '500' }}>
                             {rdo.nome_obra}
@@ -585,12 +639,13 @@ export default function HistoricoMateriais({ id, cargo }) {
             </div>
             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div><strong>Obra Vinculada:</strong> [{diarioSelecionado.codigo_obra}] {diarioSelecionado.nome_obra}</div>
+                <div><strong>Obra Vinculada:</strong> {diarioSelecionado.nome_obra}</div>
                 {renderizarBadgeStatus(diarioSelecionado.status_rdo)}
               </div>
 
               <div><strong>Responsável/Gestor:</strong> {diarioSelecionado.nome_gestor || diarioSelecionado.gestor || 'Não informado'}</div>
               <div><strong>Equipe Responsável:</strong> {diarioSelecionado.equipe || 'Geral'}</div>
+              <div><strong>Status Operacional:</strong> {renderizarBadgeStatusOperacional(diarioSelecionado.status_operacional)}</div>
 
               {/* COLABORADORES DA EQUIPE */}
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px' }}>

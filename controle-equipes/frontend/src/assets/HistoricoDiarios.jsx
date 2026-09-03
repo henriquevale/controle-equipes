@@ -20,10 +20,11 @@ const API_URL = 'http://localhost:3001/api';
 export default function HistoricoDiarios({ id, cargo }) {
   const [idObra, setIdObra] = useState('');
   const [tiposSelecionados, setTiposSelecionados] = useState([]);
-  const [isOpenTipos, setIsOpenTipos] = useState(false); // 🎯 Estado do Dropdown de Checkboxes
+  const [isOpenTipos, setIsOpenTipos] = useState(false);
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [statusFiltro, setStatusFiltro] = useState(''); 
+  const [statusOperacionalFiltro, setStatusOperacionalFiltro] = useState(''); // <-- NOVO ESTADO
   const [idGestorFiltro, setIdGestorFiltro] = useState(''); 
 
   const [tiposDisponiveis, setTiposDisponiveis] = useState([]);
@@ -33,11 +34,9 @@ export default function HistoricoDiarios({ id, cargo }) {
   const [diarioSelecionado, setDiarioSelecionado] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Verificação do perfil MASTER / ADMIN / RH
   const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
   const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'ADMIN' || cargoUpper === 'RH';
 
-  // 1️⃣ CARREGAR TIPOS DE OBRA DINÂMICOS CONTEXTUALIZADOS AO PERFIL
   useEffect(() => {
     const carregarTiposObra = async () => {
       if (!id) return;
@@ -54,7 +53,6 @@ export default function HistoricoDiarios({ id, cargo }) {
     carregarTiposObra();
   }, [id, cargo]);
 
-  // 2️⃣ EFFECT PARA OBRAS DO FILTRO
   useEffect(() => {
     const carregarObrasFiltro = async () => {
       if (!id) return;
@@ -75,7 +73,6 @@ export default function HistoricoDiarios({ id, cargo }) {
     carregarObrasFiltro();
   }, [id, cargo, tiposSelecionados]);
 
-  // 3️⃣ EFFECT PARA CARREGAR GESTORES (SOMENTE PERFIL MASTER/ADMIN/RH)
   useEffect(() => {
     const carregarGestores = async () => {
       try {
@@ -91,7 +88,6 @@ export default function HistoricoDiarios({ id, cargo }) {
     }
   }, [isMaster]);
 
-  // 4️⃣ FUNÇÃO PRINCIPAL DE BUSCA DO HISTÓRICO
   const buscarHistorico = useCallback(async () => {
     if (!id) return;
 
@@ -106,6 +102,7 @@ export default function HistoricoDiarios({ id, cargo }) {
           data_inicio: dataInicio || undefined, 
           data_fim: dataFim || undefined,
           status_rdo: statusFiltro || undefined,
+          status_operacional: statusOperacionalFiltro || undefined, // <-- PASSANDO PARA A API
           id_gestor_filtro: idGestorFiltro || undefined,
           id_gestor: idGestorFiltro || undefined
         }
@@ -119,14 +116,12 @@ export default function HistoricoDiarios({ id, cargo }) {
     } finally {
       setLoading(false);
     }
-  }, [id, cargo, idObra, tiposSelecionados, dataInicio, dataFim, statusFiltro, idGestorFiltro]);
+  }, [id, cargo, idObra, tiposSelecionados, dataInicio, dataFim, statusFiltro, statusOperacionalFiltro, idGestorFiltro]);
 
-  // 🎯 DISPARO AUTOMÁTICO DA BUSCA AO MONTAR E SEMPRE QUE OS FILTROS MUDAREM
   useEffect(() => {
     buscarHistorico();
   }, [buscarHistorico]);
 
-  // 🎯 FUNÇÃO PARA MARCAR/DESMARCAR ITEM NO CHECKBOX
   const handleToggleTipo = (tipo) => {
     setTiposSelecionados(prev => 
       prev.includes(tipo) 
@@ -195,7 +190,7 @@ export default function HistoricoDiarios({ id, cargo }) {
     scales: { y: { beginAtZero: true } }
   };
 
-  const renderizarBadgeStatus = (statusRdo) => {
+  const renderizarBadgeStatusRDO = (statusRdo) => {
     const st = statusRdo ? String(statusRdo).toUpperCase().trim() : 'PENDENTE';
     
     if (st === 'FINALIZADO' || st === 'CONCLUIDO' || st === 'CONCLUÍDO') {
@@ -209,6 +204,38 @@ export default function HistoricoDiarios({ id, cargo }) {
     return (
       <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fffbe3', color: '#b45309', border: '1px solid #fde047' }}>
         PENDENTE
+      </span>
+    );
+  };
+
+  const renderizarBadgeStatusOperacional = (statusOp) => {
+    const st = statusOp ? String(statusOp).toUpperCase().trim() : 'NORMAL';
+
+    if (st === 'NORMAL') {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc' }}>
+          NORMAL
+        </span>
+      );
+    }
+    if (st.includes('CHOVEU') || st.includes('CHUVA')) {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0e7ff', color: '#3730a3', border: '1px solid #a5b4fc' }}>
+          🌧️ {st}
+        </span>
+      );
+    }
+    if (st.includes('MATERIAL') || st.includes('INSUMO')) {
+      return (
+        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
+          ⚠️ {st}
+        </span>
+      );
+    }
+
+    return (
+      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}>
+        {st}
       </span>
     );
   };
@@ -245,7 +272,7 @@ export default function HistoricoDiarios({ id, cargo }) {
             </div>
           )}
 
-          {/* 🎯 FILTRO TIPO DE OBRA (DROPDOWN MODERNO COM CHECKBOXES) */}
+          {/* FILTRO TIPO DE OBRA */}
           <div style={{ position: 'relative' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
               TIPO DE OBRA ({tiposSelecionados.length > 0 ? `${tiposSelecionados.length} sel.` : 'TODOS'})
@@ -353,7 +380,7 @@ export default function HistoricoDiarios({ id, cargo }) {
               style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#334155', fontSize: '12px', outline: 'none' }}
             >
               <option value="">-- Todas as Obras --</option>
-              {obras.map(o => <option key={o.id} value={o.id}>[{o.codigo_obra || 'ID: '+o.id}] {o.nome_obra}</option>)}
+              {obras.map(o => <option key={o.id} value={o.id}>{o.nome_obra}</option>)}
             </select>
           </div>
 
@@ -370,6 +397,24 @@ export default function HistoricoDiarios({ id, cargo }) {
               <option value="">-- Todos --</option>
               <option value="FINALIZADO">FINALIZADO</option>
               <option value="PENDENTE">PENDENTE</option>
+            </select>
+          </div>
+
+          {/* FILTRO STATUS OPERACIONAL */}
+          <div>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#334155', fontSize: '11px', textTransform: 'uppercase' }}>
+              STATUS OPERACIONAL
+            </label>
+            <select 
+              value={statusOperacionalFiltro} 
+              onChange={e => setStatusOperacionalFiltro(e.target.value)} 
+              style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#334155', fontSize: '12px', outline: 'none' }}
+            >
+              <option value="">-- Todos os Status --</option>
+              <option value="NORMAL">NORMAL</option>
+              <option value="CHOVEU">CHOVEU / CHUVA</option>
+              <option value="MATERIAL">SEM INSUMO / MATERIAL</option>
+              <option value="OUTROS">OUTROS</option>
             </select>
           </div>
 
@@ -451,11 +496,14 @@ export default function HistoricoDiarios({ id, cargo }) {
                   <div key={rdo.id || index} style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</span>
-                      {renderizarBadgeStatus(rdo.status_rdo)}
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {renderizarBadgeStatusOperacional(rdo.status_operacional)}
+                        {renderizarBadgeStatusRDO(rdo.status_rdo)}
+                      </div>
                     </div>
                     
                     <div style={{ fontSize: '12px', color: '#334155' }}>
-                      <strong>Obra:</strong> [{rdo.codigo_obra}] {rdo.nome_obra}
+                      <strong>Obra:</strong> {rdo.nome_obra}
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
@@ -487,7 +535,7 @@ export default function HistoricoDiarios({ id, cargo }) {
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>DATA</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>EQUIPE</th> 
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>STATUS RDO</th>
-                      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>CÓD. OBRA</th>
+                      <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>STATUS OPERACIONAL</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>NOME DA OBRA</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569', textAlign: 'center' }}>EFETIVO ATIVO</th>
                       <th style={{ padding: '10px', border: '1px solid #cbd5e1', color: '#475569' }}>ATIVIDADES RELATADAS</th>
@@ -503,8 +551,8 @@ export default function HistoricoDiarios({ id, cargo }) {
                             {rdo.equipe || 'Geral'}
                           </span>
                         </td>
-                        <td style={{ padding: '10px', textAlign: 'center' }}>{renderizarBadgeStatus(rdo.status_rdo)}</td>
-                        <td style={{ padding: '10px', color: '#475569', fontFamily: 'monospace' }}>{rdo.codigo_obra}</td>
+                        <td style={{ padding: '10px', textAlign: 'center' }}>{renderizarBadgeStatusRDO(rdo.status_rdo)}</td>
+                        <td style={{ padding: '10px', textAlign: 'center' }}>{renderizarBadgeStatusOperacional(rdo.status_operacional)}</td>
                         <td style={{ padding: '10px', fontWeight: '500' }}>{rdo.nome_obra}</td>
                         <td style={{ padding: '10px', textAlign: 'center' }}>
                           <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold' }}>{rdo.total_efetivo || 0} Colaboradores</span>
@@ -539,9 +587,13 @@ export default function HistoricoDiarios({ id, cargo }) {
             
             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: '#ffffff' }}>
               
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: '#1e293b' }}>
-                <div><strong>Obra Vinculada:</strong> <span style={{ color: '#2563eb', fontWeight: 'bold' }}>[{diarioSelecionado.codigo_obra || '100'}]</span> {diarioSelecionado.nome_obra}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px', color: '#1e293b' }}>
+                <div><strong>Obra Vinculada:</strong> {diarioSelecionado.nome_obra}</div>
                 <div><strong>Equipe Responsável:</strong> <span style={{ fontWeight: 'bold' }}>{diarioSelecionado.equipe || 'A'}</span></div>
+                <div>
+                  <strong>Status Operacional:</strong>{' '}
+                  {renderizarBadgeStatusOperacional(diarioSelecionado.status_operacional)}
+                </div>
                 <div>
                   <strong>Gestor Responsável:</strong>{' '}
                   <span style={{ fontWeight: 'bold', color: '#0369a1' }}>
