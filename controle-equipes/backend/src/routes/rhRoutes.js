@@ -541,7 +541,6 @@ router.delete(['/rh/integracao/:idIntegracao', '/rh/integracoes/:idIntegracao'],
 // ========================================================
 // C. ROTAS AUXILIARES (GESTORES)
 // ========================================================
-
 router.get('/gestores', async (req, res) => {
   try {
     const sql = `
@@ -579,10 +578,14 @@ router.get('/rh/gestores-disponiveis', async (req, res) => {
 // D. ROTAS DE GESTÃO DE VEÍCULOS E FROTA
 // ========================================================
 
-// Listar veículos
+// 1. GET: Listar veículos com cálculo de dias para vencer a topografia
 router.get('/veiculos', async (req, res) => {
   const sql = `
-    SELECT id, placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor, id_funcionario 
+    SELECT 
+      id, placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor, id_funcionario,
+      data_topografia,
+      COALESCE(emitido_crlv, 'NÃO') AS emitido_crlv,
+      DATEDIFF(data_topografia, CURRENT_DATE()) AS dias_para_vencer_topografia
     FROM veiculos 
     ORDER BY id DESC
   `;
@@ -595,9 +598,12 @@ router.get('/veiculos', async (req, res) => {
   }
 });
 
-// Cadastrar veículo
+// 2. POST: Cadastrar veículo
 router.post('/veiculos', async (req, res) => {
-  const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor } = req.body;
+  const { 
+    placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor,
+    data_topografia, emitido_crlv 
+  } = req.body;
 
   if (!placa || !marca || !modelo || !ano || !tipo || !titularidade) {
     return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano, Tipo e Titularidade são obrigatórios.' });
@@ -611,6 +617,8 @@ router.post('/veiculos', async (req, res) => {
   const titularidadeFormatada = String(titularidade).trim().toUpperCase(); 
   const descricaoFormatada = descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null;
   const gestorId = id_gestor && String(id_gestor).trim() !== '' ? parseInt(id_gestor, 10) : null;
+  const dataTopografiaTratada = formatarData(data_topografia);
+  const crlvStatus = emitido_crlv === 'SIM' ? 'SIM' : 'NÃO';
 
   let statusFinal = 'DISPONÍVEL';
   if (status === 'EM MANUTENÇÃO') {
@@ -620,8 +628,8 @@ router.post('/veiculos', async (req, res) => {
   }
 
   const sql = `
-    INSERT INTO veiculos (placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor, id_funcionario) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    INSERT INTO veiculos (placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor, id_funcionario, data_topografia, emitido_crlv) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
   `;
 
   try {
@@ -634,7 +642,9 @@ router.post('/veiculos', async (req, res) => {
       titularidadeFormatada, 
       descricaoFormatada, 
       statusFinal,
-      isNaN(gestorId) ? null : gestorId 
+      isNaN(gestorId) ? null : gestorId,
+      dataTopografiaTratada,
+      crlvStatus
     ];
 
     const [result] = await db.query(sql, parametros);
@@ -648,10 +658,13 @@ router.post('/veiculos', async (req, res) => {
   }
 });
 
-// Atualizar veículo
+// 3. PUT: Atualizar veículo
 router.put('/veiculos/:id', async (req, res) => {
   const { id } = req.params;
-  const { placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor } = req.body;
+  const { 
+    placa, marca, modelo, ano, tipo, titularidade, descricao, status, id_gestor,
+    data_topografia, emitido_crlv 
+  } = req.body;
 
   if (!placa || !marca || !modelo || !ano || !tipo || !titularidade) {
     return res.status(400).json({ error: 'Os campos Placa, Marca, Modelo, Ano, Tipo e Titularidade são obrigatórios.' });
@@ -668,7 +681,7 @@ router.put('/veiculos/:id', async (req, res) => {
 
   const sql = `
     UPDATE veiculos 
-    SET placa = ?, marca = ?, modelo = ?, ano = ?, tipo = ?, titularidade = ?, descricao = ?, status = ?, id_gestor = ?
+    SET placa = ?, marca = ?, modelo = ?, ano = ?, tipo = ?, titularidade = ?, descricao = ?, status = ?, id_gestor = ?, data_topografia = ?, emitido_crlv = ?
     WHERE id = ?
   `;
 
@@ -683,6 +696,8 @@ router.put('/veiculos/:id', async (req, res) => {
       descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null,
       statusFinal,
       isNaN(gestorId) ? null : gestorId,
+      formatarData(data_topografia),
+      emitido_crlv === 'SIM' ? 'SIM' : 'NÃO',
       id
     ];
 
@@ -699,7 +714,7 @@ router.put('/veiculos/:id', async (req, res) => {
   }
 });
 
-// Remover veículo
+// 4. DELETE: Remover veículo
 router.delete('/veiculos/:id', async (req, res) => {
   const { id } = req.params;
   const sql = `DELETE FROM veiculos WHERE id = ?`;
@@ -715,6 +730,228 @@ router.delete('/veiculos/:id', async (req, res) => {
   } catch (err) {
     console.error('Erro ao deletar veículo:', err.message);
     return res.status(500).json({ error: `Erro no banco de dados: ${err.message}` });
+  }
+});
+
+// ========================================================
+// F. ROTAS DE MONITORAMENTO DE MANUTENÇÃO
+// ========================================================
+
+// ========================================================
+// ROTAS DE GERENCIAMENTO DE MANUTENÇÕES
+// ========================================================
+
+// 1. Listar histórico de manutenção de um veículo (com JOIN no item cadastrado)
+router.get('/veiculos/:id/manutencoes', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const sql = `
+      SELECT 
+        m.id, 
+        m.id_veiculo, 
+        m.id_item_manutencao,
+        i.cod AS cod_item,
+        i.nome AS nome_item, 
+        m.categoria, 
+        m.descricao, 
+        m.custo, 
+        m.status, 
+        DATE_FORMAT(m.data_manutencao, '%Y-%m-%d') AS data_manutencao, 
+        m.criado_em
+      FROM manutencoes_veiculos m
+      INNER JOIN itens_manutencao i ON m.id_item_manutencao = i.id
+      WHERE m.id_veiculo = ?
+      ORDER BY m.data_manutencao DESC, m.id DESC
+    `;
+    const [rows] = await db.query(sql, [id]);
+    return res.json(rows);
+  } catch (err) {
+    console.error('Erro ao listar manutenções:', err.message);
+    return res.status(500).json({ error: 'Erro ao carregar manutenções.' });
+  }
+});
+
+// 2. Registrar novas manutenções vinculadas aos itens cadastrados (Múltiplos itens)
+// POST: Registrar novas manutenções vinculadas aos itens cadastrados
+router.post('/veiculos/manutencoes', async (req, res) => {
+  const { id_veiculo, itens_com_custo, data_manutencao, descricao, status } = req.body;
+
+  // Aceita "itens_com_custo" ou "itens_manutencao" para manter retrocompatibilidade
+  const listaItens = itens_com_custo || req.body.itens_manutencao;
+
+  if (!id_veiculo || !listaItens || !Array.isArray(listaItens) || listaItens.length === 0 || !data_manutencao) {
+    return res.status(400).json({ error: 'Campos obrigatórios ausentes (veículo, ao menos um item de manutenção e data).' });
+  }
+
+  try {
+    const dataTratada = formatarData(data_manutencao);
+    const statusFinal = status || 'PENDENTE';
+    const descFinal = descricao && String(descricao).trim() !== '' ? String(descricao).trim() : null;
+
+    // Mapeia os itens capturando id, custo individual e a categoria escolhida
+    const valoresInsercao = listaItens.map(item => {
+      // Se vier um objeto { id_item, custo, categoria }, usa as propriedades; senão trata como ID puro
+      const idItem = typeof item === 'object' ? item.id_item : item;
+      const custoItem = typeof item === 'object' && item.custo ? parseFloat(item.custo) : 0.00;
+      const categoriaItem = typeof item === 'object' && item.categoria ? item.categoria : 'CORRETIVA';
+
+      return [
+        parseInt(id_veiculo, 10),
+        parseInt(idItem, 10),
+        categoriaItem.toUpperCase(),
+        descFinal,
+        custoItem,
+        statusFinal,
+        dataTratada
+      ];
+    });
+
+    const sql = `
+      INSERT INTO manutencoes_veiculos 
+        (id_veiculo, id_item_manutencao, categoria, descricao, custo, status, data_manutencao)
+      VALUES ?
+    `;
+
+    await db.query(sql, [valoresInsercao]);
+
+    if (statusFinal !== 'CONCLUIDO') {
+      await db.query(`UPDATE veiculos SET status = 'EM MANUTENÇÃO' WHERE id = ?`, [id_veiculo]);
+    }
+
+    return res.status(201).json({ message: 'Manutenção(ões) registrada(s) com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao criar manutenções:', err.message);
+    return res.status(500).json({ error: 'Erro ao registrar manutenção.' });
+  }
+});
+
+// 3. Excluir registro de manutenção
+router.delete('/veiculos/manutencoes/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [result] = await db.query(`DELETE FROM manutencoes_veiculos WHERE id = ?`, [id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Registro de manutenção não encontrado.' });
+    }
+    return res.json({ message: 'Manutenção removida com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao remover manutenção:', err.message);
+    return res.status(500).json({ error: 'Erro ao remover manutenção.' });
+  }
+});
+
+// ========================================================
+// CRUD DE ITENS DE MANUTENÇÃO (itens_manutencao)
+// ========================================================
+
+// 1. GET: Buscar todos os itens ativos (sua rota atual)
+router.get('/veiculos/itens-manutencao', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT id, cod, nome, ativo FROM itens_manutencao WHERE ativo = TRUE ORDER BY cod ASC`
+    );
+    return res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar itens de manutenção:', err.message);
+    return res.status(500).json({ error: 'Erro ao carregar lista de itens.' });
+  }
+});
+
+// 2. POST: Cadastrar novo item de manutenção
+router.post('/veiculos/itens-manutencao', async (req, res) => {
+  const { cod, nome } = req.body;
+
+  if (!cod || !nome) {
+    return res.status(400).json({ error: 'Código (cod) e Nome são campos obrigatórios.' });
+  }
+
+  try {
+    const codFormatado = String(cod).trim().toUpperCase();
+    const nomeFormatado = String(nome).trim().toUpperCase();
+
+    const sql = `INSERT INTO itens_manutencao (cod, nome, ativo) VALUES (?, ?, TRUE)`;
+    const [result] = await db.query(sql, [codFormatado, nomeFormatado]);
+
+    return res.status(201).json({
+      message: 'Item de manutenção cadastrado com sucesso!',
+      id: result.insertId,
+      cod: codFormatado,
+      nome: nomeFormatado
+    });
+  } catch (err) {
+    console.error('Erro ao cadastrar item de manutenção:', err.message);
+
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'Já existe um item cadastrado com este código (cod).' });
+    }
+
+    return res.status(500).json({ error: 'Erro ao salvar item no banco de dados.' });
+  }
+});
+
+// 3. PUT: Atualizar item de manutenção existente
+router.put('/veiculos/itens-manutencao/:id', async (req, res) => {
+  const { id } = req.params;
+  const { cod, nome, ativo } = req.body;
+
+  if (!cod || !nome) {
+    return res.status(400).json({ error: 'Código (cod) e Nome são campos obrigatórios.' });
+  }
+
+  try {
+    const codFormatado = String(cod).trim().toUpperCase();
+    const nomeFormatado = String(nome).trim().toUpperCase();
+    const statusAtivo = ativo !== undefined ? Boolean(ativo) : true;
+
+    const sql = `
+      UPDATE itens_manutencao 
+      SET cod = ?, nome = ?, ativo = ? 
+      WHERE id = ?
+    `;
+
+    const [result] = await db.query(sql, [codFormatado, nomeFormatado, statusAtivo, id]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Item de manutenção não encontrado.' });
+    }
+
+    return res.json({ message: 'Item de manutenção atualizado com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao atualizar item de manutenção:', err.message);
+
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'O código (cod) informado já pertence a outro item.' });
+    }
+
+    return res.status(500).json({ error: 'Erro ao atualizar item de manutenção.' });
+  }
+});
+
+// 4. DELETE: Excluir ou Desativar item de manutenção
+router.delete('/veiculos/itens-manutencao/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Tenta remover o registro do banco
+    const [result] = await db.query(`DELETE FROM itens_manutencao WHERE id = ?`, [id]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Item de manutenção não encontrado.' });
+    }
+
+    return res.json({ message: 'Item de manutenção removido com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao deletar item de manutenção:', err.message);
+
+    // Se houver histórico de manutenções vinculadas (Foreign Key), faz Soft Delete (desativa)
+    if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.errno === 1451) {
+      await db.query(`UPDATE itens_manutencao SET ativo = FALSE WHERE id = ?`, [id]);
+      return res.json({ 
+        message: 'O item possui histórico de manutenções vinculadas e foi desativado em vez de excluído.' 
+      });
+    }
+
+    return res.status(500).json({ error: 'Erro ao remover item de manutenção.' });
   }
 });
 // ========================================================
@@ -735,4 +972,7 @@ router.get('/obras', async (req, res) => {
     return res.status(500).json({ error: "Erro ao carregar lista de obras." });
   }
 });
+
+
+
 export default router;

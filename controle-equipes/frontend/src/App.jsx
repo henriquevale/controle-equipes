@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, 
   FileText, Boxes, BarChart3, TrendingUp, Building2, Shield, 
-  Users, FolderKanban, ChevronDown, ChevronRight, Menu, X, ClipboardList
+  Users, FolderKanban, ChevronDown, ChevronRight, Menu, X,Wrench, ClipboardList
 } from 'lucide-react';
 
 // Imports dos Componentes Existentes
@@ -29,6 +29,8 @@ import EstoqueSaldos from './assets/EstoqueSaldos.jsx';
 import RelatorioMovimentacao from './assets/RelatorioMovimentacoes.jsx';
 import RelatorioCompras from './assets/RelatorioCompras.jsx';
 import RelatorioVeiculoUsados from './assets/RelatorioVeiculoUsados.jsx';
+import CadastroItensManutencao from './assets/CadastroItensManutencao';
+import RelatorioManutencaoVeiculos from './assets/RelatorioManutencaoVeiculos.jsx';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -109,7 +111,9 @@ const estruturaMenu = [
       icone: Car,
       itens: [
         { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'RH'] },
+        { id: 'CADASTRO_ITENS_MANUTENCAO', label: 'Itens de Manutenção', icon: Wrench, cargos: ['MASTER', 'RH'] },
         { id: 'RELATORIO_VEICULOS', label: 'Relatório de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
+        { id: 'RELATORIO_MANUTENCAO_VEICULOS', label: 'Relatório de Manutenção de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
       ]
     },
     {
@@ -445,7 +449,7 @@ const estruturaMenu = [
             {abaAtiva === 'CADASTRO_FUNCIONARIO' && <CadastroFuncionario usuarioLogado={usuarioLogado} recarregarFuncionariosGlobal={carregarFuncionariosGeral} />}
             
             {abaAtiva === 'CADASTRO_VEICULO' && <CadastroVeiculo usuarioLogado={usuarioLogado} />}
-            
+            {abaAtiva === 'CADASTRO_ITENS_MANUTENCAO' && <CadastroItensManutencao />}
             {abaAtiva === 'EQUIPE' && <DiarioEfetivo obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             {abaAtiva === 'DIARIO_TECNICO' && <DiarioObraTecnico obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             
@@ -483,8 +487,9 @@ const estruturaMenu = [
               <RelatorioMovimentacao API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
             )}
             {abaAtiva === 'RELATORIO_VEICULOS' && (<RelatorioVeiculoUsados usuarioLogado={usuarioLogado} />
-)}
-
+          )}
+          {abaAtiva === 'RELATORIO_MANUTENCAO_VEICULOS' && (<RelatorioManutencaoVeiculos usuarioLogado={usuarioLogado} />
+          )}
           </div>
         </main>
       </div>

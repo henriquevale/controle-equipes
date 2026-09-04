@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UserPlus, RefreshCw } from 'lucide-react';
 
-const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+  const API_URL = 'http://localhost:3001/api';
+  //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEditar, finalizarEdicaoGlobal, API_URL = 'http://localhost:3001/api' }) {
   const [formData, setFormData] = useState({
