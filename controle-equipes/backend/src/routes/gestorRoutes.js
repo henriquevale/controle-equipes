@@ -358,22 +358,10 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
   const connection = await db.getConnection();
 
   try {
-    const [statusAtual] = await connection.execute(
-      `SELECT status_rdo FROM controle_diarios_equipe 
-       WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
-      [data_diario, obraIdValida, equipeMaiuscula]
-    );
-/*
-    if (statusAtual.length > 0 && statusAtual[0].status_rdo === 'FINALIZADO') {
-      connection.release();
-      return res.status(403).json({ 
-        mensagem: `O RDO da equipe '${equipeMaiuscula}' já foi finalizado e está travado para alterações.` 
-      });
-    }*/
-
     await connection.beginTransaction();
     await connection.execute('SET FOREIGN_KEY_CHECKS = 0');
 
+    // 1. Grava ou atualiza a tabela mestra (diario_obra)
     const [existenteMestre] = await connection.execute(
       'SELECT id FROM diario_obra WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
@@ -394,18 +382,25 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       diarioId = resultadoInsereMestre.insertId;
     }
 
+    // MAPA PREVENTIVO: Salva histórico de veículos alocados anteriormente para recuperar caso necessário
     const [veiculosAtuais] = await connection.execute(
       'SELECT id_funcionario, id_veiculo FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
       [obraIdValida, data_diario, equipeMaiuscula]
     );
     const mapaVeiculos = new Map(veiculosAtuais.map(v => [v.id_funcionario, v.id_veiculo]));
 
+    // 2. Limpeza de registros prévios para sobrescrever com a nova versão do RDO
     await connection.execute('DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?', [diarioId]);
     await connection.execute(
       'DELETE FROM diario_efetivo WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?', 
       [obraIdValida, data_diario, equipeMaiuscula]
     );
+    await connection.execute(
+      'DELETE FROM diarios_veiculos WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
+      [obraIdValida, data_diario, equipeMaiuscula]
+    );
 
+    // 3. Processa e grava o Efetivo e Veículos vinculados
     if (efetivo_confirmado && efetivo_confirmado.length > 0) {
       const sqlConfirmado = `
         INSERT INTO diario_efetivo_confirmado 
@@ -419,6 +414,15 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
+      // Inserção ajustada para diarios_veiculos com status = 'FINALIZADO' ao salvar RDO
+      const sqlDiarioVeiculos = `
+        INSERT INTO diarios_veiculos 
+        (data_diario, id_obra, id_gestor, id_veiculo, id_funcionario, turno, equipe, status_veiculo, status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'FINALIZADO')
+      `;
+
+      const veiculosInseridos = new Set();
+
       for (const f of efetivo_confirmado) {
         if (!f.id_funcionario) continue;
         const fid = parseInt(f.id_funcionario);
@@ -428,7 +432,10 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         if (statusTratado === 'INTEGRACAO') statusTratado = 'INTEGRAÇÃO';
 
         const idVeiculoPreservado = f.id_veiculo ? parseInt(f.id_veiculo) : (mapaVeiculos.get(fid) || null);
+        const turnoTratado = f.turno || 'DIURNO';
+        const statusVeiculoFrontend = f.status_veiculo || 'DISPONÍVEL';
 
+        // Grava no histórico confirmado de presença
         await connection.execute(sqlConfirmado, [
           diarioId, 
           fid, 
@@ -439,6 +446,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           obraIdValida
         ]);
         
+        // Grava na diario_efetivo
         await connection.execute(sqlDiarioEfetivo, [
           f.nome || 'Não Informado',
           data_diario,
@@ -446,7 +454,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           fid,
           f.cargo || null,
           f.matricula || null,
-          f.turno || 'DIURNO',
+          turnoTratado,
           statusTratado,
           f.observacao || null,
           equipeMaiuscula,
@@ -455,9 +463,25 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           estaLiberado,
           dataHoraLiberacao
         ]);
+
+        // Grava na tabela diarios_veiculos sem duplicar veiculo por equipe
+        if (idVeiculoPreservado && !veiculosInseridos.has(idVeiculoPreservado)) {
+          await connection.execute(sqlDiarioVeiculos, [
+            data_diario,
+            obraIdValida,
+            gestorIdValido,
+            idVeiculoPreservado,
+            fid,
+            turnoTratado,
+            equipeMaiuscula,
+            statusVeiculoFrontend
+          ]);
+          veiculosInseridos.add(idVeiculoPreservado);
+        }
       }
     }
 
+    // 4. Grava Atividades Executadas
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
       const sqlAtividade = `INSERT INTO diario_atividades (id_diario, tipo_servico, quantidade) VALUES (?, ?, ?)`;
@@ -473,6 +497,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
+    // 5. Grava Materiais Apontados
     await connection.execute('DELETE FROM diario_materiais_apontados WHERE id_diario = ?', [diarioId]);
     if (materials_apontados && materials_apontados.length > 0) {
       const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, material_nome, quantidade) VALUES (?, ?, ?)`;
@@ -487,12 +512,14 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         ]);
       }
     }
-      await connection.execute(
-        `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo, status_operacional) 
-        VALUES (?, ?, ?, 'FINALIZADO', ?) 
-        ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO', status_operacional = VALUES(status_operacional)`,
-        [data_diario, obraIdValida, equipeMaiuscula, statusTratadoDiario]
-      );
+
+    // 6. Atualiza Controle Geral das Equipes
+    await connection.execute(
+      `INSERT INTO controle_diarios_equipe (data_diario, id_obra, equipe, status_rdo, status_operacional) 
+      VALUES (?, ?, ?, 'FINALIZADO', ?) 
+      ON DUPLICATE KEY UPDATE status_rdo = 'FINALIZADO', status_operacional = VALUES(status_operacional)`,
+      [data_diario, obraIdValida, equipeMaiuscula, statusTratadoDiario]
+    );
 
     await connection.execute('SET FOREIGN_KEY_CHECKS = 1');
     await connection.commit();
@@ -529,7 +556,6 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
   const equipeMaiusculaBusca = String(equipe).trim().toUpperCase();
 
   try {
-    // Incluído o campo 'status' para retornar a situação do diário (Ex: Normal, Choveu, etc.)
     const sqlMestre = `
       SELECT id, status, observacoes, id_gestor 
       FROM diario_obra 
@@ -543,7 +569,7 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
 
     const diarioId = mestreRows[0].id;
 
-    // Substitua o bloco sqlEfetivo antigo por este corrigido:
+    // Busca do Efetivo trazendo o status do veículo armazenado na diarios_veiculos
     const sqlEfetivo = `
       SELECT 
         dec.id_funcionario,
@@ -555,15 +581,18 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
         f.nome,
         f.matricula,
         f.cargo,
-        de.id_veiculo,         
+        dv.id_veiculo, 
+        dv.status_veiculo,
+        dv.status AS status_envio_veiculo,
         v.modelo AS modelo_veiculo, 
         v.placa AS placa_veiculo    
       FROM diario_efetivo_confirmado dec
       INNER JOIN funcionarios f ON dec.id_funcionario = f.id
-      LEFT JOIN diario_efetivo de ON de.id_funcionario = dec.id_funcionario 
-        AND de.data_diario = dec.data_diario 
-        AND de.id_obra = dec.id_obra
-      LEFT JOIN veiculos v ON de.id_veiculo = v.id
+      LEFT JOIN diarios_veiculos dv ON dv.id_obra = dec.id_obra 
+        AND dv.data_diario = dec.data_diario 
+        AND UPPER(TRIM(dv.equipe)) = dec.equipe
+        AND dv.id_funcionario = dec.id_funcionario
+      LEFT JOIN veiculos v ON dv.id_veiculo = v.id
       WHERE dec.id_diario = ?
       ORDER BY f.nome ASC
     `;

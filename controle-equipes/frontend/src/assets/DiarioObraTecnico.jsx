@@ -18,9 +18,11 @@ const SERVICOS_PADRONIZADOS = [
   "IMPLANTAÇÃO DE TACHÃO (UN)",
   "IMPLANTAÇÃO TERMINAL AÉREO (UN)",
   "FRESAGEM (M²)",
+  "REMOÇÃO PLACA SOLO (UN)",
   "IMPLANTAR PLACA SOLO (UN)",
+  "REMOÇÃO PLACA AÉREA (UN)",
   "IMPLANTAR PLACA AÉREA (UN)",
-  "IMPLANTAR  PÓRTICO"
+  "IMPLANTAR  PÓRTICO (UN)"
 ];
 
 const MATERIAIS_PADRONIZADOS = [
@@ -38,10 +40,10 @@ const MATERIAIS_PADRONIZADOS = [
   "DEFENSA METÁLICA (M)",
   "TAE (UN)",
   "POSTE PARA DEFENSA (UN)",
-  "PLACA SOLO",
-  "PLACA AÉREA",
-  "PÓRTICO",
-  "SEMI/PÓRTICO"
+  "PLACA SOLO (UN)",
+  "PLACA AÉREA (UN)",
+  "PÓRTICO (UN)",
+  "SEMI/PÓRTICO (UN)"
 ];
 
 export default function DiarioObraTecnico({ usuarioLogado }) {
@@ -84,30 +86,29 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   useEffect(() => {
     carregarVeiculosDoSistema(); 
   }, [dataDiario]); 
+
   useEffect(() => {
-  if (idObraSelecionada && dataDiario && equipeSelecionadaFiltro) {
-    buscarEfetivoVindoDoAgendamento();
-  }
-}, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
-  // BUSCAR DADOS DO RDO E EFETIVO AO ALTERAR OBRA OU DATA
-// CARREGAR EFETIVO E DADOS AO ALTERAR A OBRA, DATA OU EQUIPE
-useEffect(() => {
-  if (idObraSelecionada && dataDiario) {
-    setSalvoComSucesso(false);
-    setStatusDiario('Normal'); 
-    setLiberarEquipeAoSalvar(false);
-    setObservacoesContratada('');
-    
-    buscarEfetivoVindoDoAgendamento();
-  } else {
-    setEfetivoAgendado([]);
-    setAtividadesLancadas([]);
-    setMateriaisLancados([]);
-    setEquipeConfirmada(false);
-  }
-}, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
+    if (idObraSelecionada && dataDiario && equipeSelecionadaFiltro) {
+      buscarEfetivoVindoDoAgendamento();
+    }
+  }, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
+
+  useEffect(() => {
+    if (idObraSelecionada && dataDiario) {
+      setSalvoComSucesso(false);
+      setStatusDiario('Normal'); 
+      setLiberarEquipeAoSalvar(false);
+      setObservacoesContratada('');
+      
+      buscarEfetivoVindoDoAgendamento();
+    } else {
+      setEfetivoAgendado([]);
+      setAtividadesLancadas([]);
+      setMateriaisLancados([]);
+      setEquipeConfirmada(false);
+    }
+  }, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
   
-  // AJUSTE LINHAS VAZIAS PARA INSERÇÃO SE NÃO HOUVER DADOS E ESTIVER NORMAL
   useEffect(() => {
     if (rdoInterrompido) {
       setAtividadesLancadas([]);
@@ -155,9 +156,6 @@ useEffect(() => {
     setListaVeiculos(prev => 
       prev.map(v => v.id === idVeiculo ? { ...v, status: novoStatus } : v)
     );
-    
-    setStatusEnvio({ texto: "✓ Status do veículo definido para este RDO!", tipo: "sucesso" });
-    setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 3000);
   };
 
   const carregarObrasIniciais = async () => {
@@ -192,79 +190,71 @@ useEffect(() => {
     setMostrarGridExcelObra(true);
   };
   
-const buscarEfetivoVindoDoAgendamento = async () => {
-  try {
-    if (!idObraSelecionada || !dataDiario) return;
-
-    setLoading(true);
-
-    let colaboradoresCarregados = [];
-
-    // 1. Tenta buscar agendamento prévio (se a rota existir)
+  const buscarEfetivoVindoDoAgendamento = async () => {
     try {
-      const resEfetivo = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
+      if (!idObraSelecionada || !dataDiario) return;
+
+      setLoading(true);
+
+      let colaboradoresCarregados = [];
+
+      try {
+        const resEfetivo = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
+          params: { 
+            id_obra: idObraSelecionada, 
+            data_diario: dataDiario
+          }
+        });
+        colaboradoresCarregados = Array.isArray(resEfetivo.data) ? resEfetivo.data : [];
+      } catch (errEfetivo) {
+        if (errEfetivo.response?.status !== 404) {
+          console.warn("Rota de agendamento não encontrada ou sem dados prévios.");
+        }
+      }
+
+      const resCompleto = await axios.get(`${API_URL}/gestor/salvar-diario-completo`, {
         params: { 
           id_obra: idObraSelecionada, 
-          data_diario: dataDiario
+          data_diario: dataDiario, 
+          equipe: equipeSelecionadaFiltro 
         }
       });
-      colaboradoresCarregados = Array.isArray(resEfetivo.data) ? resEfetivo.data : [];
-    } catch (errEfetivo) {
-      // Se der 404 no agendamento, ignora e segue para carregar o RDO salvo
-      if (errEfetivo.response?.status !== 404) {
-        console.warn("Rota de agendamento não encontrada ou sem dados prévios.");
+
+      if (resCompleto.data && resCompleto.data.existe) {
+        const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado } = resCompleto.data;
+
+        setStatusDiario(status || 'Normal');
+        setObservacoesContratada(observacoes || '');
+
+        setAtividadesLancadas(atividades_tachas || []);
+        setMateriaisLancados(materials_apontados || []);
+
+        if (efetivo_confirmado && efetivo_confirmado.length > 0) {
+          colaboradoresCarregados = efetivo_confirmado.map(colab => ({
+            ...colab,
+            nome: colab.nome || colab.nome,
+            statusPresenca: colab.status_presenca || colab.statusPresenca || 'Presente'
+          }));
+        }
+      } else {
+        setAtividadesLancadas([]);
+        setMateriaisLancados([]);
+        setObservacoesContratada('');
+        setStatusDiario('Normal');
       }
-    }
 
-    // 2. Busca o RDO completo salvo no banco
-    const resCompleto = await axios.get(`${API_URL}/gestor/salvar-diario-completo`, {
-      params: { 
-        id_obra: idObraSelecionada, 
-        data_diario: dataDiario, 
-        equipe: equipeSelecionadaFiltro 
+      setEfetivoAgendado(colaboradoresCarregados);
+
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.error(`404 Not Found: Verifique a URL do backend em gestorRoutes.js -> ${error.config?.url}`);
+      } else {
+        console.error("Erro ao buscar dados do RDO:", error);
       }
-    });
-
-    if (resCompleto.data && resCompleto.data.existe) {
-      const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado } = resCompleto.data;
-
-      // Restaura o Status do Diário e Observações
-      setStatusDiario(status || 'Normal');
-      setObservacoesContratada(observacoes || '');
-
-      // Restaura Atividades e Materiais
-      setAtividadesLancadas(atividades_tachas || []);
-      setMateriaisLancados(materials_apontados || []);
-
-      // Se já existiam colaboradores salvos no RDO, utiliza eles
-      if (efetivo_confirmado && efetivo_confirmado.length > 0) {
-        colaboradoresCarregados = efetivo_confirmado.map(colab => ({
-          ...colab,
-          nome: colab.nome || colab.nome,
-          statusPresenca: colab.status_presenca || colab.statusPresenca || 'Presente'
-        }));
-      }
-    } else {
-      // Se não houver diário salvo no banco, limpa para estado limpo
-      setAtividadesLancadas([]);
-      setMateriaisLancados([]);
-      setObservacoesContratada('');
-      setStatusDiario('Normal');
+    } finally {
+      setLoading(false);
     }
-
-    setEfetivoAgendado(colaboradoresCarregados);
-
-  } catch (error) {
-    // Se a rota do RDO dar 404, avisa no console de forma detalhada
-    if (error.response?.status === 404) {
-      console.error(`404 Not Found: Verifique a URL do backend em gestorRoutes.js -> ${error.config?.url}`);
-    } else {
-      console.error("Erro ao buscar dados do RDO:", error);
-    }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const selecionarObra = (obra) => {
     setIdObraSelecionada(obra.id);
@@ -725,16 +715,6 @@ const buscarEfetivoVindoDoAgendamento = async () => {
         )}
       </div>
 
-      {statusEnvio.texto && (
-        <div style={{ 
-          padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', 
-          backgroundColor: statusEnvio.tipo === 'sucesso' ? '#bbf7d0' : statusEnvio.tipo === 'erro' ? '#fecaca' : '#eff6ff', 
-          color: statusEnvio.tipo === 'sucesso' ? '#166534' : statusEnvio.tipo === 'erro' ? '#991b1b' : '#1e40af' 
-        }}>
-          {statusEnvio.texto}
-        </div>
-      )}
-
       {/* BLOCOS INFERIORES ATIVOS APÓS CONFIRMAÇÃO */}
       {idObraSelecionada && equipeConfirmada && (
         <>
@@ -1013,6 +993,17 @@ const buscarEfetivoVindoDoAgendamento = async () => {
               </button>
             </div>
           </div>
+
+          {/* NOTIFICAÇÃO DE STATUS DO ENVIO NA PARTE INFERIOR */}
+          {statusEnvio.texto && (
+            <div style={{ 
+              padding: '10px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', 
+              backgroundColor: statusEnvio.tipo === 'sucesso' ? '#bbf7d0' : statusEnvio.tipo === 'erro' ? '#fecaca' : '#eff6ff', 
+              color: statusEnvio.tipo === 'sucesso' ? '#166534' : statusEnvio.tipo === 'erro' ? '#991b1b' : '#1e40af' 
+            }}>
+              {statusEnvio.texto}
+            </div>
+          )}
         </>
       )}
     </div>
