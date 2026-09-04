@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios'; 
 import { 
   LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, 
@@ -28,6 +28,7 @@ import EstoqueMovimentacoes from './assets/EstoqueMovimentacoes.jsx';
 import EstoqueSaldos from './assets/EstoqueSaldos.jsx';
 import RelatorioMovimentacao from './assets/RelatorioMovimentacoes.jsx';
 import RelatorioCompras from './assets/RelatorioCompras.jsx';
+import RelatorioVeiculoUsados from './assets/RelatorioVeiculoUsados.jsx';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -64,7 +65,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const estruturaMenu = [
+const estruturaMenu = [
     {
       idGrupo: 'ADMIN',
       titulo: 'Administração',
@@ -108,6 +109,7 @@ export default function App() {
       icone: Car,
       itens: [
         { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'RH'] },
+        { id: 'RELATORIO_VEICULOS', label: 'Relatório de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
       ]
     },
     {
@@ -480,6 +482,8 @@ export default function App() {
             {abaAtiva === 'RELATORIO_MOVIMENTACAO' && usuarioLogado.cargo === 'MASTER' && (
               <RelatorioMovimentacao API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
             )}
+            {abaAtiva === 'RELATORIO_VEICULOS' && (<RelatorioVeiculoUsados usuarioLogado={usuarioLogado} />
+)}
 
           </div>
         </main>

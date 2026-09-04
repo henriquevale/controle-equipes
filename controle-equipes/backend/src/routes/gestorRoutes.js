@@ -1504,4 +1504,100 @@ router.get('/gestor/equipes-finalizadas', async (req, res) => {
   }
 });
 
+router.get('/relatorios/veiculos-utilizados', async (req, res) => {
+  try {
+    const { 
+      data_inicio, 
+      data_fim, 
+      id_obra, 
+      status_veiculo, 
+      id_gestor,
+      id,
+      cargo 
+    } = req.query;
+
+    let query = `
+      SELECT 
+        v.id,
+        v.data_diario,
+        v.id_obra,
+        o.nome_obra,
+        o.codigo_obra,
+        v.id_veiculo,
+        ve.placa,
+        ve.modelo,
+        ve.marca,
+        v.id_condutor,
+        c.nome AS nome_condutor,
+        v.id_funcionario,
+        f.nome AS nome_funcionario,
+        v.id_gestor,
+        g.nome AS nome_gestor,
+        v.status_veiculo,
+        v.status_uso,
+        v.status AS status_diario
+      FROM diarios_veiculos v
+      LEFT JOIN obras o ON o.id = v.id_obra
+      LEFT JOIN veiculos ve ON ve.id = v.id_veiculo
+      LEFT JOIN funcionarios c ON c.id = v.id_condutor
+      LEFT JOIN funcionarios f ON f.id = v.id_funcionario
+      LEFT JOIN funcionarios g ON g.id = v.id_gestor
+      WHERE 1=1
+    `;
+
+    const params = [];
+    const cargoUsuario = (cargo || '').toUpperCase();
+
+    // TRAVA DE PERMISSÃO:
+    // Se for GESTOR -> força o filtro pelo id dele (impede ver outros registros)
+    if (cargoUsuario === 'GESTOR') {
+      query += ` AND v.id_gestor = ?`;
+      params.push(id);
+    } 
+    // Se for MASTER ou RH -> pode filtrar por um gestor específico se selecionou na tela
+    else if (['MASTER', 'RH'].includes(cargoUsuario) && id_gestor) {
+      query += ` AND v.id_gestor = ?`;
+      params.push(id_gestor);
+    }
+
+    // Filtros adicionais
+    if (data_inicio && data_fim) {
+      query += ` AND v.data_diario BETWEEN ? AND ?`;
+      params.push(data_inicio, data_fim);
+    }
+
+    if (id_obra) {
+      query += ` AND v.id_obra = ?`;
+      params.push(id_obra);
+    }
+
+    if (status_veiculo) {
+      query += ` AND v.status_veiculo = ?`;
+      params.push(status_veiculo);
+    }
+
+    query += ` ORDER BY ve.placa ASC, v.data_diario DESC`;
+
+    const [detalhes] = await db.query(query, params);
+
+    // Contadores para os cards da dashboard
+    const resumoStatus = detalhes.reduce((acc, item) => {
+      const status = (item.status_veiculo || 'INDEFINIDO').toUpperCase();
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.json({
+      totalVeiculosUtilizados: detalhes.length,
+      resumoStatus,
+      detalhes
+    });
+
+  } catch (error) {
+    console.error("Erro ao buscar veículos:", error);
+    res.status(500).json({ mensagem: "Erro ao consultar veículos." });
+  }
+});
+
+
 export default router;
