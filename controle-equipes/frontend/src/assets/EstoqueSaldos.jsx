@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Search, RefreshCw, Eye, X, ArrowUpRight, ArrowDownLeft, Building2, HardHat } from 'lucide-react';
+import { Package, Search, RefreshCw, Eye, X, ArrowUpRight, ArrowDownLeft, Building2, HardHat, CheckSquare } from 'lucide-react';
 
 export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
   const [saldos, setSaldos] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [termoBusca, setTermoBusca] = useState('');
-  const [filtroTipo, setFiltroTipo] = useState('');
+  
+  // Alterado: Agora armazena um Array de categorias selecionadas
+  const [categoriasSelecionadas, setCategoriasSelecionadas] = useState([]);
+  const [mostrarDropdownCategorias, setMostrarDropdownCategorias] = useState(false);
 
   // Estados dos filtros de Base, Obra e Fornecedores
   const [bases, setBases] = useState([]);
@@ -53,7 +56,6 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     }
   };
 
-  // Função para resolver o nome amigável da Entidade (Base, Obra ou Fornecedor)
   const getNomeEntidade = (tipo, id) => {
     if (!id && tipo !== 'FORNECEDOR') return '-';
     
@@ -78,7 +80,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
   const handleBaseChange = (e) => {
     const baseId = e.target.value;
     setBaseSelecionada(baseId);
-    setObraSelecionada(''); // Reseta a obra quando altera a base
+    setObraSelecionada('');
 
     if (!baseId) {
       setObrasFiltradas(obras);
@@ -115,11 +117,23 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     }
   };
 
+  // Lógica de alternar checkboxes de categorias
+  const toggleCategoria = (categoria) => {
+    setCategoriasSelecionadas(prev => 
+      prev.includes(categoria) 
+        ? prev.filter(c => c !== categoria)
+        : [...prev, categoria]
+    );
+  };
+
+  // CORREÇÃO DA LÓGICA DO EXTRATO: Respeita os parâmetros de filtro selecionados na tela principal
   const abrirModalExtrato = async (material) => {
     setMaterialSelecionado(material);
     setCarregandoModal(true);
     try {
       const params = { material_id: material.material_id };
+      
+      // Aplica os mesmos escopos de Local ao buscar o extrato
       if (obraSelecionada) {
         params.tipo_local = 'OBRA';
         params.id_local = obraSelecionada;
@@ -129,10 +143,12 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
       }
 
       const res = await axios.get(`${API_URL}/master/movimentacoes`, { params });
-      const movsDoMaterial = (res.data || []).filter(
-        m => Number(m.material_id) === Number(material.material_id)
-      );
-      setHistoricoMaterial(movsDoMaterial);
+      let movs = res.data || [];
+
+      // Filtro garantido pelo id do material
+      movs = movs.filter(m => Number(m.material_id) === Number(material.material_id));
+
+      setHistoricoMaterial(movs);
     } catch (e) {
       console.error("Erro ao buscar histórico do material:", e);
     } finally {
@@ -145,27 +161,32 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     setHistoricoMaterial([]);
   };
 
-  // Obtém a lista única de categorias
+  // Obtém a lista única de categorias disponíveis
   const tiposDisponiveis = Array.from(
     new Set(saldos.map(s => s.tipo || s.material_tipo).filter(Boolean))
   );
 
-  // Filtro de busca, tipo e saldos maiores que zero
+  // Filtro adaptado para suporte a múltiplas categorias via Checkbox
   const saldosFiltrados = saldos.filter(item => {
     const nome = String(item.nome || item.material_nome || item.descricao || '').toLowerCase();
     const busca = termoBusca.toLowerCase();
     const categoria = String(item.tipo || item.material_tipo || '');
     const saldo = Number(item.saldo_atual || item.saldo_total || 0);
 
-    // Oculta itens sem saldo
     if (saldo === 0) return false;
-
     if (busca && !nome.includes(busca)) return false;
-    if (filtroTipo && categoria.toUpperCase() !== filtroTipo.toUpperCase()) return false;
+
+    // Se houver categorias selecionadas, verifica se a categoria do item está na lista
+    if (categoriasSelecionadas.length > 0) {
+      const matchesCategory = categoriasSelecionadas.some(
+        cat => cat.toUpperCase() === categoria.toUpperCase()
+      );
+      if (!matchesCategory) return false;
+    }
+
     return true;
   });
 
-  // Recalcula o saldo apenas com movimentações CONCLUIDAS no modal
   const saldoExtratoConcluido = historicoMaterial
     .filter(m => String(m.status).toUpperCase() === 'CONCLUIDO')
     .reduce((acc, m) => {
@@ -214,7 +235,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
             </select>
           </div>
 
-          {/* FILTRO 2: OBRA (DEPENDENTE DA BASE) */}
+          {/* FILTRO 2: OBRA */}
           <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: baseSelecionada ? '#64748b' : '#cbd5e1', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <HardHat style={{ width: '12px', height: '12px' }} /> OBRA
@@ -259,15 +280,99 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
             </div>
           </div>
 
-          {/* FILTRO 4: CATEGORIA */}
-          <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }}>CATEGORIA</label>
-            <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} style={inputStyle}>
-              <option value="">Todas</option>
-              {tiposDisponiveis.map(t => (
-                <option key={`cat-${t}`} value={t}>{t}</option>
-              ))}
-            </select>
+          {/* FILTRO 4: CATEGORIAS (CHECKBOX SELECTION DROPDOWN) */}
+          <div style={{ position: 'relative' }}>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <CheckSquare style={{ width: '12px', height: '12px' }} /> CATEGORIAS
+            </label>
+            <button
+              type="button"
+              onClick={() => setMostrarDropdownCategorias(!mostrarDropdownCategorias)}
+              style={{
+                ...inputStyle,
+                textAlign: 'left',
+                cursor: 'pointer',
+                display: 'flex',
+                justify: 'space-between',
+                alignItems: 'center',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <span style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                {categoriasSelecionadas.length === 0
+                  ? 'Todas as categorias'
+                  : `${categoriasSelecionadas.length} selecionada(s)`}
+              </span>
+              <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
+            </button>
+
+            {mostrarDropdownCategorias && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  backgroundColor: '#fff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                  zIndex: 50,
+                  maxHeight: '160px',
+                  overflowY: 'auto',
+                  padding: '6px',
+                  marginTop: '4px'
+                }}
+              >
+                {tiposDisponiveis.length === 0 ? (
+                  <div style={{ fontSize: '11px', color: '#94a3b8', padding: '4px' }}>Nenhuma categoria</div>
+                ) : (
+                  tiposDisponiveis.map(t => (
+                    <label 
+                      key={`cat-cb-${t}`} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px', 
+                        fontSize: '11px', 
+                        padding: '4px 6px', 
+                        cursor: 'pointer',
+                        borderRadius: '4px',
+                        userSelect: 'none'
+                      }}
+                    >
+                      <input 
+                        type="checkbox" 
+                        checked={categoriasSelecionadas.includes(t)} 
+                        onChange={() => toggleCategoria(t)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span>{t}</span>
+                    </label>
+                  ))
+                )}
+                {categoriasSelecionadas.length > 0 && (
+                  <button
+                    onClick={() => setCategoriasSelecionadas([])}
+                    style={{
+                      width: '100%',
+                      marginTop: '4px',
+                      padding: '4px',
+                      fontSize: '10px',
+                      border: 'none',
+                      backgroundColor: '#f1f5f9',
+                      color: '#dc2626',
+                      fontWeight: 'bold',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Limpar Seleções
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
@@ -356,7 +461,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
               {carregandoModal ? (
                 <p style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>Buscando movimentações...</p>
               ) : historicoMaterial.length === 0 ? (
-                <p style={{ textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>Nenhuma movimentação registrada para este material até o momento.</p>
+                <p style={{ textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>Nenhuma movimentação registrada para este local/material.</p>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
                   <thead>
@@ -407,7 +512,6 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                             </span>
                           </td>
 
-                          {/* CORREÇÃO REALIZADA AQUI */}
                           <td style={{ padding: '8px', color: '#475569' }}>
                             {getNomeEntidade(m.origem_tipo, m.origem_id)} → {getNomeEntidade(m.destino_tipo, m.destino_id)}
                           </td>
