@@ -7,7 +7,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
   const [carregando, setCarregando] = useState(false);
   const [termoBusca, setTermoBusca] = useState('');
   
-  // Alterado: Agora armazena um Array de categorias selecionadas
+  // Armazena um Array de categorias selecionadas
   const [categoriasSelecionadas, setCategoriasSelecionadas] = useState([]);
   const [mostrarDropdownCategorias, setMostrarDropdownCategorias] = useState(false);
 
@@ -126,14 +126,12 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     );
   };
 
-  // CORREÇÃO DA LÓGICA DO EXTRATO: Respeita os parâmetros de filtro selecionados na tela principal
   const abrirModalExtrato = async (material) => {
     setMaterialSelecionado(material);
     setCarregandoModal(true);
     try {
       const params = { material_id: material.material_id };
       
-      // Aplica os mesmos escopos de Local ao buscar o extrato
       if (obraSelecionada) {
         params.tipo_local = 'OBRA';
         params.id_local = obraSelecionada;
@@ -145,7 +143,6 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
       const res = await axios.get(`${API_URL}/master/movimentacoes`, { params });
       let movs = res.data || [];
 
-      // Filtro garantido pelo id do material
       movs = movs.filter(m => Number(m.material_id) === Number(material.material_id));
 
       setHistoricoMaterial(movs);
@@ -161,12 +158,10 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     setHistoricoMaterial([]);
   };
 
-  // Obtém a lista única de categorias disponíveis
   const tiposDisponiveis = Array.from(
     new Set(saldos.map(s => s.tipo || s.material_tipo).filter(Boolean))
   );
 
-  // Filtro adaptado para suporte a múltiplas categorias via Checkbox
   const saldosFiltrados = saldos.filter(item => {
     const nome = String(item.nome || item.material_nome || item.descricao || '').toLowerCase();
     const busca = termoBusca.toLowerCase();
@@ -176,7 +171,6 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     if (saldo === 0) return false;
     if (busca && !nome.includes(busca)) return false;
 
-    // Se houver categorias selecionadas, verifica se a categoria do item está na lista
     if (categoriasSelecionadas.length > 0) {
       const matchesCategory = categoriasSelecionadas.some(
         cat => cat.toUpperCase() === categoria.toUpperCase()
@@ -280,7 +274,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
             </div>
           </div>
 
-          {/* FILTRO 4: CATEGORIAS (CHECKBOX SELECTION DROPDOWN) */}
+          {/* FILTRO 4: CATEGORIAS */}
           <div style={{ position: 'relative' }}>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <CheckSquare style={{ width: '12px', height: '12px' }} /> CATEGORIAS
@@ -385,26 +379,72 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
               <th style={{ padding: '10px 12px' }}>Material</th>
               <th style={{ padding: '10px 12px' }}>Categoria</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right' }}>Qtd. Movimentada</th>
               <th style={{ padding: '10px 12px', textAlign: 'right' }}>Saldo Atual</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right' }}>Saldo p/ RDO</th>
+              <th style={{ padding: '10px 12px', textAlign: 'center' }}>Capacidade de Uso</th>
               <th style={{ padding: '10px 12px', textAlign: 'center' }}>Ações</th>
             </tr>
           </thead>
           <tbody>
             {carregando ? (
               <tr>
-                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando dados do estoque...</td>
+                <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando dados do estoque...</td>
               </tr>
             ) : saldosFiltrados.length === 0 ? (
               <tr>
-                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum material encontrado.</td>
+                <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Nenhum material encontrado.</td>
               </tr>
             ) : (
               saldosFiltrados.map((item) => {
                 const nomeMaterial = item.nome || item.material_nome || item.descricao || 'Sem descrição';
                 const tipoMaterial = item.tipo || item.material_tipo || '-';
-                const totalMovimentado = Number(item.total_movimentado || 0);
                 const saldoAtual = Number(item.saldo_atual || item.saldo_total || 0);
+
+                // Unidades
+                const unEstoque = item.unidade_estoque || item.unidade_medida || 'UN';
+                const unConsumo = item.unidade_consumo || 'UN';
+                const unAplicada = item.unidade_aplicada || 'M2';
+
+                // Parâmetros de Cálculo
+                const fatorConsumo = Number(item.fator_conversao_consumo) || 1;
+                const consBase = Number(item.consumo_base) || 0;
+                const qtdAplicada = Number(item.quantidade_aplicada) || 0;
+
+                // Flags de validação
+                const temConversaoEmbalagem = Boolean(fatorConsumo > 1 || item.tem_conversao);
+                const temRendimentoArea = Boolean(consBase > 0 && qtdAplicada > 0 && item.tem_rendimento);
+
+                let saldoRDOTexto = '';
+                let capacidadeUsoTexto = '';
+
+                // REGRAS DE EXIBIÇÃO DA TABELA
+                if (temRendimentoArea) {
+                  // CASO TINTA:
+                  // Saldo p/ RDO: mantém em baldes (ex: 2 BD)
+                  saldoRDOTexto = `${saldoAtual.toLocaleString('pt-BR')} ${unEstoque}`;
+
+                  // Capacidade de Uso: Área total calculada (ex: 30 M2)
+                  const saldoEmUnidadeConsumo = temConversaoEmbalagem ? (saldoAtual * fatorConsumo) : saldoAtual;
+                  const rendimentoCalculado = (saldoEmUnidadeConsumo / consBase) * qtdAplicada;
+                  capacidadeUsoTexto = `${rendimentoCalculado.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${unAplicada}`;
+
+                } else if (temConversaoEmbalagem) {
+                  // CASO TACHÃO / CAIXA:
+                  // Saldo p/ RDO: Total de unidades dentro das caixas (ex: 1.200 UN)
+                  const totalUnidades = saldoAtual * fatorConsumo;
+                  saldoRDOTexto = `${totalUnidades.toLocaleString('pt-BR')} ${unConsumo}`;
+
+                  // Capacidade de Uso: Total disponível para uso (ex: 1.200 UN)
+                  capacidadeUsoTexto = `${totalUnidades.toLocaleString('pt-BR')} ${unConsumo}`;
+
+                } else {
+                  // CASO MICROESFERA / MATERIAL DIRETO:
+                  // Saldo p/ RDO: Direto na unidade (ex: 6 UN)
+                  saldoRDOTexto = `${saldoAtual.toLocaleString('pt-BR')} ${unConsumo}`;
+
+                  // Capacidade de Uso: Relação 1 para 1 (ex: 1 UN = 1 UN ou 1 SACO = 1 UN)
+                  capacidadeUsoTexto = `1 ${unEstoque} = 1 ${unConsumo}`;
+                }
 
                 return (
                   <tr key={`mat-saldo-${item.material_id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -414,11 +454,14 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                     <td style={{ padding: '10px 12px', color: '#64748b' }}>
                       {tipoMaterial}
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: totalMovimentado >= 0 ? '#16a34a' : '#dc2626' }}>
-                      {totalMovimentado > 0 ? `+${totalMovimentado}` : totalMovimentado} {item.unidade_medida || 'UN'}
-                    </td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: '12px', color: '#2563eb' }}>
-                      {saldoAtual.toLocaleString('pt-BR')} {item.unidade_medida || 'UN'}
+                      {saldoAtual.toLocaleString('pt-BR')} {unEstoque}
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: '12px', color: (temConversaoEmbalagem || temRendimentoArea) ? '#059669' : '#334155' }}>
+                      {saldoRDOTexto}
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 'bold', color: '#475569' }}>
+                      {capacidadeUsoTexto}
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                       <button

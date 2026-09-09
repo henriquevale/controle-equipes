@@ -382,6 +382,7 @@ router.get('/master/obras-todas', async (req, res) => {
 // ========================================================
 
 // 13-A. GET: Listar todos os materiais
+// 13-A. GET: Listar todos os materiais
 router.get('/materiais', async (req, res) => {
   try {
     const sql = `
@@ -389,18 +390,33 @@ router.get('/materiais', async (req, res) => {
         m.id, 
         m.codigo, 
         m.descricao, 
-        m.unidade_medida, 
         m.tipo,
+        m.unidade_estoque,
+        m.unidade_consumo,
+        m.unidade_orcamento,
+        m.fator_conversao_consumo,
+        m.fator_conversao_orcamento,
+        m.tem_rendimento,
+        m.quantidade_aplicada,
+        m.unidade_aplicada,
+        m.consumo_base,
+        m.unidade_consumo AS unidade_medida,
         GROUP_CONCAT(fm.id_fornecedor) AS fornecedores_ids
       FROM materiais m
       LEFT JOIN fornecedor_materiais fm ON m.id = fm.id_material
-      GROUP BY m.id, m.codigo, m.descricao, m.unidade_medida, m.tipo
+      GROUP BY 
+        m.id, m.codigo, m.descricao, m.tipo, 
+        m.unidade_estoque, m.unidade_consumo, m.unidade_orcamento, 
+        m.fator_conversao_consumo, m.fator_conversao_orcamento,
+        m.tem_rendimento, m.quantidade_aplicada, m.unidade_aplicada, m.consumo_base
       ORDER BY m.descricao ASC
     `;
     const [rows] = await db.execute(sql);
     
     const formatados = rows.map(mat => ({
       ...mat,
+      tem_conversao: Number(mat.fator_conversao_consumo) > 1,
+      tem_rendimento: Boolean(mat.tem_rendimento),
       fornecedores_ids: mat.fornecedores_ids 
         ? mat.fornecedores_ids.split(',').map(Number) 
         : []
@@ -415,25 +431,73 @@ router.get('/materiais', async (req, res) => {
 
 // 13-B. POST: Cadastrar novo material
 router.post('/materiais', async (req, res) => {
-  const { codigo, descricao, unidade_medida, tipo } = req.body;
+  const { 
+    codigo, 
+    descricao, 
+    tipo, 
+    unidade_estoque, 
+    unidade_consumo, 
+    unidade_orcamento, 
+    fator_conversao_consumo, 
+    fator_conversao_orcamento,
+    tem_rendimento,
+    quantidade_aplicada,
+    unidade_aplicada,
+    consumo_base
+  } = req.body;
 
   if (!descricao) {
     return res.status(400).json({ error: 'A descrição é obrigatória.' });
   }
 
   try {
-    const sql = 'INSERT INTO materiais (codigo, descricao, unidade_medida, tipo) VALUES (?, ?, ?, ?)';
+    const sql = `
+      INSERT INTO materiais (
+        codigo, 
+        descricao, 
+        tipo, 
+        unidade_estoque, 
+        unidade_consumo, 
+        unidade_orcamento, 
+        fator_conversao_consumo, 
+        fator_conversao_orcamento,
+        tem_rendimento,
+        quantidade_aplicada,
+        unidade_aplicada,
+        consumo_base
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
     
     const codigoValido = codigo && codigo.trim() !== '' ? codigo.trim().toUpperCase() : null;
     const descMaiuscula = descricao.trim().toUpperCase();
-    const unidadeMaiuscula = unidade_medida ? unidade_medida.trim().toUpperCase() : 'UN';
     const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
+    
+    const unEstoque = unidade_estoque ? unidade_estoque.trim().toUpperCase() : 'UN';
+    const unConsumo = unidade_consumo ? unidade_consumo.trim().toUpperCase() : 'UN';
+    const unOrcamento = unidade_orcamento ? unidade_orcamento.trim().toUpperCase() : unConsumo;
+
+    const fatorConsumo = parseFloat(fator_conversao_consumo) || 1;
+    const fatorOrcamento = parseFloat(fator_conversao_orcamento) || fatorConsumo;
+
+    // Tratamento dos novos campos de Rendimento
+    const temRend = tem_rendimento ? 1 : 0;
+    const qtdAplicada = parseFloat(quantidade_aplicada) || 1;
+    const unAplicada = unidade_aplicada ? unidade_aplicada.trim().toUpperCase() : null;
+    const consBase = parseFloat(consumo_base) || 1;
 
     const [result] = await db.execute(sql, [
       codigoValido,
       descMaiuscula,
-      unidadeMaiuscula,
-      tipoMaiusculo
+      tipoMaiusculo,
+      unEstoque,
+      unConsumo,
+      unOrcamento,
+      fatorConsumo,
+      fatorOrcamento,
+      temRend,
+      qtdAplicada,
+      unAplicada,
+      consBase
     ]);
 
     res.status(201).json({ success: true, message: 'Material cadastrado com sucesso!', id: result.insertId });
@@ -446,25 +510,74 @@ router.post('/materiais', async (req, res) => {
 // 13-C. PUT: Atualizar material existente
 router.put('/materiais/:id', async (req, res) => {
   const { id } = req.params;
-  const { codigo, descricao, unidade_medida, tipo } = req.body;
+  const { 
+    codigo, 
+    descricao, 
+    tipo, 
+    unidade_estoque, 
+    unidade_consumo, 
+    unidade_orcamento, 
+    fator_conversao_consumo, 
+    fator_conversao_orcamento,
+    tem_rendimento,
+    quantidade_aplicada,
+    unidade_aplicada,
+    consumo_base
+  } = req.body;
 
   if (!descricao) {
     return res.status(400).json({ error: 'A descrição é obrigatória.' });
   }
 
   try {
-    const sql = 'UPDATE materiais SET codigo = ?, descricao = ?, unidade_medida = ?, tipo = ? WHERE id = ?';
+    const sql = `
+      UPDATE materiais 
+      SET 
+        codigo = ?, 
+        descricao = ?, 
+        tipo = ?, 
+        unidade_estoque = ?, 
+        unidade_consumo = ?, 
+        unidade_orcamento = ?, 
+        fator_conversao_consumo = ?, 
+        fator_conversao_orcamento = ?,
+        tem_rendimento = ?,
+        quantidade_aplicada = ?,
+        unidade_aplicada = ?,
+        consumo_base = ?
+      WHERE id = ?
+    `;
     
     const codigoValido = codigo && codigo.trim() !== '' ? codigo.trim().toUpperCase() : null;
     const descMaiuscula = descricao.trim().toUpperCase();
-    const unidadeMaiuscula = unidade_medida ? unidade_medida.trim().toUpperCase() : 'UN';
     const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
+    
+    const unEstoque = unidade_estoque ? unidade_estoque.trim().toUpperCase() : 'UN';
+    const unConsumo = unidade_consumo ? unidade_consumo.trim().toUpperCase() : 'UN';
+    const unOrcamento = unidade_orcamento ? unidade_orcamento.trim().toUpperCase() : unConsumo;
+
+    const fatorConsumo = parseFloat(fator_conversao_consumo) || 1;
+    const fatorOrcamento = parseFloat(fator_conversao_orcamento) || fatorConsumo;
+
+    // Tratamento dos novos campos de Rendimento
+    const temRend = tem_rendimento ? 1 : 0;
+    const qtdAplicada = parseFloat(quantidade_aplicada) || 1;
+    const unAplicada = unidade_aplicada ? unidade_aplicada.trim().toUpperCase() : null;
+    const consBase = parseFloat(consumo_base) || 1;
 
     await db.execute(sql, [
       codigoValido,
       descMaiuscula,
-      unidadeMaiuscula,
       tipoMaiusculo,
+      unEstoque,
+      unConsumo,
+      unOrcamento,
+      fatorConsumo,
+      fatorOrcamento,
+      temRend,
+      qtdAplicada,
+      unAplicada,
+      consBase,
       parseInt(id)
     ]);
 
@@ -475,7 +588,7 @@ router.put('/materiais/:id', async (req, res) => {
   }
 });
 
-// 13-D. DELETE: Excluir material
+// 13-D. DELETE: Excluir material (Permanece sem alterações)
 router.delete('/materiais/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -487,19 +600,6 @@ router.delete('/materiais/:id', async (req, res) => {
   } catch (err) {
     console.error('Erro ao excluir material:', err);
     res.status(500).json({ error: 'Erro ao excluir o material. Verifique se ele não possui vínculos atrelados.' });
-  }
-});
-// 13-D. DELETE: Excluir material
-router.delete('/materiais/:id', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const sql = 'DELETE FROM materiais WHERE id = ?';
-    await db.execute(sql, [parseInt(id)]);
-    res.json({ success: true, message: 'Material excluído com sucesso!' });
-  } catch (err) {
-    console.error('Erro ao excluir material:', err);
-    res.status(500).json({ error: 'Erro ao remover o material do banco de dados.' });
   }
 });
 
@@ -640,8 +740,9 @@ router.delete('/fornecedores/:id', async (req, res) => {
 // ========================================================
 // 15. ROTAS DE FATURAMENTO DIRETO (INCLUINDO ITENS COM CAPACIDADE DE USO E IPI)
 // ========================================================
-
+// ========================================================
 // 15-A. GET: Listar Faturamentos Diretos com Gestor e Itens
+// ========================================================
 router.get('/faturamento-direto', async (req, res) => {
   try {
     const { usuario_id, id, cargo, id_obra } = req.query;
@@ -657,18 +758,25 @@ router.get('/faturamento-direto', async (req, res) => {
     `;
     const params = [];
 
-    // 🔒 RESTRIÇÃO DE ACESSO VIA TABELA ENGENHARIA_OBRAS
-    if (idUsuario) {
-      const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
-      const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+    const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
 
-      if (!isMaster) {
-        sql += ` AND fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)`;
-        params.push(Number(idUsuario));
+    // 🔒 RESTRICAO DE ACESSO PARA ENGENHARIA / USUÁRIOS COMUNS
+    if (!isMaster) {
+      if (idUsuario) {
+        // Traz o faturamento se a obra for do usuário OU se ele for o gestor responsável
+        sql += ` AND (
+          fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)
+          OR fd.id_gestor = ?
+        )`;
+        params.push(Number(idUsuario), Number(idUsuario));
+      } else {
+        // Se não for master nem enviar o ID do usuário, não exibe nada por segurança
+        sql += ` AND 1=0`;
       }
     }
 
-    // Filtro adicional por obra específica
+    // Filtro adicional por obra específica (caso selecionado no combobox do front)
     if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
       sql += ` AND fd.obra_id = ?`;
       params.push(Number(id_obra));
@@ -691,7 +799,7 @@ router.get('/faturamento-direto', async (req, res) => {
       }));
 
       return res.json(faturamentosComItens);
-    } catch {
+    } catch (errItens) {
       return res.json(faturamentos);
     }
 
@@ -753,16 +861,16 @@ router.post('/faturamento-direto', async (req, res) => {
     }
 
     const statusFinal = status || 'Solicitado';
+    const statusMovimentaEstoque = ['NF recebida e em estoque', 'Concluído'].includes(statusFinal);
+
     const boletimFormatado = boletim_medicao ? String(boletim_medicao).replace(/\s+/g, '').toUpperCase() : null;
     const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
     const parseDate = (val) => (val && String(val).trim() !== '') ? val : null;
     const valorNfValido = (valor_nota_fiscal !== undefined && valor_nota_fiscal !== '' && valor_nota_fiscal !== null) ? parseFloat(valor_nota_fiscal) : 0;
 
-    //Tratamento individual para ambos os pedidos
     const pedObraValido = (numero_pedido_obra !== undefined && numero_pedido_obra !== null) ? String(numero_pedido_obra).trim() : '';
     const pedConcessionariaValido = (numero_pedido_concessionaria !== undefined && numero_pedido_concessionaria !== null) ? String(numero_pedido_concessionaria).trim() : '';
 
-    // INSERÇÃO: Adicionados numero_pedido_obra e numero_pedido_concessionaria (16 parâmetros)
     const sqlFaturamento = `
       INSERT INTO faturamentos_diretos 
       (obra_id, numero_pedido_obra, numero_pedido_concessionaria, boletim_medicao, fornecedor_id, numero_nota_fiscal, data_nota_fiscal, valor_nota_fiscal, valor_frete, status, motivo_cancelamento, id_gestor, data_solicitacao, observacao, data_envio, url_email) 
@@ -823,7 +931,7 @@ router.post('/faturamento-direto', async (req, res) => {
             parseFloat(item.ipi_percentual) || 0
           ]);
 
-          if (statusFinal === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
+          if (statusMovimentaEstoque && qtd > 0 && obraIdValida) {
             await connection.query(sqlMovimentacao, [
               fornecedorIdValido || 0,
               obraIdValida,
@@ -883,6 +991,8 @@ router.put('/faturamento-direto/:id', async (req, res) => {
 
   const faturamentoId = parseInt(id);
   const statusNovo = status || 'Solicitado';
+  const statusMovimentaEstoque = ['NF recebida e em estoque', 'Concluído'].includes(statusNovo);
+
   const gestorIdValido = (id_gestor && String(id_gestor).trim() !== '') ? parseInt(id_gestor) : null;
   const usuarioAcaoId = id_usuario || gestorIdValido || 1;
   const valorFreteValido = (valor_frete !== undefined && valor_frete !== '' && valor_frete !== null) ? parseFloat(valor_frete) : 0;
@@ -895,7 +1005,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     try {
       await connection.beginTransaction();
 
-      // 1. Estorna os saldos
+      // 1. Estorna os saldos das movimentações anteriores
       const [movsAntigas] = await connection.query(
         `SELECT material_id, destino_id AS obra_id, quantidade 
          FROM estoque_movimentacoes 
@@ -912,7 +1022,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         );
       }
 
-      // 2. Limpa dados antigos
+      // 2. Limpa dados antigos vinculados a esse faturamento
       await connection.query('DELETE FROM estoque_movimentacoes WHERE faturamento_id = ?', [faturamentoId]);
       await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [faturamentoId]);
 
@@ -921,11 +1031,9 @@ router.put('/faturamento-direto/:id', async (req, res) => {
       const obraIdValida = (obra_id && String(obra_id).trim() !== '') ? parseInt(obra_id) : null;
       const fornecedorIdValido = (fornecedor_id && String(fornecedor_id).trim() !== '') ? parseInt(fornecedor_id) : null;
 
-      //Tratamento individual para ambos os pedidos
       const pedObraValido = (numero_pedido_obra !== undefined && numero_pedido_obra !== null) ? String(numero_pedido_obra).trim() : '';
       const pedConcessionariaValido = (numero_pedido_concessionaria !== undefined && numero_pedido_concessionaria !== null) ? String(numero_pedido_concessionaria).trim() : '';
 
-      // UPDATE: Atualiza individualmente os campos numero_pedido_obra e numero_pedido_concessionaria
       const sqlUpdateFat = `
         UPDATE faturamentos_diretos SET 
           obra_id = ?, 
@@ -967,7 +1075,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
         faturamentoId
       ]);
 
-      // 3. Insere os novos itens
+      // 3. Insere os novos itens e atualiza o estoque se necessário
       if (Array.isArray(itens) && itens.length > 0) {
         const sqlItem = `
           INSERT INTO faturamento_itens 
@@ -1001,7 +1109,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
               parseFloat(item.ipi_percentual) || 0
             ]);
 
-            if (statusNovo === 'NF recebida e em estoque' && qtd > 0 && obraIdValida) {
+            if (statusMovimentaEstoque && qtd > 0 && obraIdValida) {
               await connection.query(sqlMovimentacao, [
                 fornecedorIdValido || 0,
                 obraIdValida,
@@ -1041,8 +1149,9 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     }
   }
 });
+
 // ========================================================
-// DELETE: Remover faturamento (Com estorno de estoque e exclusão em cascata)
+// 15-D. DELETE: Remover faturamento (Com estorno e exclusão)
 // ========================================================
 router.delete('/faturamento-direto/:id', async (req, res) => {
   const { id } = req.params;
@@ -1052,7 +1161,6 @@ router.delete('/faturamento-direto/:id', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // 1. Busca as movimentações associadas a este faturamento com bloqueio
     const [movs] = await connection.query(
       `SELECT material_id, destino_id AS obra_id, quantidade 
        FROM estoque_movimentacoes 
@@ -1060,7 +1168,6 @@ router.delete('/faturamento-direto/:id', async (req, res) => {
       [faturamentoId]
     );
 
-    // 2. Estorna o saldo das obras que receberam os materiais
     for (const mov of movs) {
       await connection.query(
         `UPDATE estoque_saldos 
@@ -1070,11 +1177,9 @@ router.delete('/faturamento-direto/:id', async (req, res) => {
       );
     }
 
-    // 3. Remove os registros filhos nas tabelas dependentes
     await connection.query('DELETE FROM estoque_movimentacoes WHERE faturamento_id = ?', [faturamentoId]);
     await connection.query('DELETE FROM faturamento_itens WHERE faturamento_id = ?', [faturamentoId]);
 
-    // 4. Exclui o faturamento principal
     const [result] = await connection.query('DELETE FROM faturamentos_diretos WHERE id = ?', [faturamentoId]);
 
     if (result.affectedRows === 0) {
@@ -1218,7 +1323,8 @@ router.get('/master/movimentacoes', async (req, res) => {
       SELECT 
         em.*,
         m.descricao AS material_nome,
-        m.unidade_medida,
+        m.unidade_estoque,
+        m.unidade_estoque AS unidade_medida,
         u_envia.nome AS quem_envia_nome,
         u_pede.nome AS quem_pede_nome,
         u_reg.nome AS usuario_nome
@@ -1306,12 +1412,10 @@ router.post('/master/movimentacoes', async (req, res) => {
 // ========================================================
 // PUT: EDITAR MOVIMENTAÇÃO
 // ========================================================
-// Localize a rota UPDATE na linha 1249 do masterRoutes.js
 router.put('/master/movimentacoes/:id', async (req, res) => {
   const { id } = req.params;
   let { data_solicitada } = req.body;
 
-  // Trata a data no backend antes de montar a SQL Query
   if (data_solicitada && typeof data_solicitada === 'string') {
     data_solicitada = data_solicitada.split('T')[0];
   } else {
@@ -1337,7 +1441,7 @@ router.put('/master/movimentacoes/:id', async (req, res) => {
       req.body.origem_id || null,
       req.body.destino_tipo,
       req.body.destino_id,
-      data_solicitada, // <--- Passa o valor 'YYYY-MM-DD' tratado
+      data_solicitada,
       req.body.observacao || '',
       req.body.status || 'CONCLUIDO',
       id
@@ -1349,6 +1453,7 @@ router.put('/master/movimentacoes/:id', async (req, res) => {
     res.status(500).json({ error: "Erro ao atualizar registro no banco." });
   }
 });
+
 // ========================================================
 // DELETE: EXCLUIR MOVIMENTAÇÃO
 // ========================================================
@@ -1390,10 +1495,8 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
       return res.status(400).json({ error: "Movimentação já foi concluída anteriormente." });
     }
 
-    // 1. Atualiza status da movimentação para CONCLUIDO
     await connection.query('UPDATE estoque_movimentacoes SET status = "CONCLUIDO" WHERE id = ?', [id]);
 
-    // 2. Incrementa o saldo do estoque no destino
     if (mov.destino_tipo === 'OBRA' && mov.destino_id) {
       const sqlAtualizaSaldo = `
         INSERT INTO estoque_saldos (local_tipo, local_id, material_id, quantidade)
@@ -1413,6 +1516,7 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
     connection.release();
   }
 });
+
 // GET: Locais (Bases e Obras)
 router.get('/master/locais', async (req, res) => {
   try {
@@ -1453,7 +1557,14 @@ router.get('/master/estoque/saldos', async (req, res) => {
         m.id AS material_id,
         m.codigo,
         m.descricao AS nome,
-        m.unidade_medida,
+        m.unidade_estoque,
+        m.unidade_estoque AS unidade_medida,
+        m.unidade_consumo,
+        m.fator_conversao_consumo,
+        m.tem_rendimento,
+        m.consumo_base,
+        m.quantidade_aplicada,
+        m.unidade_aplicada,
         m.tipo,
         COALESCE(SUM(
           CASE 
@@ -1490,7 +1601,18 @@ router.get('/master/estoque/saldos', async (req, res) => {
       LEFT JOIN estoque_movimentacoes mov 
         ON m.id = mov.material_id 
        AND UPPER(mov.status) = 'CONCLUIDO'
-      GROUP BY m.id, m.codigo, m.descricao, m.unidade_medida, m.tipo
+      GROUP BY 
+        m.id, 
+        m.codigo, 
+        m.descricao, 
+        m.unidade_estoque, 
+        m.unidade_consumo, 
+        m.fator_conversao_consumo,
+        m.tem_rendimento,
+        m.consumo_base,
+        m.quantidade_aplicada,
+        m.unidade_aplicada,
+        m.tipo
       ORDER BY m.descricao ASC
     `;
 
@@ -1520,7 +1642,7 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
         e.data_movimentacao,
         e.observacao,
         m.descricao AS material_nome,
-        m.unidade_medida,
+        m.unidade_estoque AS unidade_medida,
         CASE 
           WHEN e.origem_tipo = 'BASE' THEN b_origem.nome
           WHEN e.origem_tipo = 'OBRA' THEN o_origem.nome_obra
@@ -1608,7 +1730,7 @@ router.get('/relatorios/compras-por-material', async (req, res) => {
       SELECT 
         m.id AS material_id,
         m.descricao AS material_nome,
-        m.unidade_medida,
+        m.unidade_consumo AS unidade_medida,
         m.tipo AS material_tipo,
         COUNT(DISTINCT fd.id) AS total_pedidos,
         SUM(fi.quantidade) AS quantidade_total_comprada,
@@ -1643,7 +1765,7 @@ router.get('/relatorios/compras-por-material', async (req, res) => {
       params.push(obra_id);
     }
 
-    sql += ` GROUP BY m.id, m.descricao, m.unidade_medida, m.tipo`;
+    sql += ` GROUP BY m.id, m.descricao, m.unidade_consumo, m.tipo`;
     sql += ` ORDER BY ${getOrderBySql(ordenacao, 'material')}`;
 
     const [rows] = await db.query(sql, params);

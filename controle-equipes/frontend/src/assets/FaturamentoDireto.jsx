@@ -87,7 +87,7 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
     carregarDados();
   }, []);
 
-  const carregarDados = async () => {
+const carregarDados = async () => {
     try {
       const idUsuario = usuarioLogado?.id || usuarioLogado?.id_usuario;
       const cargoUpper = String(usuarioLogado?.cargo || '').trim().toUpperCase();
@@ -99,7 +99,13 @@ export default function FaturamentoDireto({ API_URL, mostrarMensagem, obrasDispo
           });
 
       const [resFat, resObras, resForn, resUser, resMat, resFornMat] = await Promise.all([
-        axios.get(`${API_URL}/faturamento-direto`).catch(() => ({ data: [] })),
+        // 🚀 CORREÇÃO AQUI: Passamos usuario_id e cargo via query params
+        axios.get(`${API_URL}/faturamento-direto`, {
+          params: {
+            usuario_id: idUsuario,
+            cargo: cargoUpper
+          }
+        }).catch(() => ({ data: [] })),
         reqObras.catch(() => ({ data: [] })),
         axios.get(`${API_URL}/fornecedores`).catch(() => ({ data: [] })),
         axios.get(`${API_URL}/master/usuarios`).catch(() => axios.get(`${API_URL}/usuarios`)).catch(() => ({ data: [] })),

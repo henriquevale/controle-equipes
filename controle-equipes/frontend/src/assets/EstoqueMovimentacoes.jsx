@@ -188,10 +188,12 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
 
     try {
       if (editandoId) {
+        const matObj = materiais.find(x => Number(x.id) === Number(itens[0].material_id));
         const payload = {
           ...form,
           material_id: itens[0].material_id,
           quantidade: itens[0].quantidade,
+          unidade_medida: matObj?.unidade_estoque || matObj?.unidade_medida || 'UN',
           origem_id: form.origem_tipo === 'FORNECEDOR' ? itens[0].fornecedor_id : form.origem_id,
           quem_envia_id: form.quem_envia_id ? parseInt(form.quem_envia_id) : null,
           quem_pede_id: form.quem_pede_id ? parseInt(form.quem_pede_id) : null,
@@ -202,10 +204,12 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
         mostrarMensagem('Movimentação atualizada com sucesso!', 'sucesso');
       } else {
         const requisicoes = itens.map(item => {
+          const matObj = materiais.find(x => Number(x.id) === Number(item.material_id));
           const payload = {
             ...form,
             material_id: item.material_id,
             quantidade: item.quantidade,
+            unidade_medida: matObj?.unidade_estoque || matObj?.unidade_medida || 'UN',
             origem_id: form.origem_tipo === 'FORNECEDOR' ? item.fornecedor_id : form.origem_id,
             quem_envia_id: form.quem_envia_id ? parseInt(form.quem_envia_id) : null,
             quem_pede_id: form.quem_pede_id ? parseInt(form.quem_pede_id) : null,
@@ -326,6 +330,8 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
     const linhas = movsFiltradas.map(m => {
       const matObj = materiais.find(x => Number(x.id) === Number(m.material_id));
       const tipoMaterial = matObj?.tipo || m.material_tipo || '-';
+      const unidadeEstoque = matObj?.unidade_estoque || m.unidade_medida || 'UN';
+
       let fornecedorNome = '-';
       if (m.origem_tipo === 'FORNECEDOR' && m.origem_id) {
         const forn = fornecedores.find(f => Number(f.id) === Number(m.origem_id));
@@ -336,7 +342,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
         `"${tipoMaterial.replace(/"/g, '""')}"`,
         `"${fornecedorNome.replace(/"/g, '""')}"`,
         m.quantidade,
-        m.unidade_medida || 'UN',
+        unidadeEstoque,
         m.tipo_movimentacao,
         `"${m.quem_envia_nome || '-'}"`,
         `"${getNomeEntidade(m.origem_tipo, m.origem_id)}"`,
@@ -516,7 +522,9 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                     <select value={item.material_id} onChange={e => handleItemChange(index, 'material_id', e.target.value)} style={inputStyle}>
                       <option value="">{materiaisFiltrados.length === 0 ? 'Nenhum material' : 'Selecione...'}</option>
                       {materiaisFiltrados.map(m => (
-                        <option key={`mat-${m.id}`} value={m.id}>{m.descricao} ({m.unidade_medida || 'UN'})</option>
+                        <option key={`mat-${m.id}`} value={m.id}>
+                          {m.descricao} ({m.unidade_estoque || m.unidade_medida || 'UN'})
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -670,6 +678,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                 movsFiltradas.map((m) => {
                   const matObj = materiais.find(x => Number(x.id) === Number(m.material_id));
                   const tipoMaterial = matObj?.tipo || m.material_tipo || '-';
+                  const unidadeExibicao = matObj?.unidade_estoque || m.unidade_medida || 'UN';
 
                   let fornecedorNome = '-';
                   if (m.origem_tipo === 'FORNECEDOR' && m.origem_id) {
@@ -713,7 +722,7 @@ export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuario
                       </td>
 
                       <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#2563eb' }}>
-                        {m.quantidade} {m.unidade_medida || ''}
+                        {m.quantidade} {unidadeExibicao}
                       </td>
 
                       <td style={{ padding: '10px 12px' }}>
