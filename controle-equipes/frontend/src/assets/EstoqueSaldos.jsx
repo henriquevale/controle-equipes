@@ -126,12 +126,15 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     );
   };
 
-  const abrirModalExtrato = async (material) => {
+const abrirModalExtrato = async (material) => {
     setMaterialSelecionado(material);
     setCarregandoModal(true);
     try {
-      const params = { material_id: material.material_id };
+      const params = { 
+        material_id: material.material_id 
+      };
       
+      // Passa a Obra ou a Base selecionada no topo
       if (obraSelecionada) {
         params.tipo_local = 'OBRA';
         params.id_local = obraSelecionada;
@@ -140,10 +143,25 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
         params.id_local = baseSelecionada;
       }
 
+      // Faz a requisição enviando os filtros de local e material
       const res = await axios.get(`${API_URL}/master/movimentacoes`, { params });
       let movs = res.data || [];
 
+      // Filtro no client side para garantir apenas o material correto
       movs = movs.filter(m => Number(m.material_id) === Number(material.material_id));
+
+      // Se houver filtro de Base/Obra, filtra apenas as movimentações onde o local seja Origem OU Destino
+      if (obraSelecionada) {
+        movs = movs.filter(m => 
+          (m.destino_tipo === 'OBRA' && Number(m.destino_id) === Number(obraSelecionada)) ||
+          (m.origem_tipo === 'OBRA' && Number(m.origem_id) === Number(obraSelecionada))
+        );
+      } else if (baseSelecionada) {
+        movs = movs.filter(m => 
+          (m.destino_tipo === 'BASE' && Number(m.destino_id) === Number(baseSelecionada)) ||
+          (m.origem_tipo === 'BASE' && Number(m.origem_id) === Number(baseSelecionada))
+        );
+      }
 
       setHistoricoMaterial(movs);
     } catch (e) {

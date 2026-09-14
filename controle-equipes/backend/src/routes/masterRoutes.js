@@ -810,7 +810,7 @@ router.get('/faturamento-direto', async (req, res) => {
 });
 
 // ========================================================
-// 15-B. POST: Criar Faturamento Direto (Com ajuste de Estoque)
+// 15-B. POST: Cadastrar Faturamento Direto
 // ========================================================
 router.post('/faturamento-direto', async (req, res) => {
   const { 
@@ -918,34 +918,51 @@ router.post('/faturamento-direto', async (req, res) => {
       `;
 
       for (const item of itens) {
-        if (item.material_id && String(item.material_id).trim() !== '') {
+        if (item.material_id) {
           const matId = parseInt(item.material_id);
           const qtd = parseFloat(item.quantidade) || 0;
+          const capUso = parseFloat(item.capacidade_uso) || 1;
+          const vrUnit = parseFloat(item.valor_unitario) || 0;
+          const ipi = parseFloat(item.ipi_percentual) || 0;
 
+          // Busca o fator de conversão do material
+          const [matRows] = await connection.query(
+            'SELECT fator_conversao_consumo FROM materiais WHERE id = ?', 
+            [matId]
+          );
+          const fator = (matRows.length > 0 && parseFloat(matRows[0].fator_conversao_consumo)) 
+            ? parseFloat(matRows[0].fator_conversao_consumo) 
+            : 1;
+
+          // Quantidade convertida para o estoque
+          const qtdConvertida = qtd / fator;
+
+          // 1. Grava o item do faturamento com a quantidade comercial original
           await connection.query(sqlItem, [
-            idFaturamento,
-            matId,
-            qtd,
-            item.capacidade_uso ? String(item.capacidade_uso).trim() : null,
-            parseFloat(item.valor_unitario) || 0,
-            parseFloat(item.ipi_percentual) || 0
+            idFaturamento, 
+            matId, 
+            qtd, 
+            capUso, 
+            vrUnit, 
+            ipi
           ]);
 
-          if (statusMovimentaEstoque && qtd > 0 && obraIdValida) {
+          // 2. Atualiza estoque com a quantidade convertida
+          if (statusMovimentaEstoque && qtdConvertida > 0) {
             await connection.query(sqlMovimentacao, [
-              fornecedorIdValido || 0,
+              fornecedorIdValido,
               obraIdValida,
               matId,
-              qtd,
+              qtdConvertida,
               idFaturamento,
               usuarioAcaoId,
-              gestorIdValido
+              usuarioAcaoId
             ]);
 
             await connection.query(sqlAtualizaSaldo, [
               obraIdValida,
               matId,
-              qtd
+              qtdConvertida
             ]);
           }
         }
@@ -953,11 +970,12 @@ router.post('/faturamento-direto', async (req, res) => {
     }
 
     await connection.commit();
-    res.status(201).json({ id: idFaturamento, message: 'Faturamento cadastrado com sucesso!' });
+    res.status(201).json({ success: true, message: 'Faturamento cadastrado com sucesso!', id: idFaturamento });
+
   } catch (error) {
     await connection.rollback();
-    console.error('ERRO REAL NO BANCO DE DADOS:', error);
-    res.status(500).json({ error: 'Erro ao cadastrar faturamento', detalhe: error.message });
+    console.error('Erro ao cadastrar faturamento:', error);
+    res.status(500).json({ error: 'Erro interno ao salvar faturamento.' });
   } finally {
     connection.release();
   }
@@ -1005,7 +1023,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
     try {
       await connection.beginTransaction();
 
-      // 1. Estorna os saldos das movimentações anteriores
+      // 1. Estorna os saldos das movimentações anteriores (já estão armazenados em quantidade convertida)
       const [movsAntigas] = await connection.query(
         `SELECT material_id, destino_id AS obra_id, quantidade 
          FROM estoque_movimentacoes 
@@ -1100,6 +1118,17 @@ router.put('/faturamento-direto/:id', async (req, res) => {
             const matId = parseInt(item.material_id);
             const qtd = parseFloat(item.quantidade) || 0;
 
+            // Busca fator de conversão do material
+            const [matRows] = await connection.query(
+              'SELECT fator_conversao_consumo FROM materiais WHERE id = ?', 
+              [matId]
+            );
+            const fator = (matRows.length > 0 && parseFloat(matRows[0].fator_conversao_consumo)) 
+              ? parseFloat(matRows[0].fator_conversao_consumo) 
+              : 1;
+
+            const qtdConvertida = qtd / fator;
+
             await connection.query(sqlItem, [
               faturamentoId,
               matId,
@@ -1109,12 +1138,12 @@ router.put('/faturamento-direto/:id', async (req, res) => {
               parseFloat(item.ipi_percentual) || 0
             ]);
 
-            if (statusMovimentaEstoque && qtd > 0 && obraIdValida) {
+            if (statusMovimentaEstoque && qtdConvertida > 0 && obraIdValida) {
               await connection.query(sqlMovimentacao, [
                 fornecedorIdValido || 0,
                 obraIdValida,
                 matId,
-                qtd,
+                qtdConvertida,
                 faturamentoId,
                 usuarioAcaoId,
                 gestorIdValido
@@ -1123,7 +1152,7 @@ router.put('/faturamento-direto/:id', async (req, res) => {
               await connection.query(sqlAtualizaSaldo, [
                 obraIdValida,
                 matId,
-                qtd
+                qtdConvertida
               ]);
             }
           }
@@ -1312,18 +1341,19 @@ router.get('/gestores', async (req, res) => {
   }
 });
 
-// ========================================================
-// GET: LISTAR MOVIMENTAÇÕES COM FILTRO DE STATUS
-// ========================================================
+// GET: LISTAR MOVIMENTAÇÕES COM FILTROS (STATUS, MATERIAL, LOCAL)
 router.get('/master/movimentacoes', async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, material_id, tipo_local, id_local } = req.query;
 
     let sql = `
       SELECT 
         em.*,
         m.descricao AS material_nome,
         m.unidade_estoque,
+        m.unidade_consumo,
+        m.fator_conversao_consumo,
+        m.fator_conversao_orcamento,
         m.unidade_estoque AS unidade_medida,
         u_envia.nome AS quem_envia_nome,
         u_pede.nome AS quem_pede_nome,
@@ -1338,10 +1368,19 @@ router.get('/master/movimentacoes', async (req, res) => {
     
     const params = [];
 
-    // Filtra pelo status caso seja fornecido (ex: ?status=PENDENTE ou ?status=CONCLUIDO)
     if (status && status.trim() !== '') {
       sql += ` AND em.status = ?`;
       params.push(status.trim().toUpperCase());
+    }
+
+    if (material_id) {
+      sql += ` AND em.material_id = ?`;
+      params.push(Number(material_id));
+    }
+
+    if (tipo_local && id_local) {
+      sql += ` AND ((em.destino_tipo = ? AND em.destino_id = ?) OR (em.origem_tipo = ? AND em.origem_id = ?))`;
+      params.push(tipo_local, Number(id_local), tipo_local, Number(id_local));
     }
 
     sql += ` ORDER BY em.id DESC`;
@@ -1353,7 +1392,6 @@ router.get('/master/movimentacoes', async (req, res) => {
     res.status(500).json({ error: "Erro ao buscar histórico de movimentações." });
   }
 });
-
 // ========================================================
 // POST: CRIAR MOVIMENTAÇÃO (COM STATUS PENDENTE)
 // ========================================================

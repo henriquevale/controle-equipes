@@ -31,6 +31,7 @@ import RelatorioCompras from './assets/RelatorioCompras.jsx';
 import RelatorioVeiculoUsados from './assets/RelatorioVeiculoUsados.jsx';
 import CadastroItensManutencao from './assets/CadastroItensManutencao';
 import RelatorioManutencaoVeiculos from './assets/RelatorioManutencaoVeiculos.jsx';
+import DashboardObra from './assets/DashboardObra.jsx';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -83,11 +84,13 @@ const estruturaMenu = [
       titulo: 'Campo & Produção',
       icone: HardHat,
       itens: [
+        { id: 'DASHBOARD_OBRA', label: 'Dashboard da Obra', icon: BarChart3, cargos: ['MASTER', 'GESTOR'] },  
         { id: 'EQUIPE', label: 'Agendamento de Obra', icon: CalendarX, cargos: ['MASTER', 'GESTOR'] },
         { id: 'DIARIO_TECNICO', label: 'Diário de Obra', icon: ClipboardList, cargos: ['MASTER', 'GESTOR'] },
         { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'DIAS_PENDENTES', label: 'Diários Pendentes', icon: CalendarX, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'HISTORICO_MATERIAIS', label: 'Histórico de Materiais', icon: TrendingUp, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
+        
       ]
     },
     {
@@ -464,7 +467,13 @@ const estruturaMenu = [
             {abaAtiva === 'CADASTRO_FORNECEDORES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <CadastroFornecedores API_URL={API_URL} mostrarMensagem={mostrarMensagem} usuarioLogado={usuarioLogado} />
             )}
-            
+                  {abaAtiva === 'DASHBOARD_OBRA' && (
+            <DashboardObra 
+              obrasDisponiveis={listaObrasBanco} 
+              usuarioLogado={usuarioLogado} 
+              API_URL={API_URL} 
+            />
+          )}
             {abaAtiva === 'FATURAMENTO_DIRETO' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <FaturamentoDireto API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
