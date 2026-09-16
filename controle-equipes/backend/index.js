@@ -6,6 +6,7 @@ import authRoutes from './src/routes/authRoutes.js'; // 💡 Ajuste este caminho
 import rhRoutes from './src/routes/rhRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo estiver em outra pasta!
 import masterRoutes from './src/routes/masterRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 import dashboardRoutes from './src/routes/dashboardRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
+import frotasRoutes from './src/routes/frotasRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 //  estiver em outra pasta
 // !
 dotenv.config();
@@ -22,6 +23,7 @@ app.use('/api', rhRoutes);
 app.use('/api', masterRoutes);
 app.use('/api', gestorRoutes);
 app.use('/api', dashboardRoutes);
+app.use('/api', frotasRoutes);
 // 🟢 ADICIONE ESTAS LINHAS AQUI PARA SUMIR O CANNOT GET:
 app.get('/', (req, res) => {
   res.json({ 

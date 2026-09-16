@@ -3,14 +3,14 @@ import axios from 'axios';
 import { 
   LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, 
   FileText, Boxes, BarChart3, TrendingUp, Building2, Shield, 
-  Users, FolderKanban, ChevronDown, ChevronRight, Menu, X,Wrench, ClipboardList
+  Users, FolderKanban, ChevronDown, ChevronRight, Menu, X, Wrench, ClipboardList
 } from 'lucide-react';
 
-// Imports dos Componentes Existentes
-import DiarioEfetivo from './assets/DiarioEfetivo.jsx';
-import DiarioObraTecnico from './assets/DiarioObraTecnico.jsx'; 
-import HistoricoDiarios from './assets/HistoricoDiarios.jsx';
-import HistoricoPresenca from './assets/HistoricoPresenca.jsx'; 
+// Imports dos Componentes
+import DiarioEfetivo from './assets/DiarioEfetivo';
+import DiarioObraTecnico from './assets/DiarioObraTecnico'; 
+import HistoricoDiarios from './assets/HistoricoDiarios';
+import HistoricoPresenca from './assets/HistoricoPresenca'; 
 import ControleMaster from './assets/ControleMaster';
 import CadastroObras from './assets/CadastroObras';
 import ListaVinculos from './assets/ListaVinculos';
@@ -18,22 +18,24 @@ import RecursosHumanos from './assets/RecursosHumanos';
 import HistoricoMateriais from './assets/HistoricoMateriais'; 
 import CadastroFuncionario from './assets/CadastroFuncionario'; 
 import RhIntegracao from './assets/RhIntegracao';
-import DiasPendentes from './assets/DiasPendentes.jsx'; 
+import DiasPendentes from './assets/DiasPendentes'; 
 import CadastroVeiculo from './assets/CadastroVeiculo';
 import CadastroMateriais from './assets/CadastroMateriais';
 import CadastroFornecedores from './assets/CadastroFornecedores';
-import FaturamentoDireto from './assets/FaturamentoDireto.jsx'; 
-import Base from './assets/Base.jsx'; 
-import EstoqueMovimentacoes from './assets/EstoqueMovimentacoes.jsx';
-import EstoqueSaldos from './assets/EstoqueSaldos.jsx';
-import RelatorioMovimentacao from './assets/RelatorioMovimentacoes.jsx';
-import RelatorioCompras from './assets/RelatorioCompras.jsx';
-import RelatorioVeiculoUsados from './assets/RelatorioVeiculoUsados.jsx';
+import FaturamentoDireto from './assets/FaturamentoDireto'; 
+import Base from './assets/Base'; 
+import EstoqueMovimentacoes from './assets/EstoqueMovimentacoes';
+import EstoqueSaldos from './assets/EstoqueSaldos';
+import RelatorioMovimentacao from './assets/RelatorioMovimentacoes';
+import RelatorioCompras from './assets/RelatorioCompras';
+import RelatorioVeiculoUsados from './assets/RelatorioVeiculoUsados';
 import CadastroItensManutencao from './assets/CadastroItensManutencao';
-import RelatorioManutencaoVeiculos from './assets/RelatorioManutencaoVeiculos.jsx';
-import DashboardObra from './assets/DashboardObra.jsx';
+import RelatorioManutencaoVeiculos from './assets/RelatorioManutencaoVeiculos';
+import DashboardObra from './assets/DashboardObra';
+import ManutencaoVeiculo from './assets/ManutencaoVeiculo';
 
-const API_URL = 'http://localhost:3001/api';
+  const API_URL = 'http://localhost:3001/api';
+ // const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function App() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
@@ -68,7 +70,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-const estruturaMenu = [
+  const estruturaMenu = [
     {
       idGrupo: 'ADMIN',
       titulo: 'Administração',
@@ -90,7 +92,6 @@ const estruturaMenu = [
         { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'DIAS_PENDENTES', label: 'Diários Pendentes', icon: CalendarX, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'HISTORICO_MATERIAIS', label: 'Histórico de Materiais', icon: TrendingUp, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
-        
       ]
     },
     {
@@ -115,6 +116,7 @@ const estruturaMenu = [
       itens: [
         { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'RH'] },
         { id: 'CADASTRO_ITENS_MANUTENCAO', label: 'Itens de Manutenção', icon: Wrench, cargos: ['MASTER', 'RH'] },
+        { id: 'MANUTENCAO_VEICULO', label: 'Manutenção de Veículos', icon: Wrench, cargos: ['MASTER', 'RH'] },
         { id: 'RELATORIO_VEICULOS', label: 'Relatório de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
         { id: 'RELATORIO_MANUTENCAO_VEICULOS', label: 'Relatório de Manutenção de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
       ]
@@ -265,6 +267,7 @@ const estruturaMenu = [
   }
 
   const cargoUser = usuarioLogado.cargo;
+  const userId = usuarioLogado.id || usuarioLogado.id_usuario;
 
   return (
     <div style={{ height: '100vh', width: '100%', backgroundColor: '#f8fafc', fontFamily: 'sans-serif', fontSize: '12px', color: '#1e293b', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -308,7 +311,7 @@ const estruturaMenu = [
           />
         )}
 
-        {/* SIDEBAR COMPLETA ATÉ O FIM DA TELA */}
+        {/* SIDEBAR */}
         <aside 
           style={{ 
             position: isMobile ? 'absolute' : 'relative',
@@ -456,10 +459,10 @@ const estruturaMenu = [
             {abaAtiva === 'EQUIPE' && <DiarioEfetivo obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             {abaAtiva === 'DIARIO_TECNICO' && <DiarioObraTecnico obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
             
-            {abaAtiva === 'HISTORICO_DIARIOS' && <HistoricoDiarios id={usuarioLogado.id} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
-            {abaAtiva === 'HISTORICO_MATERIAIS' && <HistoricoMateriais id={usuarioLogado.id} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
-            {abaAtiva === 'PRESENCA' && <HistoricoPresenca cargo={usuarioLogado.cargo} id={usuarioLogado.id} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
-            {abaAtiva === 'DIAS_PENDENTES' && <DiasPendentes id={usuarioLogado.id} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
+            {abaAtiva === 'HISTORICO_DIARIOS' && <HistoricoDiarios id={userId} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
+            {abaAtiva === 'HISTORICO_MATERIAIS' && <HistoricoMateriais id={userId} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
+            {abaAtiva === 'PRESENCA' && <HistoricoPresenca cargo={usuarioLogado.cargo} id={userId} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
+            {abaAtiva === 'DIAS_PENDENTES' && <DiasPendentes id={userId} cargo={usuarioLogado.cargo} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />}
 
             {abaAtiva === 'CADASTRO_MATERIAIS' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <CadastroMateriais API_URL={API_URL} mostrarMensagem={mostrarMensagem} usuarioLogado={usuarioLogado} />
@@ -467,13 +470,13 @@ const estruturaMenu = [
             {abaAtiva === 'CADASTRO_FORNECEDORES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <CadastroFornecedores API_URL={API_URL} mostrarMensagem={mostrarMensagem} usuarioLogado={usuarioLogado} />
             )}
-                  {abaAtiva === 'DASHBOARD_OBRA' && (
-            <DashboardObra 
-              obrasDisponiveis={listaObrasBanco} 
-              usuarioLogado={usuarioLogado} 
-              API_URL={API_URL} 
-            />
-          )}
+            {abaAtiva === 'DASHBOARD_OBRA' && (
+              <DashboardObra 
+                obrasDisponiveis={listaObrasBanco} 
+                usuarioLogado={usuarioLogado} 
+                API_URL={API_URL} 
+              />
+            )}
             {abaAtiva === 'FATURAMENTO_DIRETO' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <FaturamentoDireto API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
@@ -495,10 +498,13 @@ const estruturaMenu = [
             {abaAtiva === 'RELATORIO_MOVIMENTACAO' && usuarioLogado.cargo === 'MASTER' && (
               <RelatorioMovimentacao API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
             )}
-            {abaAtiva === 'RELATORIO_VEICULOS' && (<RelatorioVeiculoUsados usuarioLogado={usuarioLogado} />
-          )}
-          {abaAtiva === 'RELATORIO_MANUTENCAO_VEICULOS' && (<RelatorioManutencaoVeiculos usuarioLogado={usuarioLogado} />
-          )}
+            {abaAtiva === 'RELATORIO_VEICULOS' && (
+              <RelatorioVeiculoUsados usuarioLogado={usuarioLogado} />
+            )}
+            {abaAtiva === 'RELATORIO_MANUTENCAO_VEICULOS' && (
+              <RelatorioManutencaoVeiculos usuarioLogado={usuarioLogado} />
+            )}
+            {abaAtiva === 'MANUTENCAO_VEICULO' && <ManutencaoVeiculo usuarioLogado={usuarioLogado} />}
           </div>
         </main>
       </div>

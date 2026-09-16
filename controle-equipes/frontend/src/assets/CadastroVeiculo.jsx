@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
     Car, PlusCircle, Trash2, Pencil, CheckCircle, AlertTriangle, 
-    Wrench, User, Filter, XCircle, ShieldCheck, Search, AlertCircle
+    Wrench, User, Filter, XCircle, ShieldCheck, Search, AlertCircle,
+    Download, Eye, Droplet, X, Clock
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'http://localhost:3001/api';
+const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
-export default function CadastroVeiculo({ usuarioLogado }) {
-    // Campos do formulário do veículo
+export default function CadastroVeiculo({ onNavegarManutencao }) {
+    // Campos do formulário
     const [idEmEdicao, setIdEmEdicao] = useState(null);
     const [placa, setPlaca] = useState('');
     const [marca, setMarca] = useState('');
@@ -19,31 +21,31 @@ export default function CadastroVeiculo({ usuarioLogado }) {
     const [descricao, setDescricao] = useState('');
     const [idGestor, setIdGestor] = useState(''); 
     const [estaEmManutencao, setEstaEmManutencao] = useState(false);
+    const [estaEmManutencaoCompressor, setEstaEmManutencaoCompressor] = useState(false);
     const [dataTopografia, setDataTopografia] = useState('');
     const [emitidoCrlv, setEmitidoCrlv] = useState('NÃO');
 
-    // Listas e filtros
+    // Campos de KM
+    const [kmAtual, setKmAtual] = useState('');
+    const [kmTrocaOleo, setKmTrocaOleo] = useState('');
+
+    // Listas e Filtros
     const [listaVeiculos, setListaVeiculos] = useState([]);
     const [listaGestores, setListaGestores] = useState([]); 
     const [filtroStatus, setFiltroStatus] = useState('TODOS');
     const [filtroGestor, setFiltroGestor] = useState('TODOS'); 
+    const [filtroTitularidade, setFiltroTitularidade] = useState('TODOS');
     const [filtroCrlv, setFiltroCrlv] = useState('TODOS');
-    const [filtroTopografiaAlerta, setFiltroTopografiaAlerta] = useState(false);
+    const [filtroOleo, setFiltroOleo] = useState('TODOS');
+    const [filtroTacografo, setFiltroTacografo] = useState('TODOS'); 
     const [pesquisaPlaca, setPesquisaPlaca] = useState(''); 
     const [loading, setLoading] = useState(false);
     const [mensagem, setMensagem] = useState({ texto: '', tipo: '' });
 
-    // Modal de Acompanhamento de Manutenções
-    const [veiculoManutencaoModal, setVeiculoManutencaoModal] = useState(null);
-    const [listaManutencoes, setListaManutencoes] = useState([]);
-    const [listaItensDisponiveis, setListaItensDisponiveis] = useState([]);
-    
-    // Estrutura do item com custo e categoria individual: [{ id_item: '1', custo: '150.00', categoria: 'CORRETIVA' }]
-    const [itensComCusto, setItensComCusto] = useState([]); 
-    const [pesquisaItemManutencao, setPesquisaItemManutencao] = useState(''); 
-    const [manutencaoData, setManutencaoData] = useState('');
-    const [manutencaoObs, setManutencaoObs] = useState('');
-    const [loadingManutencao, setLoadingManutencao] = useState(false);
+    // Modal de Visualização (Olho)
+    const [veiculoDetalhe, setVeiculoDetalhe] = useState(null);
+    const [historicoManutencoes, setHistoricoManutencoes] = useState([]);
+    const [loadingHistorico, setLoadingHistorico] = useState(false);
 
     const carregarDadosIniciais = async () => {
         setLoading(true);
@@ -78,6 +80,45 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         return dataString;
     };
 
+    const getOleoStatusInfo = (atual, troca) => {
+        if (atual === null || atual === undefined || troca === null || troca === undefined || troca <= 0) {
+            return { estado: 'INDETERMINADO', label: '---', corBg: '#f1f5f9', corTexto: '#64748b' };
+        }
+
+        const kmAtualNum = Number(atual);
+        const kmTrocaNum = Number(troca);
+        const kmRestantes = kmTrocaNum - kmAtualNum;
+
+        if (kmRestantes <= 0) {
+            return { 
+                estado: 'VENCIDO', 
+                label: `🚨 ULTRAPASSOU (${Math.abs(kmRestantes)} km)`, 
+                corBg: '#fef2f2', 
+                corTexto: '#991b1b',
+                border: '#fecaca'
+            };
+        }
+
+        const limiteAlerta20 = kmTrocaNum * 0.20;
+        if (kmRestantes <= limiteAlerta20) {
+            return { 
+                estado: 'PROXIMO', 
+                label: `⚠️ TROCA PRÓXIMA (${kmRestantes} km restantes)`, 
+                corBg: '#fef9c3', 
+                corTexto: '#854d0e',
+                border: '#fef08a'
+            };
+        }
+
+        return { 
+            estado: 'OK', 
+            label: `OK (${kmRestantes} km restantes)`, 
+            corBg: '#dcfce7', 
+            corTexto: '#166534',
+            border: '#bbf7d0'
+        };
+    };
+
     const handleSalvarFormulario = async (e) => {
         e.preventDefault();
 
@@ -87,48 +128,44 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         }
 
         let statusCalculado = 'DISPONÍVEL';
-        if (estaEmManutencao) {
+        if (estaEmManutencaoCompressor) {
+            statusCalculado = 'MANUTENÇÃO COMPRESSOR';
+        } else if (estaEmManutencao) {
             statusCalculado = 'EM MANUTENÇÃO';
         } else if (idGestor) {
             statusCalculado = 'EM USO';
         }
 
-        const payload = {
+                const payload = {
             placa: placa.trim().toUpperCase(),
             marca: marca.trim(),
             modelo: modelo.trim(),
-            ano: parseInt(ano),
+            ano: parseInt(ano, 10),
             tipo: tipo.trim(),
             titularidade: titularidade.trim().toUpperCase(), 
             descricao: descricao.trim() || null,
             status: statusCalculado,
-            id_gestor: idGestor ? parseInt(idGestor) : null,
+            id_gestor: idGestor ? parseInt(idGestor, 10) : null,
             data_topografia: dataTopografia || null,
-            emitido_crlv: emitidoCrlv
+            emitido_crlv: emitidoCrlv,
+            // Validação robusta para evitar enviar NaN no JSON[cite: 2]
+            km_atual: kmAtual !== '' && !isNaN(Number(kmAtual)) ? Number(kmAtual) : null,
+            km_troca_oleo: kmTrocaOleo !== '' && !isNaN(Number(kmTrocaOleo)) ? Number(kmTrocaOleo) : null
         };
-
         try {
             if (idEmEdicao) {
-                const resposta = await axios.put(`${API_URL}/veiculos/${idEmEdicao}`, payload);
-                if (resposta.status === 200) {
-                    exibirMensagem("Dados do veículo atualizados com sucesso!", "sucesso");
-                }
+                await axios.put(`${API_URL}/veiculos/${idEmEdicao}`, payload);
+                exibirMensagem("Dados do veículo atualizados com sucesso!", "sucesso");
             } else {
-                const resposta = await axios.post(`${API_URL}/veiculos`, payload);
-                if (resposta.status === 200 || resposta.status === 201) {
-                    exibirMensagem(`Veículo cadastrado com status: ${statusCalculado}`, "sucesso");
-                }
+                await axios.post(`${API_URL}/veiculos`, payload);
+                exibirMensagem(`Veículo cadastrado com status: ${statusCalculado}`, "sucesso");
             }
 
             limparFormulario();
             carregarDadosIniciais();
         } catch (err) {
             console.error("Erro ao salvar veículo:", err);
-            if (err.response && err.response.data && err.response.data.error) {
-                exibirMensagem(err.response.data.error, "erro");
-            } else {
-                exibirMensagem("Erro de comunicação com o servidor.", "erro");
-            }
+            exibirMensagem(err.response?.data?.error || "Erro de comunicação com o servidor.", "erro");
         }
     };
 
@@ -143,17 +180,23 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         setDescricao(veiculo.descricao || '');
         setIdGestor(veiculo.id_gestor || '');
         setEstaEmManutencao(veiculo.status === 'EM MANUTENÇÃO');
+        setEstaEmManutencaoCompressor(veiculo.status === 'MANUTENÇÃO COMPRESSOR');
         setDataTopografia(veiculo.data_topografia ? veiculo.data_topografia.split('T')[0] : '');
         setEmitidoCrlv(veiculo.emitido_crlv || 'NÃO');
+        setKmAtual(veiculo.km_atual !== null && veiculo.km_atual !== undefined ? veiculo.km_atual : '');
+        setKmTrocaOleo(veiculo.km_troca_oleo !== null && veiculo.km_troca_oleo !== undefined ? veiculo.km_troca_oleo : '');
 
+        // ROLAR ATÉ O TOPO AO EDITAR
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const limparFormulario = () => {
         setIdEmEdicao(null);
         setPlaca(''); setMarca(''); setModelo(''); setAno(''); setTipo(''); 
-        setTitularidade(''); setDescricao(''); setIdGestor(''); setEstaEmManutencao(false);
-        setDataTopografia(''); setEmitidoCrlv('NÃO');
+        setTitularidade(''); setDescricao(''); setIdGestor(''); 
+        setEstaEmManutencao(false);
+        setEstaEmManutencaoCompressor(false);
+        setDataTopografia(''); setEmitidoCrlv('NÃO'); setKmAtual(''); setKmTrocaOleo('');
     };
 
     const handleDeletar = async (idVeiculo) => {
@@ -169,6 +212,26 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         }
     };
 
+    const handleAbrirDetalhes = async (veiculo) => {
+        setVeiculoDetalhe(veiculo);
+        setLoadingHistorico(true);
+        try {
+            const res = await axios.get(`${API_URL}/veiculos/manutencoes/todas`);
+            const historicoFiltrado = (res.data || []).filter(m => m.id_veiculo === veiculo.id || m.placa_veiculo === veiculo.placa);
+            setHistoricoManutencoes(historicoFiltrado);
+        } catch (err) {
+            console.error("Erro ao carregar histórico de manutenções:", err);
+            setHistoricoManutencoes([]);
+        } finally {
+            setLoadingHistorico(false);
+        }
+    };
+
+    const fecharModalDetalhes = () => {
+        setVeiculoDetalhe(null);
+        setHistoricoManutencoes([]);
+    };
+
     const obterNomeGestor = (idGest) => {
         if (!idGest) return 'Nenhum (Pátio)';
         const gestor = listaGestores.find(g => g.id_usuario === idGest);
@@ -181,6 +244,8 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         
         if (st === 'EM MANUTENÇÃO') { 
             bg = '#fef2f2'; text = '#991b1b'; icone = <Wrench style={{ width: '12px', height: '12px' }} />; 
+        } else if (st === 'MANUTENÇÃO COMPRESSOR') { 
+            bg = '#fff7ed'; text = '#c2410c'; icone = <Wrench style={{ width: '12px', height: '12px' }} />;
         } else if (st === 'EM USO') { 
             bg = '#fef9c3'; text = '#713f12'; icone = <AlertTriangle style={{ width: '12px', height: '12px' }} />; 
         }
@@ -228,129 +293,6 @@ export default function CadastroVeiculo({ usuarioLogado }) {
         );
     };
 
-    const abrirModalManutencao = async (veiculo) => {
-        setVeiculoManutencaoModal(veiculo);
-        setLoadingManutencao(true);
-        setPesquisaItemManutencao('');
-        try {
-            const [resManutencoes, resItens] = await Promise.all([
-                axios.get(`${API_URL}/veiculos/${veiculo.id}/manutencoes`),
-                axios.get(`${API_URL}/veiculos/itens-manutencao`)
-            ]);
-            setListaManutencoes(resManutencoes.data || []);
-            setListaItensDisponiveis(resItens.data || []);
-        } catch (err) {
-            console.error("Erro ao carregar manutenções/itens:", err);
-            exibirMensagem("Erro ao carregar histórico de manutenções.", "erro");
-        } finally {
-            setLoadingManutencao(false);
-        }
-    };
-
-    const fecharModalManutencao = () => {
-        setVeiculoManutencaoModal(null);
-        setListaManutencoes([]);
-        setItensComCusto([]);
-        setPesquisaItemManutencao('');
-        setManutencaoData('');
-        setManutencaoObs('');
-    };
-
-    // Selecionar/deselecionar item definindo categoria 'CORRETIVA' como padrão
-    const handleToggleItemSelection = (idItemStr) => {
-        const existe = itensComCusto.find(item => item.id_item === idItemStr);
-        if (existe) {
-            setItensComCusto(itensComCusto.filter(item => item.id_item !== idItemStr));
-        } else {
-            setItensComCusto([...itensComCusto, { id_item: idItemStr, custo: '', categoria: 'CORRETIVA' }]);
-        }
-    };
-
-    // Atualizar custo individual de um item
-    const handleCustoItemChange = (idItemStr, valor) => {
-        setItensComCusto(itensComCusto.map(item => {
-            if (item.id_item === idItemStr) {
-                return { ...item, custo: valor };
-            }
-            return item;
-        }));
-    };
-
-    // Atualizar categoria individual do item (CORRETIVA, PREVENTIVA ou PREDITIVA)
-    const handleCategoriaItemChange = (idItemStr, categoria) => {
-        setItensComCusto(itensComCusto.map(item => {
-            if (item.id_item === idItemStr) {
-                return { ...item, categoria: categoria };
-            }
-            return item;
-        }));
-    };
-
-    const handleSalvarManutencao = async (e) => {
-        e.preventDefault();
-
-        if (itensComCusto.length === 0 || !manutencaoData) {
-            alert("Selecione pelo menos um item e defina a data da manutenção.");
-            return;
-        }
-
-        try {
-            // Mapeia os itens selecionados enviando ID, custo e a categoria escolhida
-            const payloadItens = itensComCusto.map(i => ({
-                id_item: parseInt(i.id_item, 10),
-                custo: i.custo ? parseFloat(i.custo) : 0,
-                categoria: i.categoria || 'CORRETIVA'
-            }));
-
-            const idsItens = itensComCusto.map(i => parseInt(i.id_item, 10));
-            const custoTotal = itensComCusto.reduce((acc, item) => acc + (item.custo ? parseFloat(item.custo) : 0), 0);
-
-            const payload = {
-                id_veiculo: parseInt(veiculoManutencaoModal.id, 10),
-                itens_manutencao: idsItens,
-                itens_com_custo: payloadItens,
-                data_manutencao: manutencaoData,
-                descricao: manutencaoObs.trim() || null,
-                custo: custoTotal,
-                status: 'PENDENTE'
-            };
-
-            await axios.post(`${API_URL}/veiculos/manutencoes`, payload);
-
-            setItensComCusto([]);
-            setManutencaoData('');
-            setManutencaoObs('');
-            abrirModalManutencao(veiculoManutencaoModal);
-            
-        } catch (err) {
-            const errorMsg = err.response?.data?.error || "Erro ao registrar manutenção.";
-            console.error("Erro Backend 400:", err.response?.data);
-            alert(`Erro: ${errorMsg}`);
-        }
-    };
-
-    const handleExcluirManutencao = async (idManutencao) => {
-        if (!window.confirm("Remover esta manutenção do histórico?")) return;
-        try {
-            await axios.delete(`${API_URL}/veiculos/manutencoes/${idManutencao}`);
-            abrirModalManutencao(veiculoManutencaoModal);
-        } catch (err) {
-            console.error("Erro ao excluir manutenção:", err);
-        }
-    };
-
-    const totalGastoManutencao = listaManutencoes.reduce((acc, item) => acc + Number(item.custo || 0), 0);
-    const custoTotalNovosItens = itensComCusto.reduce((acc, i) => acc + (parseFloat(i.custo) || 0), 0);
-
-    const veiculosTopografiaCritica = listaVeiculos.filter(v => v.dias_para_vencer_topografia !== null && v.dias_para_vencer_topografia <= 10);
-
-    const itensManutencaoFiltrados = listaItensDisponiveis.filter(item => {
-        const termo = pesquisaItemManutencao.toLowerCase();
-        const nomeMatch = (item.nome || '').toLowerCase().includes(termo);
-        const codMatch = (item.cod || '').toLowerCase().includes(termo);
-        return nomeMatch || codMatch;
-    });
-
     const veiculosFiltrados = listaVeiculos
         .filter(v => {
             const atendeStatus = filtroStatus === 'TODOS' || v.status?.toUpperCase() === filtroStatus;
@@ -358,16 +300,80 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                 (filtroGestor === 'SEM_GESTOR' && !v.id_gestor) || 
                 (v.id_gestor && v.id_gestor.toString() === filtroGestor);
 
+            const atendeTitularidade = filtroTitularidade === 'TODOS' || v.titularidade?.toUpperCase() === filtroTitularidade;
             const atendeCrlv = filtroCrlv === 'TODOS' || (v.emitido_crlv || 'NÃO') === filtroCrlv;
-            
-            const atendeTopografiaAlert = !filtroTopografiaAlerta || (v.dias_para_vencer_topografia !== null && v.dias_para_vencer_topografia <= 10);
+
+            let atendeTacografo = true;
+            const diasTac = v.dias_para_vencer_topografia;
+            if (filtroTacografo === 'VENCENDO') {
+                atendeTacografo = diasTac !== null && diasTac !== undefined && diasTac <= 10 && diasTac >= 0;
+            } else if (filtroTacografo === 'VENCIDO') {
+                atendeTacografo = diasTac !== null && diasTac !== undefined && diasTac < 0;
+            } else if (filtroTacografo === 'OK') {
+                atendeTacografo = diasTac !== null && diasTac !== undefined && diasTac > 10;
+            }
+
+            const oleoInfo = getOleoStatusInfo(v.km_atual, v.km_troca_oleo);
+            let atendeOleo = true;
+            if (filtroOleo === 'PROXIMO') atendeOleo = oleoInfo.estado === 'PROXIMO';
+            else if (filtroOleo === 'VENCIDO') atendeOleo = oleoInfo.estado === 'VENCIDO';
+            else if (filtroOleo === 'OK') atendeOleo = oleoInfo.estado === 'OK';
 
             const placaLimpa = pesquisaPlaca.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
             const placaVeiculoLimpa = (v.placa || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
-            return atendeStatus && atendeGestor && atendeCrlv && atendeTopografiaAlert && placaVeiculoLimpa.includes(placaLimpa);
+            return atendeStatus && atendeGestor && atendeTitularidade && atendeCrlv && atendeTacografo && atendeOleo && placaVeiculoLimpa.includes(placaLimpa);
         })
         .sort((a, b) => (a.placa || '').localeCompare((b.placa || '')));
+
+    const handleDownloadCSV = () => {
+        if (veiculosFiltrados.length === 0) {
+            alert("Nenhum veículo filtrado para exportar.");
+            return;
+        }
+
+        const headers = ["Placa", "Marca", "Modelo", "Ano", "Tipo", "Titularidade", "Gestor Responsavel", "KM Atual", "KM Troca Oleo", "Status Oleo", "Data Tacografo", "CRLV", "Status Veiculo"];
+        
+        const rows = veiculosFiltrados.map(v => {
+            const oleoInfo = getOleoStatusInfo(v.km_atual, v.km_troca_oleo);
+            return [
+                `"${v.placa}"`,
+                `"${v.marca || ''}"`,
+                `"${v.modelo || ''}"`,
+                v.ano || '',
+                `"${v.tipo || ''}"`,
+                `"${v.titularidade || ''}"`,
+                `"${obterNomeGestor(v.id_gestor)}"`,
+                v.km_atual || 0,
+                v.km_troca_oleo || 0,
+                `"${oleoInfo.estado}"`,
+                `"${formatarDataBR(v.data_topografia)}"`,
+                `"${v.emitido_crlv || 'NÃO'}"`,
+                `"${v.status || ''}"`
+            ];
+        });
+
+        const csvContent = [headers.join(";"), ...rows.map(e => e.join(";"))].join("\n");
+        const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Relatorio_Frota_Veiculos_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const estiloInputFiltro = {
+        height: '32px',
+        padding: '0 8px',
+        border: '1px solid #cbd5e1',
+        borderRadius: '4px',
+        fontSize: '11px',
+        backgroundColor: '#fff',
+        width: '100%',
+        boxSizing: 'border-box'
+    };
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', fontFamily: 'sans-serif', maxWidth: '100%', padding: '10px', boxSizing: 'border-box' }}>
@@ -377,32 +383,6 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                     <Car style={{ color: '#2563eb', width: '20px', height: '20px' }} /> 
                     GESTÃO DE FROTA INTELIGENTE
                 </div>
-
-                {veiculosTopografiaCritica.length > 0 && (
-                    <div 
-                        onClick={() => setFiltroTopografiaAlerta(!filtroTopografiaAlerta)}
-                        style={{ 
-                            backgroundColor: filtroTopografiaAlerta ? '#fef2f2' : '#fef9c3', 
-                            border: '1px solid', 
-                            borderColor: filtroTopografiaAlerta ? '#fecaca' : '#fef08a', 
-                            padding: '6px 12px', 
-                            borderRadius: '6px', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '8px', 
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            fontWeight: 'bold',
-                            color: filtroTopografiaAlerta ? '#991b1b' : '#854d0e'
-                        }}
-                    >
-                        <AlertCircle style={{ width: '14px', height: '14px' }} />
-                        <span>TACÓGRAFO: {veiculosTopografiaCritica.length} veículo(s) vencendo (&lt;= 10 dias)</span>
-                        <span style={{ fontSize: '10px', textDecoration: 'underline', marginLeft: '4px' }}>
-                            {filtroTopografiaAlerta ? '[ Ver Todos ]' : '[ Filtrar ]'}
-                        </span>
-                    </div>
-                )}
             </div>
 
             {mensagem.texto && (
@@ -411,14 +391,13 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                 </div>
             )}
 
-            {/* Formulário de Cadastro e Edição Responsivo */}
+            {/* Form de Veículo */}
             <div style={{ backgroundColor: idEmEdicao ? '#f0f7ff' : '#fff', border: idEmEdicao ? '1px solid #3b82f6' : '1px solid #cbd5e1', borderRadius: '6px', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                 <div style={{ fontWeight: 'bold', color: idEmEdicao ? '#1d4ed8' : '#475569', marginBottom: '12px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px', textTransform: 'uppercase', fontSize: '11px', display: 'flex', justifyContent: 'space-between' }}>
                     <span>{idEmEdicao ? `⚠️ Editando Veículo Código #${idEmEdicao}` : 'Adicionar Novo Veículo (Campos com * são obrigatórios)'}</span>
                 </div>
                 
                 <form onSubmit={handleSalvarFormulario} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
                         <div>
                             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#475569', fontSize: '11px' }}>PLACA *</label>
@@ -459,6 +438,16 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                         </div>
 
                         <div>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#166534', fontSize: '11px' }}>KM ATUAL</label>
+                            <input type="number" placeholder="Ex: 85000" value={kmAtual} onChange={e => setKmAtual(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box' }} />
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#c2410c', fontSize: '11px' }}>KM TROCA DE ÓLEO</label>
+                            <input type="number" placeholder="Ex: 90000" value={kmTrocaOleo} onChange={e => setKmTrocaOleo(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box' }} />
+                        </div>
+
+                        <div>
                             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#2563eb', fontSize: '11px' }}>DATA TACÓGRAFO</label>
                             <input type="date" value={dataTopografia} onChange={e => setDataTopografia(e.target.value)} style={{ width: '100%', height: '32px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box' }} />
                         </div>
@@ -483,11 +472,38 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                             </select>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '10px' }}>
-                            <input type="checkbox" id="manutencao" checked={estaEmManutencao} onChange={e => setEstaEmManutencao(e.target.checked)} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-                            <label htmlFor="manutencao" style={{ fontWeight: 'bold', color: '#991b1b', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <Wrench style={{ width: '12px' }} /> Definir status como MANUTENÇÃO
-                            </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', paddingTop: '10px', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input 
+                                    type="checkbox" 
+                                    id="manutencao" 
+                                    checked={estaEmManutencao} 
+                                    onChange={e => {
+                                        setEstaEmManutencao(e.target.checked);
+                                        if (e.target.checked) setEstaEmManutencaoCompressor(false);
+                                    }} 
+                                    style={{ width: '16px', height: '16px', cursor: 'pointer' }} 
+                                />
+                                <label htmlFor="manutencao" style={{ fontWeight: 'bold', color: '#991b1b', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Wrench style={{ width: '12px' }} /> Definir status como MANUTENÇÃO
+                                </label>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input 
+                                    type="checkbox" 
+                                    id="manutencaoCompressor" 
+                                    checked={estaEmManutencaoCompressor} 
+                                    onChange={e => {
+                                        setEstaEmManutencaoCompressor(e.target.checked);
+                                        if (e.target.checked) setEstaEmManutencao(false);
+                                    }} 
+                                    style={{ width: '16px', height: '16px', cursor: 'pointer' }} 
+                                />
+                                <label htmlFor="manutencaoCompressor" style={{ fontWeight: 'bold', color: '#c2410c', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Wrench style={{ width: '12px' }} /> Definir status como MANUTENÇÃO COMPRESSOR
+                                </label>
+                            </div>
                         </div>
                     </div>
 
@@ -509,103 +525,103 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                 </form>
             </div>
 
-            {/* Painel de Filtros e Pesquisa */}
-            <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '180px', flex: '1 1 180px' }}>
-                            <div style={{ position: 'relative', width: '100%' }}>
-                                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center' }}>
-                                    <Search style={{ width: '14px', height: '14px', color: '#64748b' }} />
-                                </span>
-                                <input 
-                                    type="text" 
-                                    placeholder="Pesquisar placa..." 
-                                    value={pesquisaPlaca} 
-                                    onChange={e => setPesquisaPlaca(e.target.value)} 
-                                    style={{ width: '100%', height: '32px', paddingLeft: '32px', paddingRight: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box', fontSize: '12px', textTransform: 'uppercase' }} 
-                                />
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '200px', flex: '1 1 200px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>GESTOR:</span>
-                            <select 
-                                value={filtroGestor} 
-                                onChange={e => setFiltroGestor(e.target.value)} 
-                                style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', fontSize: '12px', color: '#334155' }}
-                            >
-                                <option value="TODOS">-- Todos os Gestores --</option>
-                                <option value="SEM_GESTOR">Sem Gestor Vinculado (No Pátio)</option>
-                                {listaGestores.map(gest => (
-                                    <option key={gest.id_usuario} value={gest.id_usuario.toString()}>{gest.nome_gestor}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '140px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>CRLV:</span>
-                            <select 
-                                value={filtroCrlv} 
-                                onChange={e => setFiltroCrlv(e.target.value)} 
-                                style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', fontSize: '12px', color: '#334155' }}
-                            >
-                                <option value="TODOS">TODOS</option>
-                                <option value="SIM">SIM (EMITIDO)</option>
-                                <option value="NÃO">NÃO (PENDENTE)</option>
-                            </select>
-                        </div>
-
+            {/* BARRA DE FILTROS EM DUAS LINHAS E RESPONSIVA */}
+            <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold', fontSize: '11px', color: '#475569' }}>
+                        <Filter style={{ width: '14px' }} /> FILTROS DE PESQUISA
                     </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold', color: '#334155', fontSize: '11px' }}>
-                            <Filter style={{ width: '12px', height: '12px', color: '#64748b' }} />
-                            <span>STATUS:</span>
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                            {['TODOS', 'DISPONÍVEL', 'EM USO', 'EM MANUTENÇÃO'].map((statusItem, idx) => (
-                                <button key={`filter-status-${idx}`} type="button" onClick={() => setFiltroStatus(statusItem)} style={{ height: '26px', padding: '0 10px', fontSize: '10px', fontWeight: 'bold', borderRadius: '4px', border: '1px solid #cbd5e1', cursor: 'pointer', backgroundColor: filtroStatus === statusItem ? '#1e293b' : '#fff', color: filtroStatus === statusItem ? '#fff' : '#475569' }}>
-                                    {statusItem}
-                                </button>
-                            ))}
-
-                            <button 
-                                type="button" 
-                                onClick={() => setFiltroTopografiaAlerta(!filtroTopografiaAlerta)} 
-                                style={{ 
-                                    height: '26px', 
-                                    padding: '0 10px', 
-                                    fontSize: '10px', 
-                                    fontWeight: 'bold', 
-                                    borderRadius: '4px', 
-                                    border: '1px solid',
-                                    borderColor: filtroTopografiaAlerta ? '#ca8a04' : '#cbd5e1',
-                                    cursor: 'pointer', 
-                                    backgroundColor: filtroTopografiaAlerta ? '#fef08a' : '#fff', 
-                                    color: filtroTopografiaAlerta ? '#854d0e' : '#475569',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                }}
-                            >
-                                ⚠️ Topografia (&lt;=10d / Vencida)
-                            </button>
-                        </div>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={handleDownloadCSV}
+                        style={{
+                            backgroundColor: '#16a34a',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '6px 12px',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        <Download style={{ width: '14px', height: '14px' }} /> Exportar Excel
+                    </button>
                 </div>
-                
-                {/* Tabela de Veículos */}
+
+                {/* PRIMEIRA LINHA DE FILTROS */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    <input 
+                        type="text" 
+                        placeholder="🔍 Buscar por placa..." 
+                        value={pesquisaPlaca} 
+                        onChange={e => setPesquisaPlaca(e.target.value)} 
+                        style={estiloInputFiltro} 
+                    />
+
+                    <select value={filtroTacografo} onChange={e => setFiltroTacografo(e.target.value)} style={{ ...estiloInputFiltro, fontWeight: 'bold', color: '#1d4ed8' }}>
+                        <option value="TODOS">⏱️ Tacógrafo: Todos</option>
+                        <option value="VENCENDO">⚠️ Vencendo (&lt;= 10 dias)</option>
+                        <option value="VENCIDO">🚨 Vencido</option>
+                        <option value="OK">✅ OK (&gt; 10 dias)</option>
+                    </select>
+
+                    <select value={filtroOleo} onChange={e => setFiltroOleo(e.target.value)} style={{ ...estiloInputFiltro, fontWeight: 'bold', color: '#c2410c' }}>
+                        <option value="TODOS">⛽ Óleo: Todos</option>
+                        <option value="OK">✅ Óleo OK</option>
+                        <option value="PROXIMO">⚠️ Troca Próxima (&lt; 20%)</option>
+                        <option value="VENCIDO">🚨 Ultrapassado / Vencido</option>
+                    </select>
+
+                    <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={estiloInputFiltro}>
+                        <option value="TODOS">Status: Todos</option>
+                        <option value="DISPONÍVEL">DISPONÍVEL</option>
+                        <option value="EM USO">EM USO</option>
+                        <option value="EM MANUTENÇÃO">EM MANUTENÇÃO</option>
+                        <option value="MANUTENÇÃO COMPRESSOR">MANUTENÇÃO COMPRESSOR</option>
+                    </select>
+                </div>
+
+                {/* SEGUNDA LINHA DE FILTROS */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    <select value={filtroTitularidade} onChange={e => setFiltroTitularidade(e.target.value)} style={estiloInputFiltro}>
+                        <option value="TODOS">Titularidade: Todas</option>
+                        <option value="IMPACTO">IMPACTO</option>
+                        <option value="TRANSLOCAR">TRANSLOCAR</option>
+                        <option value="RAJA">RAJA</option>
+                        <option value="ENIO">ENIO</option>
+                        <option value="LUCIANA">LUCIANA</option>
+                        <option value="TINPAV">TINPAV</option>
+                    </select>
+
+                    <select value={filtroGestor} onChange={e => setFiltroGestor(e.target.value)} style={estiloInputFiltro}>
+                        <option value="TODOS">Gestor: Todos</option>
+                        <option value="SEM_GESTOR">-- Pátio (Sem Gestor) --</option>
+                        {listaGestores.map(g => (
+                            <option key={g.id_usuario} value={g.id_usuario}>{g.nome_gestor}</option>
+                        ))}
+                    </select>
+
+                    <select value={filtroCrlv} onChange={e => setFiltroCrlv(e.target.value)} style={estiloInputFiltro}>
+                        <option value="TODOS">CRLV: Todos</option>
+                        <option value="SIM">CRLV: SIM</option>
+                        <option value="NÃO">CRLV: NÃO</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Tabela de Veículos */}
+            <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                 <div style={{ padding: '16px', overflowX: 'auto' }}>
                     {loading ? (
                         <div style={{ textAlign: 'center', color: '#64748b', fontWeight: 'bold', padding: '20px' }}>Carregando frota...</div>
                     ) : veiculosFiltrados.length === 0 ? (
                         <div style={{ textAlign: 'center', color: '#64748b', fontStyle: 'italic', padding: '30px' }}>Nenhum veículo encontrado com os filtros selecionados.</div>
                     ) : (
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '850px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px', minWidth: '950px' }}>
                             <thead>
                                 <tr style={{ borderBottom: '2px solid #cbd5e1', backgroundColor: '#f1f5f9' }}>
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold' }}>PLACA</th>
@@ -614,253 +630,179 @@ export default function CadastroVeiculo({ usuarioLogado }) {
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold' }}>TIPO</th>
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold' }}>TITULARIDADE</th> 
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold' }}>GESTOR RESPONSÁVEL</th>
+                                    <th style={{ padding: '10px', color: '#c2410c', fontWeight: 'bold' }}>TROCA DE ÓLEO</th>
                                     <th style={{ padding: '10px', color: '#1d4ed8', fontWeight: 'bold' }}>DATA TACÓGRAFO</th>
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold', textAlign: 'center' }}>CRLV</th>
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold' }}>STATUS</th>
-                                    <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold', textAlign: 'center' }}>MANUTENÇÃO</th>
                                     <th style={{ padding: '10px', color: '#475569', fontWeight: 'bold', textAlign: 'center' }}>AÇÕES</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {veiculosFiltrados.map((veiculo, index) => (
-                                    <tr key={veiculo.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#fff' : '#f8fafc', borderLeft: idEmEdicao === veiculo.id ? '3px solid #3b82f6' : 'none' }}>
-                                        <td style={{ padding: '10px', fontWeight: 'bold', color: '#1e293b' }}>{veiculo.placa}</td>
-                                        <td style={{ padding: '10px', fontWeight: '500', color: '#334155' }}>{veiculo.marca} {veiculo.modelo}</td>
-                                        <td style={{ padding: '10px', color: '#475569' }}>{veiculo.ano}</td>
-                                        <td style={{ padding: '10px', color: '#475569' }}>{veiculo.tipo}</td>
-                                        
-                                        <td style={{ padding: '10px', fontWeight: 'bold', color: veiculo.titularidade === 'IMPACTO' ? '#1e3a8a' : '#0f766e' }}>
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                                <ShieldCheck style={{ width: '12px', height: '12px', color: '#475569' }} />
-                                                {veiculo.titularidade || '---'}
-                                            </span>
-                                        </td>
+                                {veiculosFiltrados.map((veiculo, index) => {
+                                    const oleoInfo = getOleoStatusInfo(veiculo.km_atual, veiculo.km_troca_oleo);
 
-                                        <td style={{ padding: '10px', fontWeight: '500', color: '#1e293b' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                {veiculo.id_gestor && <User style={{ width: '11px', height: '11px', color: '#2563eb' }} />}
-                                                {obterNomeGestor(veiculo.id_gestor)}
-                                            </div>
-                                        </td>
+                                    return (
+                                        <tr key={veiculo.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                                            <td style={{ padding: '10px', fontWeight: 'bold', color: '#1e293b' }}>{veiculo.placa}</td>
+                                            <td style={{ padding: '10px', fontWeight: '500', color: '#334155' }}>{veiculo.marca} {veiculo.modelo}</td>
+                                            <td style={{ padding: '10px', color: '#475569' }}>{veiculo.ano}</td>
+                                            <td style={{ padding: '10px', color: '#475569' }}>{veiculo.tipo}</td>
+                                            <td style={{ padding: '10px', fontWeight: 'bold', color: veiculo.titularidade === 'IMPACTO' ? '#1e3a8a' : '#0f766e' }}>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                    <ShieldCheck style={{ width: '12px', height: '12px', color: '#475569' }} />
+                                                    {veiculo.titularidade || '---'}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '10px', fontWeight: '500', color: '#1e293b' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    {veiculo.id_gestor && <User style={{ width: '11px', height: '11px', color: '#2563eb' }} />}
+                                                    {obterNomeGestor(veiculo.id_gestor)}
+                                                </div>
+                                            </td>
 
-                                        <td style={{ padding: '10px' }}>
-                                            {renderBadgeTopografia(veiculo.data_topografia, veiculo.dias_para_vencer_topografia)}
-                                        </td>
+                                            <td style={{ padding: '10px' }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                    <span style={{ fontSize: '10px', color: '#475569' }}>
+                                                        Km: <strong>{veiculo.km_atual ? Number(veiculo.km_atual).toLocaleString() : '---'}</strong> / Troca: <strong>{veiculo.km_troca_oleo ? Number(veiculo.km_troca_oleo).toLocaleString() : '---'}</strong>
+                                                    </span>
+                                                    {oleoInfo.estado !== 'INDETERMINADO' && (
+                                                        <span style={{ backgroundColor: oleoInfo.corBg, color: oleoInfo.corTexto, padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px', width: 'fit-content', border: `1px solid ${oleoInfo.border}` }}>
+                                                            {oleoInfo.label}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
 
-                                        <td style={{ padding: '10px', textAlign: 'center' }}>
-                                            <span style={{
-                                                backgroundColor: veiculo.emitido_crlv === 'SIM' ? '#dcfce7' : '#fef2f2',
-                                                color: veiculo.emitido_crlv === 'SIM' ? '#15803d' : '#991b1b',
-                                                border: `1px solid ${veiculo.emitido_crlv === 'SIM' ? '#bbf7d0' : '#fecaca'}`,
-                                                padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', fontSize: '10px'
-                                            }}>
-                                                {veiculo.emitido_crlv || 'NÃO'}
-                                            </span>
-                                        </td>
-
-                                        <td style={{ padding: '10px' }}>{getBadgeStatus(veiculo.status)}</td>
-
-                                        <td style={{ padding: '10px', textAlign: 'center' }}>
-                                            <button 
-                                                type="button" 
-                                                onClick={() => abrirModalManutencao(veiculo)}
-                                                style={{ backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', color: '#334155', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                            >
-                                                <Wrench style={{ width: '11px', height: '11px', color: '#d97706' }} /> Ver/Add
-                                            </button>
-                                        </td>
-
-                                        <td style={{ padding: '10px', textAlign: 'center' }}>
-                                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                                                <button type="button" onClick={() => iniciarEdicao(veiculo)} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: '4px' }} title="Editar dados do veículo">
-                                                    <Pencil style={{ width: '13px', height: '13px' }} />
-                                                </button>
-                                                <button type="button" onClick={() => handleDeletar(veiculo.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }} title="Excluir veículo">
-                                                    <Trash2 style={{ width: '13px', height: '13px' }} />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            <td style={{ padding: '10px' }}>
+                                                {renderBadgeTopografia(veiculo.data_topografia, veiculo.dias_para_vencer_topografia)}
+                                            </td>
+                                            <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                <span style={{
+                                                    backgroundColor: veiculo.emitido_crlv === 'SIM' ? '#dcfce7' : '#fef2f2',
+                                                    color: veiculo.emitido_crlv === 'SIM' ? '#15803d' : '#991b1b',
+                                                    border: `1px solid ${veiculo.emitido_crlv === 'SIM' ? '#bbf7d0' : '#fecaca'}`,
+                                                    padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', fontSize: '10px'
+                                                }}>
+                                                    {veiculo.emitido_crlv || 'NÃO'}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '10px' }}>{getBadgeStatus(veiculo.status)}</td>
+                                            <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => handleAbrirDetalhes(veiculo)} 
+                                                        style={{ background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer', padding: '4px' }}
+                                                        title="Ver Detalhes e Histórico de Manutenções"
+                                                    >
+                                                        <Eye style={{ width: '15px', height: '15px' }} />
+                                                    </button>
+                                                    <button type="button" onClick={() => iniciarEdicao(veiculo)} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: '4px' }} title="Editar Veículo">
+                                                        <Pencil style={{ width: '13px', height: '13px' }} />
+                                                    </button>
+                                                    <button type="button" onClick={() => handleDeletar(veiculo.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }} title="Excluir Veículo">
+                                                        <Trash2 style={{ width: '13px', height: '13px' }} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}
                 </div>
             </div>
 
-            {/* Modal de Manutenções com Custo e Tipo Individual por Item */}
-            {veiculoManutencaoModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '12px' }}>
-                    <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '720px', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-                        
-                        {/* Cabeçalho */}
-                        <div style={{ backgroundColor: '#0f172a', padding: '12px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '12px' }}>
-                                <Wrench style={{ color: '#f59e0b', width: '16px', height: '16px' }} />
-                                <span>MANUTENÇÕES — PLACA: {veiculoManutencaoModal.placa} ({veiculoManutencaoModal.modelo})</span>
+            {/* MODAL DE DETALHES DO VEÍCULO E MANUTENÇÃO */}
+            {veiculoDetalhe && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '10px' }}>
+                    <div style={{ backgroundColor: '#fff', borderRadius: '8px', maxWidth: '800px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '20px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>
+                                <Car style={{ color: '#2563eb' }} />
+                                <span>Detalhes do Veículo: [{veiculoDetalhe.placa}] {veiculoDetalhe.marca} {veiculoDetalhe.modelo}</span>
                             </div>
-                            <button onClick={fecharModalManutencao} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px' }}>
-                                <XCircle style={{ width: '18px', height: '18px' }} />
+                            <button onClick={fecharModalDetalhes} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+                                <X style={{ width: '20px', height: '20px' }} />
                             </button>
                         </div>
 
-                        <div style={{ padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            
-                            {/* Formulário de Manutenção */}
-                            <form onSubmit={handleSalvarManutencao} style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#334155', textTransform: 'uppercase' }}>➕ Registrar Nova Manutenção</div>
-                                
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                        <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>SELEÇÃO DE ITENS *</label>
-                                        <span style={{ fontSize: '10px', color: '#2563eb', fontWeight: 'bold' }}>
-                                            {itensComCusto.length} item(ns) selecionado(s)
-                                        </span>
-                                    </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', marginBottom: '20px', fontSize: '12px' }}>
+                            <div><strong>Ano:</strong> {veiculoDetalhe.ano}</div>
+                            <div><strong>Tipo:</strong> {veiculoDetalhe.tipo}</div>
+                            <div><strong>Titularidade:</strong> {veiculoDetalhe.titularidade}</div>
+                            <div><strong>Gestor:</strong> {obterNomeGestor(veiculoDetalhe.id_gestor)}</div>
+                            <div><strong>KM Atual:</strong> {veiculoDetalhe.km_atual ? Number(veiculoDetalhe.km_atual).toLocaleString() : '---'}</div>
+                            <div><strong>KM Troca Óleo:</strong> {veiculoDetalhe.km_troca_oleo ? Number(veiculoDetalhe.km_troca_oleo).toLocaleString() : '---'}</div>
+                            <div><strong>Data Tacógrafo:</strong> {formatarDataBR(veiculoDetalhe.data_topografia)}</div>
+                            <div><strong>CRLV Emitido:</strong> {veiculoDetalhe.emitido_crlv || 'NÃO'}</div>
+                            <div><strong>Status:</strong> {veiculoDetalhe.status}</div>
+                        </div>
 
-                                    {/* Busca de Item */}
-                                    <div style={{ position: 'relative', marginBottom: '6px' }}>
-                                        <Search style={{ width: '12px', height: '12px', color: '#94a3b8', position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }} />
-                                        <input 
-                                            type="text"
-                                            placeholder="Buscar item pelo nome ou código..."
-                                            value={pesquisaItemManutencao}
-                                            onChange={e => setPesquisaItemManutencao(e.target.value)}
-                                            style={{ width: '100%', height: '28px', paddingLeft: '26px', paddingRight: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }}
-                                        />
-                                    </div>
-
-                                    {/* Lista de Seleção de Itens com Tipo e Custo */}
-                                    <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', padding: '6px' }}>
-                                        {itensManutencaoFiltrados.length === 0 ? (
-                                            <div style={{ fontSize: '11px', color: '#94a3b8', padding: '4px', textAlign: 'center' }}>Nenhum item encontrado.</div>
-                                        ) : (
-                                            itensManutencaoFiltrados.map(item => {
-                                                const itemIdStr = item.id.toString();
-                                                const itemSelecionado = itensComCusto.find(i => i.id_item === itemIdStr);
-                                                const isChecked = !!itemSelecionado;
-
-                                                return (
-                                                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '4px 6px', borderRadius: '3px', backgroundColor: isChecked ? '#eff6ff' : 'transparent', marginBottom: '2px', borderBottom: '1px border-bottom #f1f5f9' }}>
-                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px', color: isChecked ? '#1e40af' : '#334155', flex: 1 }}>
-                                                            <input 
-                                                                type="checkbox"
-                                                                checked={isChecked}
-                                                                onChange={() => handleToggleItemSelection(itemIdStr)}
-                                                                style={{ cursor: 'pointer' }}
-                                                            />
-                                                            <span><strong>[{item.cod}]</strong> - {item.nome}</span>
-                                                        </label>
-
-                                                        {/* Seletor de Categoria e Campo de Custo individual */}
-                                                        {isChecked && (
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                <select
-                                                                    value={itemSelecionado.categoria}
-                                                                    onChange={(e) => handleCategoriaItemChange(itemIdStr, e.target.value)}
-                                                                    style={{ height: '24px', padding: '0 4px', border: '1px solid #93c5fd', borderRadius: '3px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fff', color: '#1e3a8a' }}
-                                                                >
-                                                                    <option value="CORRETIVA">CORRETIVA</option>
-                                                                    <option value="PREVENTIVA">PREVENTIVA</option>
-                                                                    <option value="PREDITIVA">PREDITIVA</option>
-                                                                </select>
-
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                                                    <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold' }}>R$</span>
-                                                                    <input 
-                                                                        type="number"
-                                                                        step="0.01"
-                                                                        placeholder="0,00"
-                                                                        value={itemSelecionado.custo}
-                                                                        onChange={(e) => handleCustoItemChange(itemIdStr, e.target.value)}
-                                                                        style={{ width: '75px', height: '24px', padding: '0 4px', border: '1px solid #93c5fd', borderRadius: '3px', fontSize: '10px', textAlign: 'right', fontWeight: 'bold' }}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', color: '#475569', marginBottom: '3px' }}>DATA DA MANUTENÇÃO *</label>
-                                        <input type="date" value={manutencaoData} onChange={e => setManutencaoData(e.target.value)} style={{ width: '100%', height: '30px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }} />
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', color: '#475569', marginBottom: '3px' }}>CUSTO TOTAL (CALCULADO)</label>
-                                        <div style={{ height: '30px', display: 'flex', alignItems: 'center', padding: '0 8px', border: '1px solid #e2e8f0', backgroundColor: '#f1f5f9', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', color: '#1e3a8a' }}>
-                                            R$ {custoTotalNovosItens.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', color: '#475569', marginBottom: '3px' }}>OBSERVAÇÃO / DETALHES</label>
-                                    <input type="text" placeholder="Oficina, peças trocadas, etc." value={manutencaoObs} onChange={e => setManutencaoObs(e.target.value)} style={{ width: '100%', height: '30px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box' }} />
-                                </div>
-
-                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                    <button type="submit" style={{ backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
-                                        Adicionar Registro(s)
+                        <div style={{ marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Wrench style={{ color: '#d97706', width: '16px' }} /> Histórico de Manutenções do Veículo
+                                </span>
+                                {onNavegarManutencao && (
+                                    <button 
+                                        onClick={() => { fecharModalDetalhes(); onNavegarManutencao(veiculoDetalhe.id); }}
+                                        style={{ backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                                    >
+                                        + Lançar Nova Manutenção
                                     </button>
-                                </div>
-                            </form>
-
-                            {/* Totalizador */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
-                                <span style={{ color: '#1e40af', fontWeight: 'bold' }}>Intervenções Registradas: {listaManutencoes.length}</span>
-                                <span style={{ color: '#1e3a8a', fontWeight: 'bold', fontSize: '12px' }}>Total Geral: R$ {totalGastoManutencao.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            </div>
-
-                            {/* Timeline de Histórico */}
-                            <div>
-                                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', marginBottom: '8px' }}>HISTÓRICO DE ACOMPANHAMENTO</div>
-                                
-                                {loadingManutencao ? (
-                                    <div style={{ textAlign: 'center', padding: '12px', color: '#64748b', fontSize: '11px' }}>Carregando histórico...</div>
-                                ) : listaManutencoes.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '11px', fontStyle: 'italic' }}>Nenhuma manutenção registrada para este veículo.</div>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {listaManutencoes.map((m) => (
-                                            <div key={m.id} style={{ borderLeft: '3px solid #2563eb', backgroundColor: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <div>
-                                                    <div style={{ fontWeight: 'bold', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <span>[{m.cod_item || 'S/C'}] {m.nome_item || m.tipo || 'Manutenção'}</span>
-                                                        {m.categoria && (
-                                                            <span style={{ fontSize: '9px', backgroundColor: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '3px', border: '1px solid #cbd5e1' }}>
-                                                                {m.categoria}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div style={{ color: '#64748b', fontSize: '10px', marginTop: '2px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                                                        <span>📅 Data: {formatarDataBR(m.data_manutencao)}</span>
-                                                        <span style={{ fontWeight: 'bold', color: '#0f766e' }}>💵 Custo Item: R$ {Number(m.custo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                                    </div>
-                                                    {(m.descricao || m.observacao) && (
-                                                        <div style={{ color: '#334155', fontSize: '10px', marginTop: '4px', fontStyle: 'italic' }}>
-                                                            Obs: {m.descricao || m.observacao}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <button onClick={() => handleExcluirManutencao(m.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }} title="Excluir este registro">
-                                                    <Trash2 style={{ width: '13px', height: '13px' }} />
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
                                 )}
                             </div>
 
+                            {loadingHistorico ? (
+                                <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando manutenções...</div>
+                            ) : historicoManutencoes.length === 0 ? (
+                                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', backgroundColor: '#f1f5f9', borderRadius: '6px', fontSize: '12px' }}>
+                                    Nenhuma manutenção registrada para este veículo.
+                                </div>
+                            ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                                    <thead>
+                                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                                            <th style={{ padding: '8px' }}>Data</th>
+                                            <th style={{ padding: '8px' }}>NF/OS</th>
+                                            <th style={{ padding: '8px' }}>Item / Peça</th>
+                                            <th style={{ padding: '8px' }}>Tipo Categoria</th>
+                                            <th style={{ padding: '8px' }}>Custo (R$)</th>
+                                            <th style={{ padding: '8px' }}>Obs</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {historicoManutencoes.map((m, idx) => (
+                                            <tr key={m.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '8px' }}>{formatarDataBR(m.data_manutencao)}</td>
+                                                <td style={{ padding: '8px' }}>{m.numero_nf || '---'}</td>
+                                                <td style={{ padding: '8px', fontWeight: 'bold' }}>{m.nome_item || 'Item Geral'}</td>
+                                                <td style={{ padding: '8px' }}>
+                                                    <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#e2e8f0', fontSize: '10px', fontWeight: 'bold' }}>
+                                                        {m.categoria || 'CORRETIVA'}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '8px', color: '#166534', fontWeight: 'bold' }}>
+                                                    R$ {Number(m.custo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                </td>
+                                                <td style={{ padding: '8px', color: '#64748b' }}>{m.descricao || '---'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+                            <button onClick={fecharModalDetalhes} style={{ backgroundColor: '#64748b', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                                Fechar
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
-
         </div>
     );
 }

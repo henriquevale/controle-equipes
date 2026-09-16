@@ -382,7 +382,6 @@ router.get('/master/obras-todas', async (req, res) => {
 // ========================================================
 
 // 13-A. GET: Listar todos os materiais
-// 13-A. GET: Listar todos os materiais
 router.get('/materiais', async (req, res) => {
   try {
     const sql = `

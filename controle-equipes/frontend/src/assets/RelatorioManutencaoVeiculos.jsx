@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell 
 } from 'recharts';
-import { FileText, Wrench, RefreshCw, AlertCircle, DollarSign, Search, Filter } from 'lucide-react';
+import { FileText, Wrench, RefreshCw, AlertCircle, DollarSign, Search, Filter, Calendar } from 'lucide-react';
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -16,6 +16,8 @@ export default function RelatorioManutencaoVeiculos() {
     // Filtros do Relatório
     const [modoVisualizacao, setModoVisualizacao] = useState('TODOS'); // 'TODOS' ou 'SEM_VEICULOS'
     const [pesquisaPlaca, setPesquisaPlaca] = useState('');
+    const [dataInicio, setDataInicio] = useState('');
+    const [dataFim, setDataFim] = useState('');
 
     const carregarEProcessarDados = async () => {
         setLoading(true);
@@ -42,6 +44,13 @@ export default function RelatorioManutencaoVeiculos() {
                 let preditiva = 0;
 
                 v.manutencoes.forEach(m => {
+                    // Filtro por Intervalo de Data
+                    if (m.data_manutencao) {
+                        const dataManutencaoFormatada = m.data_manutencao.split('T')[0];
+                        if (dataInicio && dataManutencaoFormatada < dataInicio) return;
+                        if (dataFim && dataManutencaoFormatada > dataFim) return;
+                    }
+
                     const custo = parseFloat(m.custo) || 0;
                     const cat = (m.categoria || 'CORRETIVA').toUpperCase();
 
@@ -87,9 +96,10 @@ export default function RelatorioManutencaoVeiculos() {
         }
     };
 
+    // Reexecuta o recálculo sempre que os filtros de data mudarem
     useEffect(() => {
         carregarEProcessarDados();
-    }, []);
+    }, [dataInicio, dataFim]);
 
     const formatarMoeda = (valor) => {
         return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -184,15 +194,45 @@ export default function RelatorioManutencaoVeiculos() {
                     </button>
                 </div>
 
-                <div style={{ position: 'relative', minWidth: '200px' }}>
-                    <Search style={{ width: '14px', height: '14px', color: '#64748b', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                    <input 
-                        type="text" 
-                        placeholder="Pesquisar por placa..." 
-                        value={pesquisaPlaca} 
-                        onChange={e => setPesquisaPlaca(e.target.value)} 
-                        style={{ width: '100%', height: '30px', paddingLeft: '32px', paddingRight: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box', fontSize: '11px', textTransform: 'uppercase' }} 
-                    />
+                {/* Filtros de Intervalo de Datas e Placa */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 8px', height: '30px' }}>
+                        <Calendar style={{ width: '12px', height: '12px', color: '#64748b' }} />
+                        <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>De:</span>
+                        <input 
+                            type="date" 
+                            value={dataInicio} 
+                            onChange={e => setDataInicio(e.target.value)} 
+                            style={{ border: 'none', outline: 'none', fontSize: '11px', backgroundColor: 'transparent' }} 
+                        />
+                        <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>Até:</span>
+                        <input 
+                            type="date" 
+                            value={dataFim} 
+                            onChange={e => setDataFim(e.target.value)} 
+                            style={{ border: 'none', outline: 'none', fontSize: '11px', backgroundColor: 'transparent' }} 
+                        />
+                        {(dataInicio || dataFim) && (
+                            <button 
+                                type="button" 
+                                onClick={() => { setDataInicio(''); setDataFim(''); }} 
+                                style={{ border: 'none', background: 'none', color: '#ef4444', fontWeight: 'bold', cursor: 'pointer', fontSize: '10px', marginLeft: '4px' }}
+                            >
+                                Limpar
+                            </button>
+                        )}
+                    </div>
+
+                    <div style={{ position: 'relative', minWidth: '180px' }}>
+                        <Search style={{ width: '14px', height: '14px', color: '#64748b', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                        <input 
+                            type="text" 
+                            placeholder="Pesquisar por placa..." 
+                            value={pesquisaPlaca} 
+                            onChange={e => setPesquisaPlaca(e.target.value)} 
+                            style={{ width: '100%', height: '30px', paddingLeft: '32px', paddingRight: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box', fontSize: '11px', textTransform: 'uppercase' }} 
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -260,7 +300,7 @@ export default function RelatorioManutencaoVeiculos() {
                         {dadosFiltrados.length === 0 ? (
                             <tr>
                                 <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
-                                    Nenhum veículo encontrado com a placa informada.
+                                    Nenhum veículo encontrado com os filtros aplicados.
                                 </td>
                             </tr>
                         ) : (

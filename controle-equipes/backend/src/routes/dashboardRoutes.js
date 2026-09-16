@@ -3,18 +3,27 @@ import db from '../../db.js';
 
 const router = express.Router();
 
-// ========================================================
-// 1. GET: ATIVIDADES EXECUTADAS VS MÉDIA GERAL DE TODAS AS OBRAS
-// ========================================================
+// Função auxiliar segura para ordenação das rotas de compras
+function getOrderBySql(ordenacao, tipoRelatorio) {
+  const mapeamento = {
+    maior_gasto: 'valor_total_gasto DESC',
+    menor_gasto: 'valor_total_gasto ASC',
+    maior_qtd: tipoRelatorio === 'material' ? 'quantidade_total_comprada DESC' : 'total_pedidos DESC',
+    menor_qtd: tipoRelatorio === 'material' ? 'quantidade_total_comprada ASC' : 'total_pedidos ASC',
+    ultima_compra: 'ultima_compra DESC',
+    primeira_compra: 'primeira_compra ASC'
+  };
+
+  return mapeamento[ordenacao] || 'valor_total_gasto DESC';
+}
+
+// 1. GET: ATIVIDADES EXECUTADAS
 router.get('/relatorios/atividades-executadas', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
 
-    if (!obra_id) {
-      return res.json([]);
-    }
+    if (!obra_id) return res.json([]);
 
-    // 1. Total da obra selecionada vindo da tabela diario_atividades
     let sqlObra = `
       SELECT 
         da.tipo_servico AS atividade,
@@ -31,7 +40,6 @@ router.get('/relatorios/atividades-executadas', async (req, res) => {
     }
     sqlObra += ` GROUP BY da.tipo_servico `;
 
-    // 2. Média geral de todas as obras que executaram a atividade no período
     let sqlMedia = `
       SELECT 
         da.tipo_servico AS atividade,
@@ -51,7 +59,6 @@ router.get('/relatorios/atividades-executadas', async (req, res) => {
     const [dadosObra] = await db.query(sqlObra, paramsObra);
     const [dadosMedia] = await db.query(sqlMedia, paramsMedia);
 
-    // Mapeia as médias obtidas
     const mapaMedia = {};
     dadosMedia.forEach(row => {
       if (row.atividade) {
@@ -59,7 +66,6 @@ router.get('/relatorios/atividades-executadas', async (req, res) => {
       }
     });
 
-    // Formata o resultado garantindo nomes padronizados em maiúsculo
     const resultadoFinal = dadosObra.map(item => {
       const nomeAtividade = (item.atividade || '').trim().toUpperCase();
       return {
@@ -77,18 +83,13 @@ router.get('/relatorios/atividades-executadas', async (req, res) => {
   }
 }); 
 
-// ========================================================
-// 2. GET: MATERIAIS CONSUMIDOS (Baseado em diario_materiais_apontados)
-// ========================================================
+// 2. GET: MATERIAIS CONSUMIDOS (Sincronizado tratamento de strings)
 router.get('/relatorios/materiais-consumidos', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
 
-    if (!obra_id) {
-      return res.json([]);
-    }
+    if (!obra_id) return res.json([]);
 
-    // 1. Total da obra selecionada
     let sqlObra = `
       SELECT 
         dm.material_nome AS material,
@@ -105,7 +106,6 @@ router.get('/relatorios/materiais-consumidos', async (req, res) => {
     }
     sqlObra += ` GROUP BY dm.material_nome `;
 
-    // 2. Média geral de todas as obras que consumiram cada material no período
     let sqlMedia = `
       SELECT 
         dm.material_nome AS material,
@@ -127,14 +127,19 @@ router.get('/relatorios/materiais-consumidos', async (req, res) => {
 
     const mapaMedia = {};
     dadosMedia.forEach(row => {
-      mapaMedia[row.material] = Number(row.media_todas_obras) || 0;
+      if (row.material) {
+        mapaMedia[row.material.trim().toUpperCase()] = Number(row.media_todas_obras) || 0;
+      }
     });
 
-    const resultadoFinal = dadosObra.map(item => ({
-      material: item.material,
-      quantidade: Number(item.quantidade) || 0,
-      mediaGeral: Number((mapaMedia[item.material] || 0).toFixed(2))
-    }));
+    const resultadoFinal = dadosObra.map(item => {
+      const nomeMaterial = (item.material || '').trim().toUpperCase();
+      return {
+        material: item.material,
+        quantidade: Number(item.quantidade) || 0,
+        mediaGeral: Number((mapaMedia[nomeMaterial] || 0).toFixed(2))
+      };
+    });
 
     return res.json(resultadoFinal);
   } catch (error) {
@@ -143,9 +148,7 @@ router.get('/relatorios/materiais-consumidos', async (req, res) => {
   }
 });
 
-// ========================================================
-// 3. GET: PRESENÇA DETALHADA E FREQUÊNCIA BASEADA NOS RDOs
-// ========================================================
+// 3. GET: PRESENÇA DETALHADA
 router.get('/relatorios/presenca-detalhada', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
@@ -158,7 +161,6 @@ router.get('/relatorios/presenca-detalhada', async (req, res) => {
       });
     }
 
-    // 1. Obter o Total de RDOs cadastrados no período para a obra
     let sqlRdoCount = `
       SELECT COUNT(DISTINCT id) AS total_rdos
       FROM diario_obra
@@ -174,7 +176,6 @@ router.get('/relatorios/presenca-detalhada', async (req, res) => {
     const [rdoRows] = await db.query(sqlRdoCount, paramsRdo);
     const totalRdos = Number(rdoRows[0]?.total_rdos) || 0;
 
-    // 2. Montar query com agrupação garantida por funcionário (evitando duplicidades)
     let filtroCondicional = " WHERE de.id_obra = ? ";
     let paramsPresenca = [Number(obra_id)];
 
@@ -213,16 +214,13 @@ router.get('/relatorios/presenca-detalhada', async (req, res) => {
     `;
 
     const [rows] = await db.query(sqlPresenca, paramsPresenca);
-
     let somaPresencasGeral = 0;
 
-    // 3. Processar cálculos por colaborador
     const relacaoPresenca = rows.map(item => {
       const presente = Number(item.presente) || 0;
       const faltou = Number(item.faltou) || 0;
       const outros = Number(item.outros) || 0;
 
-      // Porcentagem calculada em cima do Total de RDOs
       const percentualFrequencia = totalRdos > 0 
         ? Number(((presente / totalRdos) * 100).toFixed(1)) 
         : 0;
@@ -258,9 +256,7 @@ router.get('/relatorios/presenca-detalhada', async (req, res) => {
   }
 });
 
-// ========================================================
-// 4. GET: RESUMO DE RDOS (Status, Status Operacional e QTD)
-// ========================================================
+// 4. GET: RESUMO DE RDOS
 router.get('/relatorios/rdos-resumo', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
@@ -282,7 +278,6 @@ router.get('/relatorios/rdos-resumo', async (req, res) => {
       params.push(data_inicio, data_fim);
     }
 
-    // Query 1: Total de registros de diários de equipe no período
     const sqlTotal = `
       SELECT COUNT(*) AS total 
       FROM controle_diarios_equipe 
@@ -291,7 +286,6 @@ router.get('/relatorios/rdos-resumo', async (req, res) => {
     const [totalRows] = await db.query(sqlTotal, params);
     const totalRegistros = Number(totalRows[0]?.total) || 0;
 
-    // Query 2: Relação de quantidade por dia do filtro com %
     const sqlPorDias = `
       SELECT 
         DATE_FORMAT(data_diario, '%d/%m/%Y') AS data_formatada,
@@ -312,7 +306,6 @@ router.get('/relatorios/rdos-resumo', async (req, res) => {
       };
     });
 
-    // Query 3: Relação por Status do RDO (PENDENTE, FINALIZADO, etc.) com %
     const sqlStatusRdo = `
       SELECT 
         COALESCE(status_rdo, 'NÃO INFORMADO') AS status,
@@ -327,13 +320,12 @@ router.get('/relatorios/rdos-resumo', async (req, res) => {
     const porStatusRdo = rowsStatusRdo.map(row => {
       const qtd = Number(row.quantidade) || 0;
       return {
-        status: row.status.toUpperCase(),
+        status: String(row.status).toUpperCase(),
         quantidade: qtd,
         percentual: totalRegistros > 0 ? Number(((qtd / totalRegistros) * 100).toFixed(1)) : 0
       };
     });
 
-    // Query 4: Relação por Status Operacional (Normal, Choveu, Sem produção, etc.) com %
     const sqlStatusOp = `
       SELECT 
         COALESCE(status_operacional, 'OUTROS') AS status_operacional,
@@ -348,7 +340,7 @@ router.get('/relatorios/rdos-resumo', async (req, res) => {
     const porStatusOperacional = rowsStatusOp.map(row => {
       const qtd = Number(row.quantidade) || 0;
       return {
-        status_operacional: row.status_operacional.toUpperCase(),
+        status_operacional: String(row.status_operacional).toUpperCase(),
         quantidade: qtd,
         percentual: totalRegistros > 0 ? Number(((qtd / totalRegistros) * 100).toFixed(1)) : 0
       };
@@ -366,60 +358,93 @@ router.get('/relatorios/rdos-resumo', async (req, res) => {
     return res.status(500).json({ error: "Erro ao carregar diários de equipe." });
   }
 });
-// ========================================================
-// 4. GET: VEÍCULOS ALOCADOS
-// ========================================================
-router.get('/relatorios/veiculos', async (req, res) => {
+
+// 5. GET: FATURAMENTO DIRETO
+router.get('/relatorios/faturamento-direto', async (req, res) => {
   try {
-    const { obra_id } = req.query;
+    const { obra_id, usuario_id, cargo, data_inicio, data_fim } = req.query;
 
     let sql = `
       SELECT 
-        v.placa,
-        v.modelo,
-        COALESCE(v.uso_acumulado, '0 Km') AS uso_acumulado,
-        v.status,
-        COALESCE(v.custo_manutencao, 0) AS custo_manutencao
-      FROM veiculos v
+        fd.id,
+        fd.numero_nota_fiscal,
+        fd.numero_pedido_obra,
+        COALESCE(f.nome_fantasia, f.razao_social, 'NÃO INFORMADO') AS fornecedor_nome,
+        u.nome AS gestor_nome,
+        COALESCE(fd.data_nota_fiscal, fd.data_solicitacao) AS data_emissao,
+        COALESCE(fd.valor_nota_fiscal, 0) AS valor_total,
+        fd.status
+      FROM faturamentos_diretos fd
+      LEFT JOIN fornecedores f ON fd.fornecedor_id = f.id
+      LEFT JOIN usuarios_sistema u ON fd.id_gestor = u.id
       WHERE 1=1
     `;
     const params = [];
 
-    if (obra_id) {
-      sql += ` AND v.obra_id = ?`;
-      params.push(obra_id);
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+    const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
+
+    if (!isMaster && usuario_id) {
+      sql += ` AND (
+        fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)
+        OR fd.id_gestor = ?
+      )`;
+      params.push(Number(usuario_id), Number(usuario_id));
     }
+
+    if (obra_id) {
+      sql += ` AND fd.obra_id = ?`;
+      params.push(Number(obra_id));
+    }
+    if (data_inicio) {
+      sql += ` AND COALESCE(fd.data_nota_fiscal, fd.data_solicitacao) >= ?`;
+      params.push(data_inicio);
+    }
+    if (data_fim) {
+      sql += ` AND COALESCE(fd.data_nota_fiscal, fd.data_solicitacao) <= ?`;
+      params.push(data_fim);
+    }
+
+    sql += ` ORDER BY COALESCE(fd.data_nota_fiscal, fd.data_solicitacao) DESC`;
 
     const [rows] = await db.query(sql, params);
     return res.json(rows || []);
   } catch (error) {
-    console.error("Erro ao carregar veículos:", error);
-    return res.status(500).json({ error: "Erro ao carregar lista de veículos." });
+    console.error("Erro ao carregar faturamento direto:", error);
+    return res.status(500).json({ error: "Erro ao carregar faturamento direto." });
   }
 });
 
-// ========================================================
-// 5. GET: FATURAMENTO DIRETO
-// ========================================================
-router.get('/relatorios/faturamento-direto', async (req, res) => {
-  try {
-    const { obra_id, data_inicio, data_fim } = req.query;
+// 6-A. COMPRAS POR MATERIAL
+router.get('/relatorios/compras-por-material', async (req, res) => {
+  const { data_inicio, data_fim, fornecedor_id, obra_id, ordenacao } = req.query;
 
+  try {
     let sql = `
       SELECT 
-        fd.numero_pedido,
-        fd.fornecedor,
-        DATE_FORMAT(fd.data_solicitacao, '%d/%m/%Y') AS data,
-        fd.valor_nota_fiscal AS valor,
-        fd.status
-      FROM faturamentos_diretos fd
+        m.id AS material_id,
+        m.descricao AS material_nome,
+        m.unidade_consumo AS unidade_medida,
+        m.tipo AS material_tipo,
+        COUNT(DISTINCT fd.id) AS total_pedidos,
+        SUM(fi.quantidade) AS quantidade_total_comprada,
+        SUM(fi.quantidade * fi.valor_unitario) AS valor_total_gasto,
+        AVG(fi.valor_unitario) AS preco_medio_unitario,
+        MIN(fi.valor_unitario) AS menor_preco_unitario,
+        MAX(fi.valor_unitario) AS maior_preco_unitario,
+        MAX(fd.data_solicitacao) AS ultima_compra,
+        MIN(fd.data_solicitacao) AS primeira_compra
+      FROM faturamento_itens fi
+      INNER JOIN faturamentos_diretos fd ON fi.faturamento_id = fd.id
+      INNER JOIN materiais m ON fi.material_id = m.id
       WHERE fd.status != 'Cancelado'
     `;
+
     const params = [];
 
     if (obra_id) {
       sql += ` AND fd.obra_id = ?`;
-      params.push(obra_id);
+      params.push(Number(obra_id));
     }
     if (data_inicio) {
       sql += ` AND fd.data_solicitacao >= ?`;
@@ -429,14 +454,164 @@ router.get('/relatorios/faturamento-direto', async (req, res) => {
       sql += ` AND fd.data_solicitacao <= ?`;
       params.push(data_fim);
     }
+    if (fornecedor_id) {
+      sql += ` AND fd.fornecedor_id = ?`;
+      params.push(Number(fornecedor_id));
+    }
 
-    sql += ` ORDER BY fd.data_solicitacao DESC`;
+    sql += ` GROUP BY m.id, m.descricao, m.unidade_consumo, m.tipo`;
+    sql += ` ORDER BY ${getOrderBySql(ordenacao, 'material')}`;
 
     const [rows] = await db.query(sql, params);
-    return res.json(rows || []);
+    res.json(rows);
   } catch (error) {
-    console.error("Erro ao carregar faturamento direto:", error);
-    return res.status(500).json({ error: "Erro ao carregar faturamento direto." });
+    console.error("Erro no relatório por material:", error);
+    res.status(500).json({ error: "Erro ao gerar relatório por material." });
+  }
+});
+
+// 6-B. COMPRAS POR FORNECEDOR
+router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
+  const { data_inicio, data_fim, material_id, obra_id, ordenacao } = req.query;
+
+  try {
+    let sql = `
+      SELECT 
+        f.id AS fornecedor_id,
+        f.nome_fantasia,
+        f.razao_social,
+        f.cnpj,
+        COUNT(DISTINCT fd.id) AS total_pedidos,
+        SUM(fi.quantidade * fi.valor_unitario) AS valor_total_gasto,
+        COUNT(DISTINCT fi.material_id) AS diversidade_produtos,
+        MAX(fd.data_solicitacao) AS ultima_compra,
+        MIN(fd.data_solicitacao) AS primeira_compra
+      FROM faturamentos_diretos fd
+      INNER JOIN fornecedores f ON fd.fornecedor_id = f.id
+      INNER JOIN faturamento_itens fi ON fi.faturamento_id = fd.id
+      WHERE fd.status != 'Cancelado'
+    `;
+
+    const params = [];
+
+    if (obra_id) {
+      sql += ` AND fd.obra_id = ?`;
+      params.push(Number(obra_id));
+    }
+    if (data_inicio) {
+      sql += ` AND fd.data_solicitacao >= ?`;
+      params.push(data_inicio);
+    }
+    if (data_fim) {
+      sql += ` AND fd.data_solicitacao <= ?`;
+      params.push(data_fim);
+    }
+    if (material_id) {
+      sql += ` AND fi.material_id = ?`;
+      params.push(Number(material_id));
+    }
+
+    sql += ` GROUP BY f.id, f.nome_fantasia, f.razao_social, f.cnpj`;
+    sql += ` ORDER BY ${getOrderBySql(ordenacao, 'fornecedor')}`;
+
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro no relatório por fornecedor:", error);
+    res.status(500).json({ error: "Erro ao gerar relatório por fornecedor." });
+  }
+});
+
+// 7. GET: RELATÓRIO DE VEÍCULOS UTILIZADOS
+router.get('/relatorios/veiculos-utilizados', async (req, res) => {
+  try {
+    const { 
+      data_inicio, 
+      data_fim, 
+      obra_id, 
+      id_obra, 
+      status_veiculo, 
+      id_gestor,
+      id,
+      cargo 
+    } = req.query;
+
+    const obraIdFinal = obra_id || id_obra;
+
+    let query = `
+      SELECT 
+        v.id,
+        v.data_diario,
+        v.id_obra,
+        o.nome_obra,
+        o.codigo_obra,
+        v.id_veiculo,
+        ve.placa,
+        ve.modelo,
+        ve.marca,
+        v.id_condutor,
+        c.nome AS nome_condutor,
+        v.id_funcionario,
+        f.nome AS nome_funcionario,
+        v.id_gestor,
+        g.nome AS nome_gestor,
+        v.status_veiculo,
+        v.status_uso,
+        v.status AS status_diario
+      FROM diarios_veiculos v
+      LEFT JOIN obras o ON o.id = v.id_obra
+      LEFT JOIN veiculos ve ON ve.id = v.id_veiculo
+      LEFT JOIN funcionarios c ON c.id = v.id_condutor
+      LEFT JOIN funcionarios f ON f.id = v.id_funcionario
+      LEFT JOIN funcionarios g ON g.id = v.id_gestor
+      WHERE 1=1
+    `;
+
+    const params = [];
+    const cargoUsuario = (cargo || '').toUpperCase();
+
+    if (cargoUsuario === 'GESTOR') {
+      query += ` AND v.id_gestor = ?`;
+      params.push(Number(id));
+    } else if (['MASTER', 'RH'].includes(cargoUsuario) && id_gestor) {
+      query += ` AND v.id_gestor = ?`;
+      params.push(Number(id_gestor));
+    }
+
+    if (data_inicio && data_fim) {
+      query += ` AND v.data_diario BETWEEN ? AND ?`;
+      params.push(data_inicio, data_fim);
+    }
+
+    if (obraIdFinal) {
+      query += ` AND v.id_obra = ?`;
+      params.push(Number(obraIdFinal));
+    }
+
+    if (status_veiculo) {
+      query += ` AND v.status_veiculo = ?`;
+      params.push(status_veiculo);
+    }
+
+    query += ` ORDER BY ve.placa ASC, v.data_diario DESC`;
+
+    const [detalhes] = await db.query(query, params);
+
+    const resumoStatus = detalhes.reduce((acc, item) => {
+      const status = (item.status_veiculo || 'INDEFINIDO').toUpperCase();
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.json({
+      totalVeiculosUtilizados: detalhes.length,
+      resumoStatus,
+      detalhes
+    });
+
+  } catch (error) {
+    console.error("Erro ao buscar veículos:", error);
+    res.status(500).json({ mensagem: "Erro ao consultar veículos." });
   }
 });
 
