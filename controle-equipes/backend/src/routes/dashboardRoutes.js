@@ -384,7 +384,10 @@ router.get('/relatorios/faturamento-direto', async (req, res) => {
     const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
     const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
 
-    if (!isMaster && usuario_id) {
+    if (obra_id) {
+      sql += ` AND fd.obra_id = ?`;
+      params.push(Number(obra_id));
+    } else if (!isMaster && usuario_id) {
       sql += ` AND (
         fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)
         OR fd.id_gestor = ?
@@ -392,10 +395,6 @@ router.get('/relatorios/faturamento-direto', async (req, res) => {
       params.push(Number(usuario_id), Number(usuario_id));
     }
 
-    if (obra_id) {
-      sql += ` AND fd.obra_id = ?`;
-      params.push(Number(obra_id));
-    }
     if (data_inicio) {
       sql += ` AND COALESCE(fd.data_nota_fiscal, fd.data_solicitacao) >= ?`;
       params.push(data_inicio);
@@ -528,15 +527,12 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
     const { 
       data_inicio, 
       data_fim, 
-      obra_id, 
       id_obra, 
       status_veiculo, 
       id_gestor,
       id,
       cargo 
     } = req.query;
-
-    const obraIdFinal = obra_id || id_obra;
 
     let query = `
       SELECT 
@@ -563,7 +559,7 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
       LEFT JOIN veiculos ve ON ve.id = v.id_veiculo
       LEFT JOIN funcionarios c ON c.id = v.id_condutor
       LEFT JOIN funcionarios f ON f.id = v.id_funcionario
-      LEFT JOIN funcionarios g ON g.id = v.id_gestor
+      LEFT JOIN usuarios_sistema g ON g.id = v.id_gestor
       WHERE 1=1
     `;
 
@@ -572,10 +568,10 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
 
     if (cargoUsuario === 'GESTOR') {
       query += ` AND v.id_gestor = ?`;
-      params.push(Number(id));
+      params.push(parseInt(id, 10));
     } else if (['MASTER', 'RH'].includes(cargoUsuario) && id_gestor) {
       query += ` AND v.id_gestor = ?`;
-      params.push(Number(id_gestor));
+      params.push(parseInt(id_gestor, 10));
     }
 
     if (data_inicio && data_fim) {
@@ -583,25 +579,33 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
       params.push(data_inicio, data_fim);
     }
 
-    if (obraIdFinal) {
+    if (id_obra) {
       query += ` AND v.id_obra = ?`;
-      params.push(Number(obraIdFinal));
+      params.push(parseInt(id_obra, 10));
     }
 
     if (status_veiculo) {
-      query += ` AND v.status_veiculo = ?`;
-      params.push(status_veiculo);
+      query += ` AND UPPER(v.status_veiculo) = ?`;
+      params.push(status_veiculo.toUpperCase());
     }
 
     query += ` ORDER BY ve.placa ASC, v.data_diario DESC`;
 
     const [detalhes] = await db.query(query, params);
 
-    const resumoStatus = detalhes.reduce((acc, item) => {
-      const status = (item.status_veiculo || 'INDEFINIDO').toUpperCase();
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {});
+    // Mapeamento correto dos totais agrupados por status
+    const resumoStatus = {
+      'EM USO': 0,
+      'DISPONÍVEL': 0,
+      'EM MANUTENÇÃO': 0
+    };
+
+    detalhes.forEach(item => {
+      const st = (item.status_veiculo || '').toUpperCase().trim();
+      if (resumoStatus[st] !== undefined) {
+        resumoStatus[st] += 1;
+      }
+    });
 
     res.json({
       totalVeiculosUtilizados: detalhes.length,
@@ -614,5 +618,4 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
     res.status(500).json({ mensagem: "Erro ao consultar veículos." });
   }
 });
-
 export default router;

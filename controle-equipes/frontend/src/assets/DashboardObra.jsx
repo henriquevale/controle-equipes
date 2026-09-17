@@ -15,15 +15,12 @@ import {
 export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, API_URL }) {
   const listaObras = Array.isArray(obrasDisponiveis) ? obrasDisponiveis : [];
 
-  // Filtros Globais
   const [obraId, setObraId] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
 
-  // Aba selecionada no Relatório de Faturamento/Compras (Seção 5)
   const [abaCompras, setAbaCompras] = useState('materiais');
 
-  // Estados de Dados do Dashboard
   const [loading, setLoading] = useState(false);
   const [atividadesData, setAtividadesData] = useState([]);
   const [materiais, setMateriais] = useState([]);
@@ -32,9 +29,10 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
   const [veiculosData, setVeiculosData] = useState({ detalhes: [], resumoStatus: {}, totalVeiculosUtilizados: 0 });
   const [faturamento, setFaturamento] = useState([]);
 
-  // Estados para as abas de Compras
   const [comprasMateriais, setComprasMateriais] = useState([]);
   const [comprasFornecedores, setComprasFornecedores] = useState([]);
+
+  const baseUrl = API_URL || 'http://localhost:3001/api';
 
   const handleBuscarDados = async () => {
     if (!obraId) {
@@ -43,9 +41,11 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
     }
 
     setLoading(true);
-    const baseUrl = API_URL || 'http://localhost:3001/api';
 
     try {
+      const usuarioId = usuarioLogado?.id || usuarioLogado?.usuario_id;
+      const usuarioCargo = usuarioLogado?.cargo;
+
       const [
         resAtividades,
         resMateriais,
@@ -74,19 +74,25 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
 
         axios.get(`${baseUrl}/relatorios/veiculos-utilizados`, {
           params: { 
-            obra_id: obraId, 
+            id_obra: obraId, 
             data_inicio: dataInicio, 
             data_fim: dataFim,
-            id: usuarioLogado?.id || usuarioLogado?.usuario_id,
-            cargo: usuarioLogado?.cargo
+            id: usuarioId,
+            cargo: usuarioCargo
           }
-        }).catch(() => ({ data: { detalhes: [], resumoStatus: {}, totalVeiculosUtilizados: 0 } })),
+        }).catch(() => ({ 
+          data: { 
+            detalhes: [], 
+            resumoStatus: { 'EM USO': 0, 'DISPONÍVEL': 0, 'EM MANUTENÇÃO': 0 }, 
+            totalVeiculosUtilizados: 0 
+          } 
+        })),
 
         axios.get(`${baseUrl}/relatorios/faturamento-direto`, {
           params: {
             obra_id: obraId,
-            usuario_id: usuarioLogado?.id || usuarioLogado?.usuario_id,
-            cargo: usuarioLogado?.cargo,
+            usuario_id: usuarioId,
+            cargo: usuarioCargo,
             data_inicio: dataInicio,
             data_fim: dataFim
           }
@@ -105,9 +111,14 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
       setMateriais(Array.isArray(resMateriais.data) ? resMateriais.data : []);
       setPresenca(resPresenca.data || {});
       setRdosData(resRdos.data || {});
-      setVeiculosData(resVeiculos.data || { detalhes: [], resumoStatus: {}, totalVeiculosUtilizados: 0 });
-      setFaturamento(Array.isArray(resFaturamento.data) ? resFaturamento.data : []);
+      
+      setVeiculosData(resVeiculos.data?.detalhes ? resVeiculos.data : { 
+        detalhes: [], 
+        resumoStatus: { 'EM USO': 0, 'DISPONÍVEL': 0, 'EM MANUTENÇÃO': 0 }, 
+        totalVeiculosUtilizados: 0 
+      });
 
+      setFaturamento(Array.isArray(resFaturamento.data) ? resFaturamento.data : []);
       setComprasMateriais(Array.isArray(resCompMat.data) ? resCompMat.data : []);
       setComprasFornecedores(Array.isArray(resCompForn.data) ? resCompForn.data : []);
 
@@ -118,7 +129,6 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
     }
   };
 
-  // Cálculo de totais garantindo compatibilidade de nomes de atributos
   const totalFaturamento = faturamento.reduce((acc, item) => acc + (Number(item.valor_total || item.valor || 0)), 0);
   const totalVolumeMateriais = materiais.reduce((acc, item) => acc + (Number(item.quantidade) || 0), 0);
   const totalVolumeAtividades = atividadesData.reduce((acc, item) => acc + (Number(item.quantidade) || 0), 0);
@@ -126,7 +136,6 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
   const totalGastoCompras = comprasFornecedores.reduce((acc, item) => acc + parseFloat(item.valor_total_gasto || 0), 0);
   const totalPedidosCompras = comprasFornecedores.reduce((acc, item) => acc + parseInt(item.total_pedidos || 0), 0);
 
-  // Lógica para Agrupar Veículos
   const agruparVeiculos = (detalhes = []) => {
     const mapa = {};
     detalhes.forEach(item => {
@@ -193,21 +202,79 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
     }
   };
 
+  const obraSelecionadaNome = listaObras.find(o => String(o.id || o.id_obra) === String(obraId))?.nome || 
+                        listaObras.find(o => String(o.id || o.id_obra) === String(obraId))?.nome_obra || '';
+
   return (
     <div style={{ padding: '10px', fontFamily: 'sans-serif', backgroundColor: '#f8fafc' }}>
       <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 10mm;
+        }
+
+        @page landscape-page {
+          size: A4 landscape;
+          margin: 10mm;
+        }
+
         @media print {
           .no-print {
             display: none !important;
           }
-          body {
-            background-color: #fff !important;
+          .print-only {
+            display: block !important;
           }
+          body, html {
+            background-color: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .dashboard-card {
+            border: 1px solid #cbd5e1 !important;
+            box-shadow: none !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            margin-bottom: 12px !important;
+            padding: 8px !important;
+          }
+          .page-landscape {
+            page: landscape-page;
+            page-break-before: always;
+          }
+          .chart-container {
+            height: 200px !important;
+            width: 100% !important;
+          }
+          table {
+            font-size: 9px !important;
+            width: 100% !important;
+          }
+          th, td {
+            padding: 3px 5px !important;
+          }
+          .print-section-break {
+            page-break-before: always;
+          }
+        }
+
+        .print-only {
+          display: none;
         }
       `}</style>
 
+      {/* CABEÇALHO */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '18px', margin: 0 }}>Dashboard de Acompanhamento da Obra</h2>
+        <div>
+          <h2 style={{ fontSize: '18px', margin: 0, color: '#0f172a' }}>Dashboard de Acompanhamento da Obra</h2>
+          {obraSelecionadaNome && (
+            <span style={{ fontSize: '12px', color: '#0284c7', fontWeight: 'bold' }}>
+              Obra: {obraSelecionadaNome}
+            </span>
+          )}
+        </div>
         <button
           onClick={() => window.print()}
           className="no-print"
@@ -255,49 +322,49 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
       </div>
 
       {/* 1. GRÁFICO DE ATIVIDADES */}
-      <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="dashboard-card" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
           1. Balanço de Atividades Executadas vs. Média Geral das Obras
         </h3>
 
         {atividadesData.length === 0 ? (
-          <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+          <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
             Nenhuma produção registrada no período selecionado.
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', backgroundColor: '#f0fdf4', padding: '12px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', backgroundColor: '#f0fdf4', padding: '10px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
               {atividadesData.map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderRight: '1px solid #bbf7d0', paddingRight: '8px', minWidth: '100px' }}>
+                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '2px', borderRight: '1px solid #bbf7d0', paddingRight: '6px' }}>
                   <span style={{ fontSize: '10px', color: '#15803d', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.atividade}>
                     {item.atividade}
                   </span>
-                  <span style={{ fontSize: '16px', color: '#14532d', fontWeight: 'bold' }}>
+                  <span style={{ fontSize: '15px', color: '#14532d', fontWeight: 'bold' }}>
                     {Number(item.quantidade).toLocaleString('pt-BR')}
                   </span>
-                  <span style={{ fontSize: '10px', color: '#047857', fontWeight: '500' }}>
+                  <span style={{ fontSize: '9px', color: '#047857' }}>
                     Média: {Number(item.mediaGeral || 0).toLocaleString('pt-BR')}
                   </span>
                 </div>
               ))}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '8px', backgroundColor: '#bbf7d0', margin: '-12px -12px -12px 0', padding: '12px', borderRadius: '0 4px 4px 0', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', backgroundColor: '#bbf7d0', margin: '-10px -10px -10px 0', padding: '10px', borderRadius: '0 4px 4px 0', justifyContent: 'center' }}>
                 <span style={{ fontSize: '10px', color: '#14532d', fontWeight: 'bold' }}>TOTAL PRODUZIDO</span>
-                <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#16a34a' }}>
+                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#16a34a' }}>
                   {totalVolumeAtividades.toLocaleString('pt-BR')}
                 </span>
               </div>
             </div>
 
-            <div style={{ width: '100%', height: 280 }}>
+            <div className="chart-container" style={{ width: '100%', height: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={atividadesData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="atividade" />
-                  <YAxis />
+                  <XAxis dataKey="atividade" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Legend />
+                  <Legend wrapperStyle={{ fontSize: '11px' }} />
                   <Bar dataKey="quantidade" name="Produção da Obra Selecionada" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Line type="monotone" dataKey="mediaGeral" name="Média Geral de Todas as Obras" stroke="#047857" strokeWidth={3} dot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="mediaGeral" name="Média Geral de Todas as Obras" stroke="#047857" strokeWidth={2} dot={{ r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -306,49 +373,49 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
       </div>
 
       {/* 2. GRÁFICO DE MATERIAIS */}
-      <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="dashboard-card" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
           2. Consumo Acumulado de Materiais vs. Média Geral das Obras
         </h3>
         
         {materiais.length === 0 ? (
-          <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
+          <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
             Nenhum material consumido registrado no período selecionado.
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', backgroundColor: '#fff7ed', padding: '12px', borderRadius: '4px', border: '1px solid #ffedd5' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', backgroundColor: '#fff7ed', padding: '10px', borderRadius: '4px', border: '1px solid #ffedd5' }}>
               {materiais.map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderRight: '1px solid #ffedd5', paddingRight: '8px', minWidth: '100px' }}>
+                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '2px', borderRight: '1px solid #ffedd5', paddingRight: '6px' }}>
                   <span style={{ fontSize: '10px', color: '#c2410c', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.material}>
                     {item.material}
                   </span>
-                  <span style={{ fontSize: '16px', color: '#7c2d12', fontWeight: 'bold' }}>
+                  <span style={{ fontSize: '15px', color: '#7c2d12', fontWeight: 'bold' }}>
                     {Number(item.quantidade).toLocaleString('pt-BR')}
                   </span>
-                  <span style={{ fontSize: '10px', color: '#d97706', fontWeight: '500' }}>
+                  <span style={{ fontSize: '9px', color: '#d97706' }}>
                     Média: {Number(item.mediaGeral || 0).toLocaleString('pt-BR')}
                   </span>
                 </div>
               ))}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '8px', backgroundColor: '#ffedd5', margin: '-12px -12px -12px 0', padding: '12px', borderRadius: '0 4px 4px 0', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', backgroundColor: '#ffedd5', margin: '-10px -10px -10px 0', padding: '10px', borderRadius: '0 4px 4px 0', justifyContent: 'center' }}>
                 <span style={{ fontSize: '10px', color: '#7c2d12', fontWeight: 'bold' }}>VOLUME TOTAL</span>
-                <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#ea580c' }}>
+                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ea580c' }}>
                   {totalVolumeMateriais.toLocaleString('pt-BR')}
                 </span>
               </div>
             </div>
 
-            <div style={{ width: '100%', height: 280 }}>
+            <div className="chart-container" style={{ width: '100%', height: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={materiais}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="material" />
-                  <YAxis />
+                  <XAxis dataKey="material" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Legend />
+                  <Legend wrapperStyle={{ fontSize: '11px' }} />
                   <Bar dataKey="quantidade" name="Consumo da Obra Selecionada" fill="#ea580c" radius={[4, 4, 0, 0]} />
-                  <Line type="monotone" dataKey="mediaGeral" name="Média Geral de Todas as Obras" stroke="#d97706" strokeWidth={3} dot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="mediaGeral" name="Média Geral de Todas as Obras" stroke="#d97706" strokeWidth={2} dot={{ r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -356,19 +423,19 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         )}
       </div>
 
-      {/* 3. SEÇÃO: PRESENÇA DE FUNCIONÁRIOS E EFETIVO */}
-      <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      {/* 3. PRESENÇA DE FUNCIONÁRIOS */}
+      <div className="dashboard-card" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
             3. Total de Presença e Efetivo
           </h3>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <div style={{ backgroundColor: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', color: '#334155', fontWeight: 'bold' }}>
-              Total de RDOs no Período: <span style={{ color: '#2563eb', fontSize: '13px' }}>{presenca.totalRdos || 0}</span>
+              Total de RDOs: <span style={{ color: '#2563eb' }}>{presenca.totalRdos || 0}</span>
             </div>
             <div style={{ backgroundColor: '#f0fdf4', padding: '6px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '11px', color: '#166534', fontWeight: 'bold' }}>Frequência Geral:</span>
-              <span style={{ fontSize: '14px', color: '#15803d', fontWeight: 'bold' }}>
+              <span style={{ fontSize: '13px', color: '#15803d', fontWeight: 'bold' }}>
                 {presenca.percentualFrequenciaGeral || 0}%
               </span>
             </div>
@@ -376,16 +443,16 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         </div>
 
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569' }}>
-                <th style={{ padding: '8px' }}>Matrícula</th>
-                <th style={{ padding: '8px' }}>Funcionário</th>
-                <th style={{ padding: '8px' }}>Cargo</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Presente</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Faltou</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Outros (Folga/Férias/etc)</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>% Frequência (em rel. aos RDOs)</th>
+                <th style={{ padding: '6px' }}>Matrícula</th>
+                <th style={{ padding: '6px' }}>Funcionário</th>
+                <th style={{ padding: '6px' }}>Cargo</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Presente</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Faltou</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Outros</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>% Frequência</th>
               </tr>
             </thead>
             <tbody>
@@ -394,27 +461,27 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
               ) : (
                 presenca.relacaoPresenca.map((row, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '8px', fontFamily: 'monospace', fontWeight: 'bold', color: '#64748b' }}>
+                    <td style={{ padding: '6px', fontFamily: 'monospace', fontWeight: 'bold', color: '#64748b' }}>
                       {row.matricula || '-'}
                     </td>
-                    <td style={{ padding: '8px', fontWeight: 'bold', color: '#0f172a' }}>
+                    <td style={{ padding: '6px', fontWeight: 'bold', color: '#0f172a' }}>
                       {row.colaborador}
                     </td>
-                    <td style={{ padding: '8px', color: '#475569' }}>
+                    <td style={{ padding: '6px', color: '#475569' }}>
                       {row.cargo || '-'}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', color: '#16a34a', fontWeight: 'bold' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', color: '#16a34a', fontWeight: 'bold' }}>
                       {row.presente}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', color: '#dc2626', fontWeight: 'bold' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', color: '#dc2626', fontWeight: 'bold' }}>
                       {row.faltou}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', color: '#d97706' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', color: '#d97706' }}>
                       {row.outros}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold' }}>
                       <span style={{
-                        padding: '2px 8px',
+                        padding: '2px 6px',
                         borderRadius: '4px',
                         backgroundColor: row.percentualFrequencia >= 85 ? '#dcfce7' : row.percentualFrequencia >= 70 ? '#fef9c3' : '#fee2e2',
                         color: row.percentualFrequencia >= 85 ? '#15803d' : row.percentualFrequencia >= 70 ? '#a16207' : '#b91c1c'
@@ -430,40 +497,39 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         </div>
       </div>
 
-      {/* 4. SEÇÃO: RELATÓRIO DE RDOS E CONTROLE DE EQUIPES */}
-      <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      {/* 4. RELATÓRIO DE RDOS */}
+      <div className="dashboard-card print-section-break" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
             4. Relatório de RDOs e Controle de Equipes
           </h3>
           <div style={{ backgroundColor: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', color: '#334155', fontWeight: 'bold' }}>
-            Total Registrado no Filtro: <span style={{ color: '#2563eb', fontSize: '13px' }}>{rdosData.totalRegistros || 0}</span>
+            Total Registrado: <span style={{ color: '#2563eb' }}>{rdosData.totalRegistros || 0}</span>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '15px' }}>
-          {/* TABELA A: STATUS DO RDO */}
-          <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-            <h4 style={{ fontSize: '12px', margin: '0 0 10px 0', color: '#334155' }}>Status do RDO</h4>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '15px' }}>
+          <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <h4 style={{ fontSize: '11px', margin: '0 0 8px 0', color: '#334155' }}>Status do RDO</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #cbd5e1', color: '#64748b', textAlign: 'left' }}>
                   <th style={{ padding: '4px' }}>Status</th>
                   <th style={{ padding: '4px', textAlign: 'center' }}>Qtd</th>
-                  <th style={{ padding: '4px', textAlign: 'right' }}>% Representação</th>
+                  <th style={{ padding: '4px', textAlign: 'right' }}>%</th>
                 </tr>
               </thead>
               <tbody>
                 {!rdosData.porStatusRdo || rdosData.porStatusRdo.length === 0 ? (
-                  <tr><td colSpan="3" style={{ padding: '8px', textAlign: 'center', color: '#94a3b8' }}>Sem dados</td></tr>
+                  <tr><td colSpan="3" style={{ padding: '6px', textAlign: 'center', color: '#94a3b8' }}>Sem dados</td></tr>
                 ) : (
                   rdosData.porStatusRdo.map((item, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 4px', fontWeight: 'bold', color: item.status === 'FINALIZADO' ? '#16a34a' : '#d97706' }}>
+                      <td style={{ padding: '4px', fontWeight: 'bold', color: item.status === 'FINALIZADO' ? '#16a34a' : '#d97706' }}>
                         {item.status}
                       </td>
-                      <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold' }}>{item.quantidade}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 'bold', color: '#2563eb' }}>{item.percentual}%</td>
+                      <td style={{ padding: '4px', textAlign: 'center', fontWeight: 'bold' }}>{item.quantidade}</td>
+                      <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold', color: '#2563eb' }}>{item.percentual}%</td>
                     </tr>
                   ))
                 )}
@@ -471,55 +537,25 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
             </table>
           </div>
 
-          {/* TABELA B: STATUS OPERACIONAL */}
-          <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-            <h4 style={{ fontSize: '12px', margin: '0 0 10px 0', color: '#334155' }}>Status Operacional</h4>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+          <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <h4 style={{ fontSize: '11px', margin: '0 0 8px 0', color: '#334155' }}>Status Operacional</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #cbd5e1', color: '#64748b', textAlign: 'left' }}>
                   <th style={{ padding: '4px' }}>Condição</th>
                   <th style={{ padding: '4px', textAlign: 'center' }}>Qtd</th>
-                  <th style={{ padding: '4px', textAlign: 'right' }}>% Representação</th>
+                  <th style={{ padding: '4px', textAlign: 'right' }}>%</th>
                 </tr>
               </thead>
               <tbody>
                 {!rdosData.porStatusOperacional || rdosData.porStatusOperacional.length === 0 ? (
-                  <tr><td colSpan="3" style={{ padding: '8px', textAlign: 'center', color: '#94a3b8' }}>Sem dados</td></tr>
+                  <tr><td colSpan="3" style={{ padding: '6px', textAlign: 'center', color: '#94a3b8' }}>Sem dados</td></tr>
                 ) : (
                   rdosData.porStatusOperacional.map((item, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 4px', fontWeight: 'bold', color: '#0f172a' }}>{item.status_operacional}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold' }}>{item.quantidade}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 'bold', color: '#2563eb' }}>{item.percentual}%</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* TABELA C: RELAÇÃO DE REGISTROS POR DIA */}
-        <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-          <h4 style={{ fontSize: '12px', margin: '0 0 10px 0', color: '#334155' }}>Relação de Diários Emitidos por Dia</h4>
-          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #cbd5e1', color: '#64748b', textAlign: 'left', position: 'sticky', top: 0, backgroundColor: '#f8fafc' }}>
-                  <th style={{ padding: '4px' }}>Data</th>
-                  <th style={{ padding: '4px', textAlign: 'center' }}>Qtd Diários</th>
-                  <th style={{ padding: '4px', textAlign: 'right' }}>% em Relação ao Total do Filtro</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!rdosData.relacaoPorDias || rdosData.relacaoPorDias.length === 0 ? (
-                  <tr><td colSpan="3" style={{ padding: '8px', textAlign: 'center', color: '#94a3b8' }}>Nenhum diário registrado no período.</td></tr>
-                ) : (
-                  rdosData.relacaoPorDias.map((item, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '6px 4px', fontWeight: 'bold', color: '#475569' }}>{item.data}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 'bold' }}>{item.quantidade}</td>
-                      <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 'bold', color: '#2563eb' }}>{item.percentual}%</td>
+                      <td style={{ padding: '4px', fontWeight: 'bold', color: '#0f172a' }}>{item.status_operacional}</td>
+                      <td style={{ padding: '4px', textAlign: 'center', fontWeight: 'bold' }}>{item.quantidade}</td>
+                      <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold', color: '#2563eb' }}>{item.percentual}%</td>
                     </tr>
                   ))
                 )}
@@ -529,26 +565,25 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         </div>
       </div>
 
-      {/* 5. RELATÓRIO DE FATURAMENTO DIRETO E COMPRAS DA OBRA */}
-      <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      {/* 5. RELATÓRIO DE COMPRAS E FATURAMENTO (HORIZONAL NO PDF) */}
+      <div className="dashboard-card page-landscape" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
             5. Relatório de Faturamento Direto e Compras da Obra
           </h3>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <div style={{ backgroundColor: '#dbeafe', padding: '6px 12px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '11px', color: '#1e40af', fontWeight: 'bold' }}>
-              Volume Compras: R$ {totalGastoCompras.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ backgroundColor: '#dbeafe', padding: '4px 8px', borderRadius: '4px', border: '1px solid #93c5fd', fontSize: '10px', color: '#1e40af', fontWeight: 'bold' }}>
+              Volume Compras: R$ {totalGastoCompras.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
-            <div style={{ backgroundColor: '#dcfce7', padding: '6px 12px', borderRadius: '6px', border: '1px solid #86efac', fontSize: '11px', color: '#166534', fontWeight: 'bold' }}>
+            <div style={{ backgroundColor: '#dcfce7', padding: '4px 8px', borderRadius: '4px', border: '1px solid #86efac', fontSize: '10px', color: '#166534', fontWeight: 'bold' }}>
               Pedidos: {totalPedidosCompras}
             </div>
-            <div style={{ backgroundColor: '#fef3c7', padding: '6px 12px', borderRadius: '6px', border: '1px solid #fde047', fontSize: '11px', color: '#92400e', fontWeight: 'bold' }}>
-              Fat. Direto Total: R$ {totalFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div style={{ backgroundColor: '#fef3c7', padding: '4px 8px', borderRadius: '4px', border: '1px solid #fde047', fontSize: '10px', color: '#92400e', fontWeight: 'bold' }}>
+              Fat. Direto: R$ {totalFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
           </div>
         </div>
 
-        {/* NAVEGAÇÃO DE ABAS INTERNAS */}
         <div className="no-print" style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0' }}>
           <button onClick={() => setAbaCompras('materiais')} style={tabButtonStyle(abaCompras === 'materiais')}>
             Compras por Produto/Material
@@ -561,206 +596,178 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
           </button>
         </div>
 
-        {/* TABELA: MATERIAIS */}
-        {abaCompras === 'materiais' && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
-                  <th style={{ padding: '8px' }}>Produto / Material</th>
-                  <th style={{ padding: '8px' }}>Tipo</th>
-                  <th style={{ padding: '8px' }}>Qtd. Total Comprada</th>
-                  <th style={{ padding: '8px', textAlign: 'center' }}>Capacidade de Uso</th>
-                  <th style={{ padding: '8px' }}>Preço Médio Un.</th>
-                  <th style={{ padding: '8px' }}>Menor Preço</th>
-                  <th style={{ padding: '8px' }}>Maior Preço</th>
-                  <th style={{ padding: '8px' }}>Valor Total Gasto</th>
-                  <th style={{ padding: '8px' }}>Última Compra</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comprasMateriais.length === 0 ? (
-                  <tr><td colSpan="9" style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>Nenhum registro encontrado.</td></tr>
-                ) : (
-                  comprasMateriais.map((m, idx) => (
+        {/* COMPRAS POR MATERIAL */}
+        <div className={abaCompras === 'materiais' ? '' : 'print-only'} style={{ overflowX: 'auto', marginBottom: '15px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '5px', color: '#334155' }}>Detalhamento por Material</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '10px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
+                <th style={{ padding: '6px' }}>Produto / Material</th>
+                <th style={{ padding: '6px' }}>Tipo</th>
+                <th style={{ padding: '6px' }}>Qtd. Comprada</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Capacidade de Uso</th>
+                <th style={{ padding: '6px' }}>Preço Médio</th>
+                <th style={{ padding: '6px' }}>Valor Gasto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comprasMateriais.length === 0 ? (
+                <tr><td colSpan="6" style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>Nenhum registro encontrado.</td></tr>
+              ) : (
+                comprasMateriais.map((m, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '6px', fontWeight: 'bold' }}>
+                      {m.material_nome} <span style={{ color: '#64748b', fontWeight: 'normal' }}>({m.unidade_medida || 'UN'})</span>
+                    </td>
+                    <td style={{ padding: '6px', color: '#475569' }}>{m.material_tipo || '-'}</td>
+                    <td style={{ padding: '6px', fontWeight: 'bold' }}>{parseFloat(m.quantidade_total_comprada || 0).toLocaleString('pt-BR')}</td>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: '#475569' }}>
+                      {calcularCapacidadeUso(m)}
+                    </td>
+                    <td style={{ padding: '6px' }}>R$ {parseFloat(m.preco_medio_unitario || 0).toFixed(2)}</td>
+                    <td style={{ padding: '6px', fontWeight: 'bold', color: '#2563eb' }}>
+                      R$ {parseFloat(m.valor_total_gasto || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* COMPRAS POR FORNECEDOR */}
+        <div className={abaCompras === 'fornecedores' ? '' : 'print-only'} style={{ overflowX: 'auto', marginBottom: '15px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '5px', color: '#334155' }}>Detalhamento por Fornecedor</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '10px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
+                <th style={{ padding: '6px' }}>Fornecedor</th>
+                <th style={{ padding: '6px' }}>CNPJ</th>
+                <th style={{ padding: '6px' }}>Nº Pedidos</th>
+                <th style={{ padding: '6px' }}>Variedade</th>
+                <th style={{ padding: '6px' }}>Valor Total (R$)</th>
+                <th style={{ padding: '6px' }}>% Part.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comprasFornecedores.length === 0 ? (
+                <tr><td colSpan="6" style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>Nenhum registro encontrado.</td></tr>
+              ) : (
+                comprasFornecedores.map((f, idx) => {
+                  const valorGastoForn = parseFloat(f.valor_total_gasto || 0);
+                  const pctTotal = totalGastoCompras > 0 ? ((valorGastoForn / totalGastoCompras) * 100).toFixed(1) : '0.0';
+
+                  return (
                     <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '8px', fontWeight: 'bold' }}>
-                        {m.material_nome} <span style={{ color: '#64748b', fontWeight: 'normal' }}>({m.unidade_medida || 'UN'})</span>
+                      <td style={{ padding: '6px', fontWeight: 'bold' }}>{f.nome_fantasia || f.razao_social}</td>
+                      <td style={{ padding: '6px', color: '#64748b' }}>{f.cnpj || '-'}</td>
+                      <td style={{ padding: '6px', fontWeight: 'bold', color: '#0284c7' }}>{f.total_pedidos}</td>
+                      <td style={{ padding: '6px' }}>{f.diversidade_produtos} itens</td>
+                      <td style={{ padding: '6px', fontWeight: 'bold', color: '#16a34a' }}>
+                        R$ {valorGastoForn.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                       </td>
-                      <td style={{ padding: '8px', color: '#475569' }}>{m.material_tipo || '-'}</td>
-                      <td style={{ padding: '8px', fontWeight: 'bold' }}>{parseFloat(m.quantidade_total_comprada || 0).toLocaleString('pt-BR')}</td>
-                      <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#475569' }}>
-                        {calcularCapacidadeUso(m)}
-                      </td>
-                      <td style={{ padding: '8px' }}>R$ {parseFloat(m.preco_medio_unitario || 0).toFixed(2)}</td>
-                      <td style={{ padding: '8px', color: '#16a34a', fontWeight: '500' }}>R$ {parseFloat(m.menor_preco_unitario || 0).toFixed(2)}</td>
-                      <td style={{ padding: '8px', color: '#dc2626', fontWeight: '500' }}>R$ {parseFloat(m.maior_preco_unitario || 0).toFixed(2)}</td>
-                      <td style={{ padding: '8px', fontWeight: 'bold', color: '#2563eb' }}>
-                        R$ {parseFloat(m.valor_total_gasto || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td style={{ padding: '8px', color: '#64748b' }}>{m.ultima_compra ? new Date(m.ultima_compra).toLocaleDateString('pt-BR') : '-'}</td>
+                      <td style={{ padding: '6px', fontWeight: 'bold' }}>{pctTotal}%</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
-        {/* TABELA: FORNECEDORES */}
-        {abaCompras === 'fornecedores' && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
-                  <th style={{ padding: '8px' }}>Fornecedor</th>
-                  <th style={{ padding: '8px' }}>CNPJ</th>
-                  <th style={{ padding: '8px' }}>Nº de Pedidos</th>
-                  <th style={{ padding: '8px' }}>Variedade de Produtos</th>
-                  <th style={{ padding: '8px' }}>Valor Total (R$)</th>
-                  <th style={{ padding: '8px' }}>% Participação</th>
-                  <th style={{ padding: '8px' }}>Última Compra</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comprasFornecedores.length === 0 ? (
-                  <tr><td colSpan="7" style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>Nenhum registro encontrado.</td></tr>
-                ) : (
-                  comprasFornecedores.map((f, idx) => {
-                    const valorGastoForn = parseFloat(f.valor_total_gasto || 0);
-                    const pctTotal = totalGastoCompras > 0 ? ((valorGastoForn / totalGastoCompras) * 100).toFixed(1) : '0.0';
-
-                    return (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '8px' }}>
-                          <div style={{ fontWeight: 'bold' }}>{f.nome_fantasia || f.razao_social}</div>
-                          {f.nome_fantasia && <div style={{ fontSize: '10px', color: '#64748b' }}>{f.razao_social}</div>}
-                        </td>
-                        <td style={{ padding: '8px', color: '#64748b' }}>{f.cnpj || '-'}</td>
-                        <td style={{ padding: '8px', fontWeight: 'bold', color: '#0284c7' }}>{f.total_pedidos} pedidos</td>
-                        <td style={{ padding: '8px' }}>{f.diversidade_produtos} itens diferentes</td>
-                        <td style={{ padding: '8px', fontWeight: 'bold', color: '#16a34a' }}>
-                          R$ {valorGastoForn.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '8px', fontWeight: 'bold' }}>
-                          <span style={{ padding: '2px 8px', borderRadius: '12px', backgroundColor: '#e0f2fe', color: '#0369a1' }}>
-                            {pctTotal}%
-                          </span>
-                        </td>
-                        <td style={{ padding: '8px', color: '#64748b' }}>
-                          {f.ultima_compra ? new Date(f.ultima_compra).toLocaleDateString('pt-BR') : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* TABELA: FATURAMENTO DIRETO */}
-        {abaCompras === 'faturamento' && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
-                  <th style={{ padding: '8px' }}>Nota Fiscal</th>
-                  <th style={{ padding: '8px' }}>Fornecedor</th>
-                  <th style={{ padding: '8px' }}>Gestor Responsável</th>
-                  <th style={{ padding: '8px' }}>Data Emissão</th>
-                  <th style={{ padding: '8px' }}>Valor Total (R$)</th>
-                  <th style={{ padding: '8px' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {faturamento.length === 0 ? (
-                  <tr><td colSpan="6" style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>Nenhum faturamento registrado para esta obra.</td></tr>
-                ) : (
-                  faturamento.map((row, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '8px', fontWeight: 'bold' }}>
-                        {row.numero_nota_fiscal || (row.numero_pedido_obra ? `Ped: ${row.numero_pedido_obra}` : `#${row.id}`)}
-                      </td>
-                      <td style={{ padding: '8px' }}>
-                        {row.fornecedor_nome || '-'}
-                      </td>
-                      <td style={{ padding: '8px', color: '#475569' }}>
-                        {row.gestor_nome || '-'}
-                      </td>
-                      <td style={{ padding: '8px', color: '#64748b' }}>
-                        {row.data_emissao ? new Date(row.data_emissao).toLocaleDateString('pt-BR') : '-'}
-                      </td>
-                      <td style={{ padding: '8px', fontWeight: 'bold', color: '#16a34a' }}>
-                        R$ {Number(row.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td style={{ padding: '8px' }}>
-                        <span style={{
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          fontWeight: 'bold',
-                          fontSize: '10px',
-                          backgroundColor: row.status === 'APROVADO' || row.status === 'Concluído' || row.status === 'NF recebida e em estoque' ? '#dcfce7' : '#fef3c7',
-                          color: row.status === 'APROVADO' || row.status === 'Concluído' || row.status === 'NF recebida e em estoque' ? '#166534' : '#92400e'
-                        }}>
-                          {row.status || 'PENDENTE'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {/* FATURAMENTO DIRETO */}
+        <div className={abaCompras === 'faturamento' ? '' : 'print-only'} style={{ overflowX: 'auto' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '5px', color: '#334155' }}>Relatório de Faturamento Direto</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '10px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
+                <th style={{ padding: '6px' }}>Nota Fiscal</th>
+                <th style={{ padding: '6px' }}>Fornecedor</th>
+                <th style={{ padding: '6px' }}>Data Emissão</th>
+                <th style={{ padding: '6px' }}>Valor Total (R$)</th>
+                <th style={{ padding: '6px' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {faturamento.length === 0 ? (
+                <tr><td colSpan="5" style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>Nenhum faturamento registrado.</td></tr>
+              ) : (
+                faturamento.map((row, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '6px', fontWeight: 'bold' }}>
+                      {row.numero_nota_fiscal || (row.numero_pedido_obra ? `Ped: ${row.numero_pedido_obra}` : `#${row.id}`)}
+                    </td>
+                    <td style={{ padding: '6px' }}>{row.fornecedor_nome || '-'}</td>
+                    <td style={{ padding: '6px', color: '#64748b' }}>
+                      {row.data_emissao ? new Date(row.data_emissao).toLocaleDateString('pt-BR') : '-'}
+                    </td>
+                    <td style={{ padding: '6px', fontWeight: 'bold', color: '#16a34a' }}>
+                      R$ {Number(row.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: '6px' }}>
+                      <span style={{
+                        padding: '2px 4px',
+                        borderRadius: '4px',
+                        fontWeight: 'bold',
+                        fontSize: '9px',
+                        backgroundColor: row.status === 'APROVADO' || row.status === 'Concluído' ? '#dcfce7' : '#fef3c7',
+                        color: row.status === 'APROVADO' || row.status === 'Concluído' ? '#166534' : '#92400e'
+                      }}>
+                        {row.status || 'PENDENTE'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* 6. RELATÓRIO DE VEÍCULOS / FROTA ALOCADA */}
-      <div style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+      {/* 6. RELATÓRIO DE VEÍCULOS (HORIZONTAL NO PDF) */}
+      <div className="dashboard-card page-landscape" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '15px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
             6. Relatório Consolidado de Veículos / Frota Alocada
           </h3>
-          <div style={{ backgroundColor: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '11px', color: '#334155', fontWeight: 'bold' }}>
-            Apontamentos Totais: <span style={{ color: '#2563eb', fontSize: '13px' }}>{veiculosData.totalVeiculosUtilizados || 0}</span>
+          <div style={{ backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '10px', color: '#334155', fontWeight: 'bold' }}>
+            Apontamentos Totais: <span style={{ color: '#2563eb' }}>{veiculosData.totalVeiculosUtilizados || 0}</span>
           </div>
         </div>
 
-        {/* CARDS KPI DE VEÍCULOS */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
-          <div style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '10px' }}>
-            <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold', display: 'block' }}>VEÍCULOS DISTINTOS</span>
-            <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>{listaVeiculosAgrupada.length}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px' }}>
+          <div style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '8px' }}>
+            <span style={{ fontSize: '9px', color: '#64748b', fontWeight: 'bold', display: 'block' }}>VEÍCULOS DISTINTOS</span>
+            <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#1e293b' }}>{listaVeiculosAgrupada.length}</span>
           </div>
 
-          <div style={{ backgroundColor: '#fef9c3', border: '1px solid #fde047', borderRadius: '6px', padding: '10px' }}>
-            <span style={{ fontSize: '10px', color: '#854d0e', fontWeight: 'bold', display: 'block' }}>EM USO</span>
-            <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#713f12' }}>{veiculosData.resumoStatus['EM USO'] || 0}</span>
+          <div style={{ backgroundColor: '#fef9c3', border: '1px solid #fde047', borderRadius: '4px', padding: '8px' }}>
+            <span style={{ fontSize: '9px', color: '#854d0e', fontWeight: 'bold', display: 'block' }}>EM USO</span>
+            <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#713f12' }}>{veiculosData.resumoStatus['EM USO'] || 0}</span>
           </div>
 
-          <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px' }}>
-            <span style={{ fontSize: '10px', color: '#166534', fontWeight: 'bold', display: 'block' }}>DISPONÍVEIS</span>
-            <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#14532d' }}>{veiculosData.resumoStatus['DISPONÍVEL'] || 0}</span>
+          <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '8px' }}>
+            <span style={{ fontSize: '9px', color: '#166534', fontWeight: 'bold', display: 'block' }}>DISPONÍVEIS</span>
+            <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#14532d' }}>{veiculosData.resumoStatus['DISPONÍVEL'] || 0}</span>
           </div>
 
-          <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px' }}>
-            <span style={{ fontSize: '10px', color: '#991b1b', fontWeight: 'bold', display: 'block' }}>EM MANUTENÇÃO</span>
-            <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#7f1d1d' }}>{veiculosData.resumoStatus['EM MANUTENÇÃO'] || 0}</span>
+          <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', padding: '8px' }}>
+            <span style={{ fontSize: '9px', color: '#991b1b', fontWeight: 'bold', display: 'block' }}>MANUTENÇÃO</span>
+            <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#7f1d1d' }}>{veiculosData.resumoStatus['EM MANUTENÇÃO'] || 0}</span>
           </div>
         </div>
 
-        {/* TABELA DE VEÍCULOS */}
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '10px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569' }}>
-                <th style={{ padding: '8px' }}>Placa</th>
-                <th style={{ padding: '8px' }}>Veículo / Modelo</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Total Apontamentos</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Em Uso</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Disponível</th>
-                <th style={{ padding: '8px', textAlign: 'center' }}>Manutenção</th>
-                <th style={{ padding: '8px' }}>Motoristas / Responsáveis</th>
+                <th style={{ padding: '6px' }}>Placa</th>
+                <th style={{ padding: '6px' }}>Veículo / Modelo</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Total Apontamentos</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Em Uso</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Disponível</th>
+                <th style={{ padding: '6px', textAlign: 'center' }}>Manutenção</th>
+                <th style={{ padding: '6px' }}>Motoristas / Responsáveis</th>
               </tr>
             </thead>
             <tbody>
@@ -769,25 +776,25 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
               ) : (
                 listaVeiculosAgrupada.map((v, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '8px', fontFamily: 'monospace', fontWeight: 'bold', color: '#0f172a' }}>
+                    <td style={{ padding: '6px', fontFamily: 'monospace', fontWeight: 'bold', color: '#0f172a' }}>
                       {v.placa}
                     </td>
-                    <td style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b' }}>
+                    <td style={{ padding: '6px', fontWeight: 'bold', color: '#1e293b' }}>
                       {v.veiculo}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold' }}>
                       {v.total_apontamentos}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#854d0e', backgroundColor: '#fef9c3' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: '#854d0e', backgroundColor: '#fef9c3' }}>
                       {v.em_uso}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#166534', backgroundColor: '#f0fdf4' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: '#166534', backgroundColor: '#f0fdf4' }}>
                       {v.disponivel}
                     </td>
-                    <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#991b1b', backgroundColor: '#fef2f2' }}>
+                    <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: '#991b1b', backgroundColor: '#fef2f2' }}>
                       {v.manutencao}
                     </td>
-                    <td style={{ padding: '8px', color: '#475569', fontSize: '11px' }}>
+                    <td style={{ padding: '6px', color: '#475569' }}>
                       {Array.from(v.condutores).join(', ') || '-'}
                     </td>
                   </tr>

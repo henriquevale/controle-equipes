@@ -3,9 +3,9 @@ import axios from 'axios';
 import { 
   LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, 
   FileText, Boxes, BarChart3, TrendingUp, Building2, Shield, 
-  Users, FolderKanban, ChevronDown, ChevronRight, Menu, X, Wrench, ClipboardList
+  Users, FolderKanban, ChevronDown, ChevronRight, Menu, X, Wrench, ClipboardList,
+  DollarSign 
 } from 'lucide-react';
-
 // Imports dos Componentes
 import DiarioEfetivo from './assets/DiarioEfetivo';
 import DiarioObraTecnico from './assets/DiarioObraTecnico'; 
@@ -33,6 +33,8 @@ import CadastroItensManutencao from './assets/CadastroItensManutencao';
 import RelatorioManutencaoVeiculos from './assets/RelatorioManutencaoVeiculos';
 import DashboardObra from './assets/DashboardObra';
 import ManutencaoVeiculo from './assets/ManutencaoVeiculo';
+import ImportadorFinanceiro from './assets/ImportadoFinanceiro';
+import RelatorioCustos from './assets/RelatorioCustos';
 
   const API_URL = 'http://localhost:3001/api';
  // const API_URL = 'https://api-controle-impacto.duckdns.org/api';
@@ -52,7 +54,8 @@ export default function App() {
     OBRAS: false,
     MATERIAIS: false,
     FROTAS: false,
-    RH: false
+    RH: false,
+    FINANCEIRO: false
   });
   
   const [listaObrasBanco, setListaObrasBanco] = useState([]);
@@ -131,7 +134,18 @@ export default function App() {
         { id: 'CADASTRO_FUNCIONARIO', label: 'Cadastrar Funcionário', icon: UserPlus, cargos: ['MASTER', 'RH'] },
         { id: 'PRESENCA', label: 'Controle de Presença', icon: CalendarX, cargos: ['MASTER', 'RH'] },
       ]
+    },
+    {
+      idGrupo: 'FINANCEIRO',
+      titulo: 'Financeiro',
+      icone: DollarSign,
+      itens: [
+        { id: 'IMPORTAR_FINANCEIRO', label: 'Importar Conta Azul', icon: FileText, cargos: ['MASTER'] },
+        { id: 'RELATORIO_CUSTOS', label: 'Relatório de Custos', icon: BarChart3, cargos: ['MASTER'] }
+
+      ]
     }
+
   ];
 
   const toggleGrupo = (idGrupo) => {
@@ -505,6 +519,19 @@ export default function App() {
               <RelatorioManutencaoVeiculos usuarioLogado={usuarioLogado} />
             )}
             {abaAtiva === 'MANUTENCAO_VEICULO' && <ManutencaoVeiculo usuarioLogado={usuarioLogado} />}
+            {abaAtiva === 'IMPORTAR_FINANCEIRO' && usuarioLogado.cargo === 'MASTER' && (
+              <ImportadorFinanceiro 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+              />
+            )}
+            {abaAtiva === 'RELATORIO_CUSTOS' && usuarioLogado.cargo === 'MASTER' && (
+              <RelatorioCustos 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+              />
+            )}  
+          
           </div>
         </main>
       </div>
