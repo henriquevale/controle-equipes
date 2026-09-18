@@ -2,14 +2,13 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UserPlus, RefreshCw } from 'lucide-react';
 
-  const API_URL = 'http://localhost:3001/api';
-  //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
-
 export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEditar, finalizarEdicaoGlobal, API_URL = 'http://localhost:3001/api' }) {
   const [formData, setFormData] = useState({
     nome: '',
     usuario: '',
     senha: '',
+    email: '',
+    telefone: '',
     cargo: 'GESTOR',
     ids_obras: [],
     ids_funcionarios: []
@@ -47,6 +46,8 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
         nome: usuarioParaEditar.nome || '',
         usuario: usuarioParaEditar.usuario || '',
         senha: '', 
+        email: usuarioParaEditar.email || '',
+        telefone: usuarioParaEditar.telefone || '',
         cargo: usuarioParaEditar.cargo || 'GESTOR',
         ids_obras: usuarioParaEditar.id_obras ? usuarioParaEditar.id_obras.split(',').map(Number) : [],
         ids_funcionarios: usuarioParaEditar.id_funcionarios ? usuarioParaEditar.id_funcionarios.split(',').map(Number) : []
@@ -56,6 +57,8 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
         nome: '',
         usuario: '',
         senha: '',
+        email: '',
+        telefone: '',
         cargo: 'GESTOR',
         ids_obras: [],
         ids_funcionarios: []
@@ -65,7 +68,8 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
 
   // Limpeza de seleções conforme o perfil selecionado
   useEffect(() => {
-    if (formData.cargo === 'RH' || formData.cargo === 'MASTER') {
+    // FROTAS e FINANCEIRO limpam vínculos de obras/funcionários por padrão (Acesso Global)
+    if (['RH', 'MASTER', 'FROTAS', 'FINANCEIRO'].includes(formData.cargo)) {
       setFormData(prev => ({
         ...prev,
         ids_obras: [],
@@ -120,7 +124,7 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
         alert("Novo usuário cadastrado com sucesso!");
       }
 
-      setFormData({ nome: '', usuario: '', senha: '', cargo: 'GESTOR', ids_obras: [], ids_funcionarios: [] });
+      setFormData({ nome: '', usuario: '', senha: '', email: '', telefone: '', cargo: 'GESTOR', ids_obras: [], ids_funcionarios: [] });
       recarregarUsuariosGlobal();
       
       // Recarrega as listas após a gravação
@@ -144,13 +148,13 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '13px' }}>
         {usuarioParaEditar ? <RefreshCw style={{ width: '18px', height: '18px', color: '#d97706', flexShrink: 0 }} /> : <UserPlus style={{ width: '18px', height: '18px', color: '#2563eb', flexShrink: 0 }} />}
         <span style={{ color: '#0f172a', wordBreak: 'break-word' }}>
-          {usuarioParaEditar ? `Editando Usuário: ${usuarioParaEditar.nome}` : 'Cadastrar Novo Usuário (Master / Gestor / Engenharia / RH)'}
+          {usuarioParaEditar ? `Editando Usuário: ${usuarioParaEditar.nome}` : 'Cadastrar Novo Usuário (Master / Gestor / Engenharia / RH / Frotas / Financeiro)'}
         </span>
       </div>
 
       <form onSubmit={salvarFormulario} style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
         
-        {/* CAMPOS PRINCIPAIS - GRID RESPONSIVO PARA MOBILE */}
+        {/* CAMPOS PRINCIPAIS */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', width: '100%' }}>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -171,11 +175,23 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#334155' }}>E-mail de Contato</label>
+            <input type="email" style={{ height: '34px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="exemplo@empresa.com" />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#334155' }}>Telefone / WhatsApp</label>
+            <input type="text" style={{ height: '34px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} value={formData.telefone} onChange={e => setFormData({...formData, telefone: e.target.value})} placeholder="(00) 00000-0000" />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#334155' }}>Perfil do Sistema *</label>
             <select style={{ height: '34px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '13px', width: '100%', boxSizing: 'border-box', backgroundColor: '#fff' }} value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})}>
               <option value="GESTOR">GESTOR (Obras Restritas e Equipe)</option>
               <option value="ENGENHARIA">ENGENHARIA (Supervisão de Obras e Faturamento)</option>
               <option value="RH">RH (Recursos Humanos Global)</option>
+              <option value="FROTAS">FROTAS (Gestão de Veículos e Equipamentos)</option>
+              <option value="FINANCEIRO">FINANCEIRO (Gestão Financeira e Custos)</option>
               <option value="MASTER">MASTER (Administrador Total)</option>
             </select>
           </div>
@@ -186,7 +202,6 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
         {['GESTOR', 'ENGENHARIA'].includes(formData.cargo) && (
           <div style={{ display: 'grid', gridTemplateColumns: formData.cargo === 'ENGENHARIA' ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginTop: '6px', borderTop: '1px solid #f1f5f9', paddingTop: '14px', width: '100%' }}>
             
-            {/* SELEÇÃO DE OBRAS / RODOVIAS */}
             <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
               <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '6px', color: '#1e293b' }}>
                 {formData.cargo === 'ENGENHARIA' 
@@ -206,7 +221,6 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
               </div>
             </div>
 
-            {/* SELEÇÃO DE EQUIPE (APENAS PARA GESTOR) */}
             {formData.cargo === 'GESTOR' && (
               <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '6px', color: '#1e293b' }}>Selecione a Equipe do Gestor:</div>
@@ -227,7 +241,7 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
           </div>
         )}
 
-        {/* BOTÕES DE AÇÃO RESPONSIVOS */}
+        {/* BOTÕES DE AÇÃO */}
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px', flexWrap: 'wrap' }}>
           {usuarioParaEditar && (
             <button type="button" onClick={finalizarEdicaoGlobal} style={{ height: '36px', padding: '0 16px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer', flex: '1 1 auto', maxWidth: '200px' }}>

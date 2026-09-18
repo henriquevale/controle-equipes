@@ -4,8 +4,9 @@ import {
   LogOut, HardHat, UserPlus, CalendarX, Car, Package, Truck, 
   FileText, Boxes, BarChart3, TrendingUp, Building2, Shield, 
   Users, FolderKanban, ChevronDown, ChevronRight, Menu, X, Wrench, ClipboardList,
-  DollarSign 
+  DollarSign, KeyRound, ArrowLeft, CheckCircle2
 } from 'lucide-react';
+
 // Imports dos Componentes
 import DiarioEfetivo from './assets/DiarioEfetivo';
 import DiarioObraTecnico from './assets/DiarioObraTecnico'; 
@@ -37,9 +38,10 @@ import ImportadorFinanceiro from './assets/ImportadoFinanceiro';
 import RelatorioCustos from './assets/RelatorioCustos';
 import FaturasPessoaFisica from './assets/FaturasPessoaFisica';
 import RelatorioPF from './assets/RelatorioPF';
+import MeuPerfil from './assets/MeuPerfil';
 
-  const API_URL = 'http://localhost:3001/api';
- // const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+const API_URL = 'http://localhost:3001/api';
+// const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function App() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
@@ -47,7 +49,14 @@ export default function App() {
   const [erroLogin, setErroLogin] = useState('');
   const [abaAtiva, setAbaAtiva] = useState('EQUIPE'); 
   const [mensagem, setMensagem] = useState({ texto: '', tipo: '' });
-  
+
+  // --- ESTADOS PARA O FLUXO DE "ESQUECI-ME DA SENHA" ---
+  const [modoEsqueciSenha, setModoEsqueciSenha] = useState(false);
+  const [passoEsqueciSenha, setPassoEsqueciSenha] = useState(1); // 1: Pedir Email, 2: Digitar Código e Nova Senha
+  const [dadosReset, setDadosReset] = useState({ contato: '', userId: null, codigo: '', novaSenha: '', confirmarSenha: '' });
+  const [mensagemReset, setMensagemReset] = useState({ texto: '', tipo: '' });
+  const [carregandoReset, setCarregandoReset] = useState(false);
+
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [sidebarAberto, setSidebarAberto] = useState(window.innerWidth >= 768);
 
@@ -84,6 +93,7 @@ export default function App() {
         { id: 'MASTER_CONTROLE', label: 'Criar Usuários', icon: UserPlus, cargos: ['MASTER'] },
         { id: 'LISTA_VINCULOS', label: 'Usuários Ativos e Vínculos', icon: Users, cargos: ['MASTER'] },
         { id: 'CADASTRO_OBRAS', label: 'Gerenciar Obras', icon: FolderKanban, cargos: ['MASTER'] },
+        { id: 'MEU_PERFIL', label: 'Meu Perfil', icon: UserPlus, cargos: ['MASTER', 'ENGENHARIA', 'GESTOR', 'RH','FROTAS','FINANCEIRO'] },
       ]
     },
     {
@@ -148,7 +158,6 @@ export default function App() {
         { id: 'RELATORIO_PF', label: 'Relatório Pessoa Física', icon: FileText, cargos: ['MASTER', 'ENGENHARIA'] },
       ]
     }
-
   ];
 
   const toggleGrupo = (idGrupo) => {
@@ -253,6 +262,59 @@ export default function App() {
     }
   };
 
+  // --- FUNÇÕES DO FLUXO ESQUECI A SENHA (MODO SIMPLIFICADO LOCAL) ---
+  const solicitarCodigoReset = (e) => {
+    e.preventDefault();
+    setMensagemReset({ texto: '', tipo: '' });
+
+    if (!dadosReset.contato.trim()) {
+      return setMensagemReset({ texto: 'Informe o seu e-mail ou nome de utilizador.', tipo: 'erro' });
+    }
+
+    setCarregandoReset(true);
+    setTimeout(() => {
+      setCarregandoReset(false);
+      setMensagemReset({ 
+        texto: 'Envio desabilitado: Insira qualquer código de 6 dígitos para testar.', 
+        tipo: 'sucesso' 
+      });
+      setPassoEsqueciSenha(2);
+    }, 500);
+  };
+
+  const redefinirSenhaFinal = (e) => {
+    e.preventDefault();
+    setMensagemReset({ texto: '', tipo: '' });
+
+    if (!dadosReset.codigo || !dadosReset.novaSenha || !dadosReset.confirmarSenha) {
+      return setMensagemReset({ texto: 'Preencha todos os campos do formulário.', tipo: 'erro' });
+    }
+
+    if (dadosReset.codigo.length < 6) {
+      return setMensagemReset({ texto: 'O código deve ter 6 dígitos.', tipo: 'erro' });
+    }
+
+    if (dadosReset.novaSenha !== dadosReset.confirmarSenha) {
+      return setMensagemReset({ texto: 'As senhas não coincidem.', tipo: 'erro' });
+    }
+
+    setCarregandoReset(true);
+    setTimeout(() => {
+      setCarregandoReset(false);
+      setMensagemReset({ 
+        texto: 'Recuperação por e-mail desativada. Ajuste a senha no banco de dados ou no painel.', 
+        tipo: 'sucesso' 
+      });
+
+      setTimeout(() => {
+        setModoEsqueciSenha(false);
+        setPassoEsqueciSenha(1);
+        setDadosReset({ contato: '', userId: null, codigo: '', novaSenha: '', confirmarSenha: '' });
+        setMensagemReset({ texto: '', tipo: '' });
+      }, 3000);
+    }, 500);
+  };
+
   const handleLogout = () => { 
     localStorage.removeItem('usuario');
     setUsuarioLogado(null); 
@@ -264,21 +326,123 @@ export default function App() {
     setAbaAtiva('RH');
   };
 
+  // --- TELA DE LOGIN / ESQUECI A SENHA ---
   if (!usuarioLogado) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', fontFamily: 'sans-serif', padding: '16px', boxSizing: 'border-box' }}>
-        <form onSubmit={handleLogin} style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '8px', width: '100%', maxWidth: '360px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', boxSizing: 'border-box' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', justifyContent: 'center' }}>
-            <HardHat style={{ color: '#2563eb', width: '28px', height: '28px' }} />
-            <h2 style={{ fontSize: '15px', fontWeight: 'bold', color: '#1e293b', textTransform: 'uppercase', margin: 0, textAlign: 'center' }}>Acesso ao Sistema</h2>
+        
+        {!modoEsqueciSenha ? (
+          /* FORMULÁRIO DE LOGIN */
+          <form onSubmit={handleLogin} style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '8px', width: '100%', maxWidth: '360px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', justifyContent: 'center' }}>
+              <HardHat style={{ color: '#2563eb', width: '28px', height: '28px' }} />
+              <h2 style={{ fontSize: '15px', fontWeight: 'bold', color: '#1e293b', textTransform: 'uppercase', margin: 0, textAlign: 'center' }}>Acesso ao Sistema</h2>
+            </div>
+            
+            {erroLogin && <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '12px', padding: '10px', borderRadius: '6px', marginBottom: '14px', textAlign: 'center', fontWeight: 'bold' }}>{erroLogin}</div>}
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input type="text" placeholder="Usuário" style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} value={credenciais.usuario} onChange={e => setCredenciais({...credenciais, usuario: e.target.value})} />
+              <input type="password" placeholder="Senha" style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} value={credenciais.senha} onChange={e => setCredenciais({...credenciais, senha: e.target.value})} />
+              
+              <button type="submit" style={{ height: '40px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', textTransform: 'uppercase', cursor: 'pointer', fontSize: '12px', marginTop: '4px' }}>
+                Entrar no Painel
+              </button>
+
+
+            </div>
+          </form>
+        ) : (
+          /* FORMULÁRIO DE RECUPERAÇÃO DE SENHA */
+          <div style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '8px', width: '100%', maxWidth: '360px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', justifyContent: 'center' }}>
+              <KeyRound style={{ color: '#d97706', width: '26px', height: '26px' }} />
+              <h2 style={{ fontSize: '14px', fontWeight: 'bold', color: '#1e293b', textTransform: 'uppercase', margin: 0 }}>Recuperar Senha</h2>
+            </div>
+
+            {mensagemReset.texto && (
+              <div style={{ backgroundColor: mensagemReset.tipo === 'sucesso' ? '#f0fdf4' : '#fef2f2', border: `1px solid ${mensagemReset.tipo === 'sucesso' ? '#bbf7d0' : '#fecaca'}`, color: mensagemReset.tipo === 'sucesso' ? '#166534' : '#991b1b', fontSize: '12px', padding: '10px', borderRadius: '6px', marginBottom: '14px', textAlign: 'center', fontWeight: 'bold' }}>
+                {mensagemReset.texto}
+              </div>
+            )}
+
+            {passoEsqueciSenha === 1 ? (
+              /* PASSO 1: Solicitar Código */
+              <form onSubmit={solicitarCodigoReset} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 6px 0', textAlign: 'center' }}>
+                  Digite o seu e-mail ou nome de utilizador para receber o código de verificação.
+                </p>
+                <input 
+                  type="text" 
+                  placeholder="E-mail ou Usuário" 
+                  style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} 
+                  value={dadosReset.contato} 
+                  onChange={e => setDadosReset({...dadosReset, contato: e.target.value})} 
+                />
+                <button 
+                  type="submit" 
+                  disabled={carregandoReset}
+                  style={{ height: '40px', backgroundColor: '#d97706', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', textTransform: 'uppercase', cursor: carregandoReset ? 'not-allowed' : 'pointer', fontSize: '12px', opacity: carregandoReset ? 0.7 : 1 }}
+                >
+                  {carregandoReset ? 'A enviar...' : 'Obter Código'}
+                </button>
+              </form>
+            ) : (
+              /* PASSO 2: Validar Código e Alterar Senha */
+              <form onSubmit={redefinirSenhaFinal} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 4px 0', textAlign: 'center' }}>
+                  Introduza o código de 6 dígitos e defina a sua nova senha.
+                </p>
+                
+                <input 
+                  type="text" 
+                  placeholder="Código de 6 dígitos" 
+                  maxLength={6}
+                  style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box', textAlign: 'center', letterSpacing: '4px', fontWeight: 'bold' }} 
+                  value={dadosReset.codigo} 
+                  onChange={e => setDadosReset({...dadosReset, codigo: e.target.value})} 
+                />
+
+                <input 
+                  type="password" 
+                  placeholder="Nova Senha" 
+                  style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} 
+                  value={dadosReset.novaSenha} 
+                  onChange={e => setDadosReset({...dadosReset, novaSenha: e.target.value})} 
+                />
+
+                <input 
+                  type="password" 
+                  placeholder="Confirmar Nova Senha" 
+                  style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} 
+                  value={dadosReset.confirmarSenha} 
+                  onChange={e => setDadosReset({...dadosReset, confirmarSenha: e.target.value})} 
+                />
+
+                <button 
+                  type="submit" 
+                  disabled={carregandoReset}
+                  style={{ height: '40px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', textTransform: 'uppercase', cursor: carregandoReset ? 'not-allowed' : 'pointer', fontSize: '12px', marginTop: '4px', opacity: carregandoReset ? 0.7 : 1 }}
+                >
+                  {carregandoReset ? 'A redefinir...' : 'Redefinir Senha'}
+                </button>
+              </form>
+            )}
+
+            <button 
+              type="button" 
+              onClick={() => {
+                setModoEsqueciSenha(false);
+                setPassoEsqueciSenha(1);
+                setMensagemReset({ texto: '', tipo: '' });
+              }}
+              style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', margin: '14px auto 0 auto' }}
+            >
+              <ArrowLeft size={14} /> Voltar para o Login
+            </button>
           </div>
-          {erroLogin && <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '12px', padding: '10px', borderRadius: '6px', marginBottom: '14px', textAlign: 'center', fontWeight: 'bold' }}>{erroLogin}</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <input type="text" placeholder="Usuário" style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} value={credenciais.usuario} onChange={e => setCredenciais({...credenciais, usuario: e.target.value})} />
-            <input type="password" placeholder="Senha" style={{ height: '38px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', width: '100%', boxSizing: 'border-box' }} value={credenciais.senha} onChange={e => setCredenciais({...credenciais, senha: e.target.value})} />
-            <button type="submit" style={{ height: '40px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', textTransform: 'uppercase', cursor: 'pointer', fontSize: '12px', marginTop: '6px' }}>Entrar no Painel</button>
-          </div>
-        </form>
+        )}
+
       </div>
     );
   }
@@ -546,7 +710,18 @@ export default function App() {
                 mostrarMensagem={mostrarMensagem} 
               />
             )}
-          </div>
+            {abaAtiva === 'MEU_PERFIL' && (
+              <MeuPerfil 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+                usuarioLogado={usuarioLogado} 
+                atualizarUsuarioLogado={(novoUsuario) => { 
+                  setUsuarioLogado(novoUsuario);
+                  localStorage.setItem('usuario', JSON.stringify(novoUsuario));
+                }} 
+              />
+            )}             
+          </div>  
         </main>
       </div>
     </div>

@@ -79,11 +79,10 @@ router.get('/master/obras-geral', async (req, res) => {
   }
 });
 
-// ========================================================
 // 8. POST: CRIAR NOVO USUÁRIO DO SISTEMA (MASTER)
-// ========================================================
 router.post('/master/usuarios', async (req, res) => {
-  const { nome, usuario, senha, cargo, ids_obras, ids_funcionarios } = req.body;
+  // 1. Extrair email e telefone do req.body
+  const { nome, usuario, senha, cargo, email, telefone, ids_obras, ids_funcionarios } = req.body;
 
   if (!nome || !usuario || !senha || !cargo) {
     return res.status(400).json({ error: "Campos obrigatórios ausentes." });
@@ -93,38 +92,58 @@ router.post('/master/usuarios', async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const sqlUser = 'INSERT INTO usuarios_sistema (nome, usuario, senha, cargo) VALUES (?, ?, ?, ?)';
-    const [resultadoUser] = await connection.execute(sqlUser, [nome.trim(), usuario.trim(), String(senha).trim(), cargo]);
+    // 2. Incluir email e telefone no SQL INSERT
+    const sqlUser = 'INSERT INTO usuarios_sistema (nome, usuario, senha, cargo, email, telefone) VALUES (?, ?, ?, ?, ?, ?)';
+    const [resultadoUser] = await connection.execute(sqlUser, [
+      nome.trim(), 
+      usuario.trim(), 
+      String(senha).trim(), 
+      cargo.trim().toUpperCase(),
+      email ? email.trim().toLowerCase() : null,
+      telefone ? telefone.trim() : null
+    ]);
     const idNovoUsuario = resultadoUser.insertId;
 
-    // VÍNCULOS DO GESTOR (Regra original mantida)
-    if (cargo === 'GESTOR' && Array.isArray(ids_obras)) {
-      for (const idObra of ids_obras) {
-        const [emUso] = await connection.execute(
-          'SELECT id FROM gestor_obras WHERE id_obra = ? AND id_usuario != 1', 
-          [idObra]
-        );
-        
-        if (emUso.length > 0) {
-          throw { customMessage: "Uma ou mais obras selecionadas já estão vinculadas a outro Gestor. Atualize a página." };
+    const cargoUpper = cargo.trim().toUpperCase();
+
+    // VÍNCULOS DO GESTOR
+    if (cargoUpper === 'GESTOR') {
+      if (Array.isArray(ids_obras)) {
+        for (const idObra of ids_obras) {
+          const [emUso] = await connection.execute(
+            'SELECT id FROM gestor_obras WHERE id_obra = ? AND id_usuario != 1', 
+            [idObra]
+          );
+          
+          if (emUso.length > 0) {
+            throw { customMessage: "Uma ou mais obras selecionadas já estão vinculadas a outro Gestor." };
+          }
+
+          await connection.execute('INSERT INTO gestor_obras (id_usuario, id_obra) VALUES (?, ?)', [idNovoUsuario, idObra]);
         }
+      }
 
-        await connection.execute('INSERT INTO gestor_obras (id_usuario, id_obra) VALUES (?, ?)', [idNovoUsuario, idObra]);
+      if (Array.isArray(ids_funcionarios)) {
+        const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
+        for (const idFunc of ids_funcionarios) {
+          await connection.execute(sqlVinculoFunc, [idNovoUsuario, idFunc]);
+        }
       }
     }
 
-    if (cargo === 'GESTOR' && Array.isArray(ids_funcionarios)) {
-      const sqlVinculoFunc = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario) VALUES (?, ?)';
-      for (const idFunc of ids_funcionarios) {
-        await connection.execute(sqlVinculoFunc, [idNovoUsuario, idFunc]);
-      }
-    }
-
-    // NEW: VÍNCULOS DA ENGENHARIA
-    if (cargo === 'ENGENHARIA' && Array.isArray(ids_obras)) {
+    // VÍNCULOS DA ENGENHARIA
+    if (cargoUpper === 'ENGENHARIA' && Array.isArray(ids_obras)) {
       const sqlEng = 'INSERT INTO engenharia_obras (id_usuario, id_obra) VALUES (?, ?)';
       for (const idObra of ids_obras) {
         await connection.execute(sqlEng, [idNovoUsuario, idObra]);
+      }
+    }
+
+    // VÍNCULOS DO RH
+    if (cargoUpper === 'RH' && Array.isArray(ids_funcionarios)) {
+      const sqlVinculoFuncRH = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
+      for (const idFunc of ids_funcionarios) {
+        await connection.execute(sqlVinculoFuncRH, [idNovoUsuario, idFunc]);
       }
     }
 
@@ -138,21 +157,19 @@ router.post('/master/usuarios', async (req, res) => {
     if (err.errno === 1062 || err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: `O login '${usuario}' já está em uso.` });
     }
-    console.error("Erro no cadastro:", err);
+    console.error("Erro no cadastro de usuário:", err);
     res.status(500).json({ error: "Erro interno ao cadastrar usuário." });
   } finally {
     connection.release();
   }
 });
 
-// ========================================================
-// 9. GET: LISTAR TODOS OS USUÁRIOS (MASTER e ALIAS /usuarios)
-// ========================================================
+// 9. GET: LISTAR TODOS OS USUÁRIOS
 router.get(['/master/usuarios', '/usuarios'], async (req, res) => {
   try {
     const sql = `
       SELECT 
-        u.id, u.nome, u.usuario, u.senha, u.cargo,
+        u.id, u.nome, u.usuario, u.senha, u.cargo, u.email, u.telefone,
         IFNULL(
           CASE 
             WHEN u.cargo = 'ENGENHARIA' THEN GROUP_CONCAT(DISTINCT eo.id_obra SEPARATOR ',')
@@ -174,7 +191,7 @@ router.get(['/master/usuarios', '/usuarios'], async (req, res) => {
       LEFT JOIN obras o_eng ON eo.id_obra = o_eng.id
       LEFT JOIN gestor_funcionarios gf ON u.id = gf.id_usuario
       LEFT JOIN funcionarios f ON gf.id_funcionario = f.id
-      GROUP BY u.id, u.nome, u.usuario, u.senha, u.cargo
+      GROUP BY u.id, u.nome, u.usuario, u.senha, u.cargo, u.email, u.telefone
       ORDER BY u.nome ASC
     `;
     const [rows] = await db.execute(sql);
@@ -207,12 +224,11 @@ router.delete('/master/usuarios/:id', async (req, res) => {
   }
 });
 
-// ========================================================
 // 11. PUT: ATUALIZAR USUÁRIO (MASTER)
-// ========================================================
 router.put('/master/usuarios/:id', async (req, res) => {
   const { id } = req.params;
-  const { nome, usuario, senha, cargo, ids_obras, ids_funcionarios } = req.body;
+  // 1. Extrair email e telefone do req.body
+  const { nome, usuario, senha, cargo, email, telefone, ids_obras, ids_funcionarios } = req.body;
 
   if (!nome || !usuario || !cargo) {
     return res.status(400).json({ error: "Campos obrigatórios ausentes." });
@@ -222,13 +238,18 @@ router.put('/master/usuarios/:id', async (req, res) => {
   try {
     await connection.beginTransaction();
 
+    const cargoUpper = cargo.trim().toUpperCase();
+    const emailValido = email ? email.trim().toLowerCase() : null;
+    const telefoneValido = telefone ? telefone.trim() : null;
+
+    // 2. Incluir email e telefone nos SQLs de UPDATE
     let sqlUpdateUser, paramsUpdateUser;
     if (senha && String(senha).trim() !== '') {
-      sqlUpdateUser = `UPDATE usuarios_sistema SET nome = ?, usuario = ?, senha = ?, cargo = ? WHERE id = ?`;
-      paramsUpdateUser = [nome.trim(), usuario.trim(), String(senha).trim(), cargo, id];
+      sqlUpdateUser = `UPDATE usuarios_sistema SET nome = ?, usuario = ?, senha = ?, cargo = ?, email = ?, telefone = ? WHERE id = ?`;
+      paramsUpdateUser = [nome.trim(), usuario.trim(), String(senha).trim(), cargoUpper, emailValido, telefoneValido, id];
     } else {
-      sqlUpdateUser = `UPDATE usuarios_sistema SET nome = ?, usuario = ?, cargo = ? WHERE id = ?`;
-      paramsUpdateUser = [nome.trim(), usuario.trim(), cargo, id];
+      sqlUpdateUser = `UPDATE usuarios_sistema SET nome = ?, usuario = ?, cargo = ?, email = ?, telefone = ? WHERE id = ?`;
+      paramsUpdateUser = [nome.trim(), usuario.trim(), cargoUpper, emailValido, telefoneValido, id];
     }
     await connection.execute(sqlUpdateUser, paramsUpdateUser);
 
@@ -238,7 +259,7 @@ router.put('/master/usuarios/:id', async (req, res) => {
     await connection.execute('DELETE FROM gestor_funcionarios WHERE id_usuario = ?', [id]);
 
     // Trata novos vínculos do Gestor
-    if (cargo === 'GESTOR') {
+    if (cargoUpper === 'GESTOR') {
       if (Array.isArray(ids_obras)) {
         const sqlVinculoObra = 'INSERT INTO gestor_obras (id_usuario, id_obra) VALUES (?, ?)';
         for (const idObra of ids_obras) {
@@ -254,10 +275,18 @@ router.put('/master/usuarios/:id', async (req, res) => {
     }
 
     // Trata novos vínculos da Engenharia
-    if (cargo === 'ENGENHARIA' && Array.isArray(ids_obras)) {
+    if (cargoUpper === 'ENGENHARIA' && Array.isArray(ids_obras)) {
       const sqlVinculoEng = 'INSERT INTO engenharia_obras (id_usuario, id_obra) VALUES (?, ?)';
       for (const idObra of ids_obras) {
         await connection.execute(sqlVinculoEng, [id, idObra]);
+      }
+    }
+
+    // Trata novos vínculos do RH
+    if (cargoUpper === 'RH' && Array.isArray(ids_funcionarios)) {
+      const sqlVinculoFuncRH = 'INSERT INTO gestor_funcionarios (id_usuario, id_funcionario, id_obra) VALUES (?, ?, NULL)';
+      for (const idFunc of ids_funcionarios) {
+        await connection.execute(sqlVinculoFuncRH, [id, idFunc]);
       }
     }
 
@@ -265,7 +294,7 @@ router.put('/master/usuarios/:id', async (req, res) => {
     res.json({ success: true, message: "Usuário atualizado com sucesso!" });
   } catch (err) {
     await connection.rollback();
-    console.error("ERRO REAL DO BANCO:", err);
+    console.error("Erro na atualização do usuário:", err);
     if (err.errno === 1062 || err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: `O login '${usuario}' já está em uso.` });
     }
@@ -274,7 +303,6 @@ router.put('/master/usuarios/:id', async (req, res) => {
     connection.release();
   }
 });
-
 // ========================================================
 // 12-A. GET: LISTAR TODOS OS FUNCIONÁRIOS (EXCLUSIVO PARA O RH)
 // ========================================================
