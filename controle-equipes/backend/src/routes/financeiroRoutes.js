@@ -40,7 +40,21 @@ function converterData(dataStr) {
   }
   return null;
 }
-
+// GET /api/faturas-pessoa-fisica-obras
+router.get('/faturas-pessoa-fisica-obras', async (req, res) => {
+    try {
+        const [rows] = await db.query(`
+            SELECT id, codigo_obra, nome_obra, status, tipo_obra 
+            FROM obras 
+            WHERE status = 'ATIVA' 
+            ORDER BY nome_obra ASC
+        `);
+        return res.status(200).json(rows);
+    } catch (error) {
+        console.error('Erro ao buscar obras para faturas:', error);
+        return res.status(500).json({ error: 'Erro ao carregar lista de obras.' });
+    }
+});
 // 1. GET: Lista Unificada de Centros de Custo e Obras
 router.get('/financeiro/centros-custo-obras', async (req, res) => {
   try {
@@ -367,7 +381,9 @@ router.get('/faturas-pessoa-fisica/relatorio', async (req, res) => {
       favorecido, 
       solicitante, 
       conciliado,
-      categoria // <-- 1. Captura o parâmetro de categoria enviado via query
+      categoria,
+      obra,      // Aceita parâmetro enviado como "obra" do React
+      obra_id    // Aceita parâmetro enviado como "obra_id"
     } = req.query;
 
     let whereClause = ['1=1'];
@@ -389,10 +405,16 @@ router.get('/faturas-pessoa-fisica/relatorio', async (req, res) => {
       params.push(`%${solicitante}%`);
     }
 
-    // <-- Adicionado: Filtro dinâmico por Categoria
     if (categoria) {
       whereClause.push('f.categoria_id = ?');
       params.push(categoria);
+    }
+
+    // Unifica o filtro de obra aceitando ambas as chaves
+    const filtroObra = obra_id || obra;
+    if (filtroObra) {
+      whereClause.push('f.obra_id = ?');
+      params.push(filtroObra);
     }
 
     if (conciliado === 'CONCILIADO') {
@@ -471,7 +493,7 @@ router.get('/faturas-pessoa-fisica/relatorio', async (req, res) => {
     `;
     const [solicitantesRows] = await db.query(sqlSolicitantes, params);
 
-    // Query 4 (NOVA): Agrupamento por Categoria
+    // Query 4: Agrupamento por Categoria
     const sqlCategorias = `
       SELECT 
         COALESCE(c.nome, 'NÃO CATEGORIZADO') AS categoria,
@@ -487,6 +509,22 @@ router.get('/faturas-pessoa-fisica/relatorio', async (req, res) => {
     `;
     const [categoriasRows] = await db.query(sqlCategorias, params);
 
+    // Query 5: Agrupamento por Obra
+    const sqlObras = `
+      SELECT 
+        COALESCE(o.nome_obra, 'SEM OBRA VINCULADA') AS obra,
+        COUNT(*) AS qtd_faturas,
+        SUM(CASE WHEN f.banco = 'BB' THEN f.valor ELSE 0 END) AS total_bb,
+        SUM(CASE WHEN f.banco = 'SANTANDER' THEN f.valor ELSE 0 END) AS total_santander,
+        SUM(f.valor) AS total_geral
+      FROM faturas_pessoa_fisica f
+      LEFT JOIN obras o ON f.obra_id = o.id
+      WHERE ${whereString}
+      GROUP BY o.id, o.nome_obra
+      ORDER BY total_geral DESC
+    `;
+    const [obrasRows] = await db.query(sqlObras, params);
+
     res.json({
       resumoFiltrado: resumoRows[0] || {},
       mediaMensal: {
@@ -494,7 +532,8 @@ router.get('/faturas-pessoa-fisica/relatorio', async (req, res) => {
       },
       dadosGrafico: graficoRows,
       tabelaSolicitantes: solicitantesRows,
-      tabelaCategorias: categoriasRows // <-- Retorna o novo agrupamento por categoria
+      tabelaCategorias: categoriasRows,
+      tabelaObras: obrasRows
     });
 
   } catch (err) {
@@ -502,14 +541,15 @@ router.get('/faturas-pessoa-fisica/relatorio', async (req, res) => {
     res.status(500).json({ error: 'Erro ao gerar relatório de faturas pessoa física.' });
   }
 });
+
 // ============================================================================
 // ROTAS: FATURAS PESSOA FÍSICA (bb / santander)
 // ============================================================================
 
-// 1. GET: Listar todas as faturas (com JOIN para buscar o nome da categoria)
+// 1. GET: Listar todas as faturas (com JOIN para Categoria e Obra)
 router.get('/faturas-pessoa-fisica', async (req, res) => {
   try {
-    const { data_inicio, data_fim, banco, favorecido, solicitante, conciliado, categoria_id } = req.query;
+    const { data_inicio, data_fim, banco, favorecido, solicitante, conciliado, categoria_id, obra_id } = req.query;
 
     let whereClause = ['1=1'];
     let params = [];
@@ -524,9 +564,14 @@ router.get('/faturas-pessoa-fisica', async (req, res) => {
       params.push(banco);
     }
 
-    if (categoria_id) { // AJUSTE: Filtro por categoria
+    if (categoria_id) {
       whereClause.push('f.categoria_id = ?');
       params.push(categoria_id);
+    }
+
+    if (obra_id) {
+      whereClause.push('f.obra_id = ?');
+      params.push(obra_id);
     }
 
     if (favorecido) {
@@ -545,7 +590,7 @@ router.get('/faturas-pessoa-fisica', async (req, res) => {
       whereClause.push('f.conciliado_em IS NULL');
     }
 
-    // AJUSTE: Inclusão do LEFT JOIN com categorias_financeiras
+    // Inclusão dos LEFT JOINs com categorias_financeiras e obras
     const sql = `
       SELECT 
         f.id, 
@@ -554,6 +599,8 @@ router.get('/faturas-pessoa-fisica', async (req, res) => {
         f.favorecido, 
         f.categoria_id,
         cat.nome AS categoria_nome,
+        f.obra_id,
+        o.nome_obra AS obra_nome,
         f.valor, 
         f.solicitante, 
         f.descricao_compra, 
@@ -562,6 +609,7 @@ router.get('/faturas-pessoa-fisica', async (req, res) => {
         f.criado_em
       FROM faturas_pessoa_fisica f
       LEFT JOIN categorias_financeiras cat ON f.categoria_id = cat.id
+      LEFT JOIN obras o ON f.obra_id = o.id
       WHERE ${whereClause.join(' AND ')}
       ORDER BY f.data_fatura DESC, f.id DESC
     `;
@@ -579,9 +627,13 @@ router.get('/faturas-pessoa-fisica/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const sql = `
-      SELECT f.*, cat.nome AS categoria_nome 
+      SELECT 
+        f.*, 
+        cat.nome AS categoria_nome,
+        o.nome_obra AS obra_nome
       FROM faturas_pessoa_fisica f
       LEFT JOIN categorias_financeiras cat ON f.categoria_id = cat.id
+      LEFT JOIN obras o ON f.obra_id = o.id
       WHERE f.id = ?
     `;
     const [rows] = await db.query(sql, [id]);
@@ -597,14 +649,15 @@ router.get('/faturas-pessoa-fisica/:id', async (req, res) => {
   }
 });
 
-// 3. POST: Cadastrar uma nova fatura (com categoria_id)
+// 3. POST: Cadastrar uma nova fatura (com categoria_id e obra_id)
 router.post('/faturas-pessoa-fisica', async (req, res) => {
   try {
     const { 
       data_fatura, 
       banco, 
       favorecido, 
-      categoria_id, // AJUSTE: Recebendo a categoria
+      categoria_id,
+      obra_id, // Recebendo a obra
       valor, 
       solicitante, 
       descricao_compra, 
@@ -616,18 +669,19 @@ router.post('/faturas-pessoa-fisica', async (req, res) => {
       return res.status(400).json({ error: 'Preencha todos os campos obrigatórios (data, banco, favorecido, valor e solicitante).' });
     }
 
-    // AJUSTE: Incluída a coluna categoria_id no INSERT
+    // Incluída a coluna obra_id no INSERT
     const sql = `
       INSERT INTO faturas_pessoa_fisica 
-      (data_fatura, banco, favorecido, categoria_id, valor, solicitante, descricao_compra, numero_nf, conciliado_em) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (data_fatura, banco, favorecido, categoria_id, obra_id, valor, solicitante, descricao_compra, numero_nf, conciliado_em) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await db.query(sql, [
       data_fatura,
       banco,
       favorecido,
-      categoria_id || null, // AJUSTE
+      categoria_id || null,
+      obra_id || null,
       valor,
       solicitante,
       descricao_compra || null,
@@ -646,7 +700,7 @@ router.post('/faturas-pessoa-fisica', async (req, res) => {
   }
 });
 
-// 4. PUT: Atualizar fatura existente (com categoria_id)
+// 4. PUT: Atualizar fatura existente (com categoria_id e obra_id)
 router.put('/faturas-pessoa-fisica/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -654,7 +708,8 @@ router.put('/faturas-pessoa-fisica/:id', async (req, res) => {
       data_fatura, 
       banco, 
       favorecido, 
-      categoria_id, // AJUSTE: Recebendo a categoria
+      categoria_id,
+      obra_id, // Recebendo a obra
       valor, 
       solicitante, 
       descricao_compra, 
@@ -666,7 +721,7 @@ router.put('/faturas-pessoa-fisica/:id', async (req, res) => {
       return res.status(400).json({ error: 'Preencha todos os campos obrigatórios.' });
     }
 
-    // AJUSTE: Incluída a coluna categoria_id no UPDATE
+    // Incluída a coluna obra_id no UPDATE
     const sql = `
       UPDATE faturas_pessoa_fisica 
       SET 
@@ -674,6 +729,7 @@ router.put('/faturas-pessoa-fisica/:id', async (req, res) => {
         banco = ?, 
         favorecido = ?, 
         categoria_id = ?, 
+        obra_id = ?,
         valor = ?, 
         solicitante = ?, 
         descricao_compra = ?, 
@@ -686,7 +742,8 @@ router.put('/faturas-pessoa-fisica/:id', async (req, res) => {
       data_fatura,
       banco,
       favorecido,
-      categoria_id || null, // AJUSTE
+      categoria_id || null,
+      obra_id || null,
       valor,
       solicitante,
       descricao_compra || null,
@@ -721,7 +778,7 @@ router.delete('/faturas-pessoa-fisica/:id', async (req, res) => {
     console.error('Erro ao excluir fatura:', err);
     res.status(500).json({ error: 'Erro ao excluir fatura do banco de dados.' });
   }
-});
+});   
 
 
 export default router;

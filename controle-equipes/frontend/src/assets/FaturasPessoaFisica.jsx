@@ -35,7 +35,7 @@ function SearchableSelect({ options, value, onChange, placeholder, labelKey = 'l
     }, []);
 
     const filteredOptions = options.filter(opt =>
-        String(opt[labelKey]).toLowerCase().includes(searchTerm.toLowerCase())
+        String(opt[labelKey] || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     return (
@@ -50,13 +50,13 @@ function SearchableSelect({ options, value, onChange, placeholder, labelKey = 'l
                     display: 'flex',
                     alignItems: 'center',
                     justify: 'space-between',
-                    backgroundColor: '#fff',
+                    backgroundColor: '#ffffff',
                     cursor: 'pointer',
                     fontSize: '13px',
-                    color: selectedOption ? '#0f172a' : '#94a3b8'
+                    color: selectedOption ? '#0f172a' : '#64748b'
                 }}
             >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selectedOption ? '#0f172a' : '#94a3b8' }}>
                     {selectedOption ? selectedOption[labelKey] : placeholder}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -81,16 +81,16 @@ function SearchableSelect({ options, value, onChange, placeholder, labelKey = 'l
                     left: 0,
                     right: 0,
                     zIndex: 50,
-                    backgroundColor: '#fff',
+                    backgroundColor: '#ffffff',
                     border: '1px solid #cbd5e1',
                     borderRadius: '6px',
                     marginTop: '4px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                     maxHeight: '220px',
                     display: 'flex',
                     flexDirection: 'column'
                 }}>
-                    <div style={{ padding: '6px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ padding: '6px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#ffffff' }}>
                         <Search size={14} style={{ color: '#94a3b8' }} />
                         <input 
                             type="text"
@@ -98,11 +98,11 @@ function SearchableSelect({ options, value, onChange, placeholder, labelKey = 'l
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             autoFocus
-                            style={{ width: '100%', border: 'none', outline: 'none', fontSize: '12px', padding: '4px 0' }}
+                            style={{ width: '100%', border: 'none', outline: 'none', fontSize: '12px', padding: '4px 0', backgroundColor: '#ffffff', color: '#0f172a' }}
                         />
                     </div>
 
-                    <div style={{ overflowY: 'auto', flex: 1 }}>
+                    <div style={{ overflowY: 'auto', flex: 1, backgroundColor: '#ffffff' }}>
                         {filteredOptions.length === 0 ? (
                             <div style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8', textAlign: 'center' }}>
                                 Nenhum resultado encontrado.
@@ -120,8 +120,8 @@ function SearchableSelect({ options, value, onChange, placeholder, labelKey = 'l
                                         padding: '8px 12px',
                                         fontSize: '12px',
                                         cursor: 'pointer',
-                                        backgroundColor: String(opt[valueKey]) === String(value) ? '#eff6ff' : 'transparent',
-                                        color: String(opt[valueKey]) === String(value) ? '#2563eb' : '#334155',
+                                        backgroundColor: String(opt[valueKey]) === String(value) ? '#eff6ff' : '#ffffff',
+                                        color: String(opt[valueKey]) === String(value) ? '#2563eb' : '#0f172a',
                                         fontWeight: String(opt[valueKey]) === String(value) ? 'bold' : 'normal',
                                         borderBottom: '1px solid #f8fafc'
                                     }}
@@ -144,14 +144,16 @@ export default function FaturasPessoaFisica() {
     const [loading, setLoading] = useState(false);
     const [listaFaturas, setListaFaturas] = useState([]);
     
-    // Categorias vindas da API
+    // Categorias e Obras vindas da API
     const [listaCategorias, setListaCategorias] = useState([]);
+    const [listaObras, setListaObras] = useState([]);
 
     // Campos do Formulário
     const [dataFatura, setDataFatura] = useState('');
     const [banco, setBanco] = useState('BB');
     const [favorecido, setFavorecido] = useState('');
     const [categoriaId, setCategoriaId] = useState('');
+    const [obraId, setObraId] = useState('');
     const [valor, setValor] = useState('');
     const [solicitante, setSolicitante] = useState('');
     const [descricaoCompra, setDescricaoCompra] = useState('');
@@ -163,6 +165,7 @@ export default function FaturasPessoaFisica() {
     const [filtroDataFim, setFiltroDataFim] = useState('');
     const [filtroBanco, setFiltroBanco] = useState('');
     const [filtroCategoria, setFiltroCategoria] = useState('');
+    const [filtroObra, setFiltroObra] = useState('');
     const [filtroFavorecido, setFiltroFavorecido] = useState('');
     const [filtroSolicitante, setFiltroSolicitante] = useState('');
     const [filtroStatusConciliacao, setFiltroStatusConciliacao] = useState('');
@@ -175,6 +178,7 @@ export default function FaturasPessoaFisica() {
     useEffect(() => {
         carregarFaturas();
         carregarCategorias();
+        carregarObras();
     }, []);
 
     const carregarFaturas = async () => {
@@ -197,13 +201,35 @@ export default function FaturasPessoaFisica() {
             console.error("Erro ao carregar categorias:", err);
         }
     };
+const carregarObras = async () => {
+    try {
+        // Altere de '/faturas-pessoa-fisica-obras' para '/obras'
+        const res = await axios.get(`${API_URL}/faturas-pessoa-fisica-obras`);
+        
+        let dadosObras = [];
+        if (Array.isArray(res.data)) {
+            dadosObras = res.data;
+        } else if (res.data && Array.isArray(res.data.obras)) {
+            dadosObras = res.data.obras;
+        }
 
-    const resetFormulario = () => {
+        const obrasFormatadas = dadosObras.map(obra => ({
+            ...obra,
+            label_exibicao: obra.codigo_obra ? `${obra.codigo_obra} - ${obra.nome_obra}` : obra.nome_obra
+        }));
+
+        setListaObras(obrasFormatadas);
+    } catch (err) {
+        console.error("Erro ao carregar obras:", err);
+    }
+};
+        const resetFormulario = () => {
         setEditandoId(null);
         setDataFatura('');
         setBanco('BB');
         setFavorecido('');
         setCategoriaId('');
+        setObraId('');
         setValor('');
         setSolicitante('');
         setDescricaoCompra('');
@@ -217,6 +243,7 @@ export default function FaturasPessoaFisica() {
         setBanco(item.banco || 'BB');
         setFavorecido(item.favorecido || '');
         setCategoriaId(item.categoria_id ? String(item.categoria_id) : '');
+        setObraId(item.obra_id ? String(item.obra_id) : '');
         setValor(item.valor ? String(item.valor) : '');
         setSolicitante(item.solicitante || '');
         setDescricaoCompra(item.descricao_compra || '');
@@ -241,6 +268,7 @@ export default function FaturasPessoaFisica() {
             banco,
             favorecido: favorecido.trim(),
             categoria_id: categoriaId || null,
+            obra_id: obraId || null,
             valor: parseFloat(valor),
             solicitante: solicitante.trim(),
             descricao_compra: descricaoCompra.trim() || null,
@@ -287,6 +315,8 @@ export default function FaturasPessoaFisica() {
 
         if (filtroCategoria && String(item.categoria_id) !== String(filtroCategoria)) return false;
 
+        if (filtroObra && String(item.obra_id) !== String(filtroObra)) return false;
+
         if (filtroFavorecido) {
             const fav = (item.favorecido || '').toLowerCase();
             if (!fav.includes(filtroFavorecido.toLowerCase())) return false;
@@ -313,13 +343,14 @@ export default function FaturasPessoaFisica() {
             return;
         }
 
-        const headers = ["Data", "Banco", "Favorecido", "Categoria", "Valor (R$)", "Solicitante", "Descrição da Compra", "NF", "Conciliado Em"];
+        const headers = ["Data", "Banco", "Favorecido", "Categoria", "Obra", "Valor (R$)", "Solicitante", "Descrição da Compra", "NF", "Conciliado Em"];
 
         const rows = faturasFiltradas.map(item => [
             `"${formatarDataBR(item.data_fatura)}"`,
             `"${item.banco}"`,
             `"${(item.favorecido || '').replace(/"/g, '""')}"`,
             `"${(item.categoria_nome || '---').replace(/"/g, '""')}"`,
+            `"${(item.obra_nome || '---').replace(/"/g, '""')}"`,
             `"${Number(item.valor || 0).toFixed(2).replace('.', ',')}"`,
             `"${(item.solicitante || '').replace(/"/g, '""')}"`,
             `"${(item.descricao_compra || '').replace(/"/g, '""')}"`,
@@ -374,7 +405,7 @@ export default function FaturasPessoaFisica() {
                     </div>
                 )}
 
-                {/* GRELHA DO FORMULÁRIO - ALTAMENTE RESPONSIVA */}
+                {/* GRELHA DO FORMULÁRIO */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '15px' }}>
                     <div>
                         <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
@@ -384,7 +415,7 @@ export default function FaturasPessoaFisica() {
                             type="date" 
                             value={dataFatura} 
                             onChange={e => setDataFatura(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -409,7 +440,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="Nome do favorecido/fornecedor" 
                             value={favorecido} 
                             onChange={e => setFavorecido(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -427,6 +458,20 @@ export default function FaturasPessoaFisica() {
                         />
                     </div>
 
+          <div>
+    <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+        OBRA
+    </label>
+    <SearchableSelect 
+        options={listaObras}
+        value={obraId}
+        onChange={(val) => setObraId(val)}
+        placeholder="Selecione a obra..."
+        labelKey="label_exibicao"  
+        valueKey="id"
+    />
+</div>
+
                     <div>
                         <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
                             VALOR (R$) *
@@ -437,7 +482,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="0,00" 
                             value={valor} 
                             onChange={e => setValor(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -450,7 +495,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="Nome do solicitante" 
                             value={solicitante} 
                             onChange={e => setSolicitante(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -463,7 +508,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="Ex: NF-5521" 
                             value={numeroNf} 
                             onChange={e => setNumeroNf(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -475,12 +520,12 @@ export default function FaturasPessoaFisica() {
                             type="date" 
                             value={conciliadoEm} 
                             onChange={e => setConciliadoEm(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
                 </div>
 
-                {/* LINHA FINAL DO FORMULÁRIO COM A DESCRIÇÃO E O BOTÃO AJUSTADO */}
+                {/* LINHA FINAL DO FORMULÁRIO */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '15px', alignItems: 'end' }}>
                     <div>
                         <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
@@ -491,7 +536,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="Detalhamento do que foi comprado..." 
                             value={descricaoCompra} 
                             onChange={e => setDescricaoCompra(e.target.value)} 
-                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px', fontSize: '13px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -532,7 +577,7 @@ export default function FaturasPessoaFisica() {
                             type="date" 
                             value={filtroDataInicio} 
                             onChange={e => setFiltroDataInicio(e.target.value)} 
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -542,7 +587,7 @@ export default function FaturasPessoaFisica() {
                             type="date" 
                             value={filtroDataFim} 
                             onChange={e => setFiltroDataFim(e.target.value)} 
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -551,7 +596,7 @@ export default function FaturasPessoaFisica() {
                         <select 
                             value={filtroBanco} 
                             onChange={e => setFiltroBanco(e.target.value)}
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px' }}
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', backgroundColor: '#ffffff', color: '#0f172a' }}
                         >
                             <option value="">TODOS</option>
                             <option value="BB">BB</option>
@@ -564,11 +609,25 @@ export default function FaturasPessoaFisica() {
                         <select 
                             value={filtroCategoria} 
                             onChange={e => setFiltroCategoria(e.target.value)}
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px' }}
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', backgroundColor: '#ffffff', color: '#0f172a' }}
                         >
                             <option value="">TODAS</option>
                             {listaCategorias.map(cat => (
                                 <option key={cat.id} value={cat.id}>{cat.nome}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }}>OBRA</label>
+                        <select 
+                            value={filtroObra} 
+                            onChange={e => setFiltroObra(e.target.value)}
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', backgroundColor: '#ffffff', color: '#0f172a' }}
+                        >
+                            <option value="">TODAS</option>
+                            {listaObras.map(obra => (
+                                <option key={obra.id} value={obra.id}>{obra.nome_obra}</option>
                             ))}
                         </select>
                     </div>
@@ -580,7 +639,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="Buscar favorecido" 
                             value={filtroFavorecido} 
                             onChange={e => setFiltroFavorecido(e.target.value)} 
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 8px', fontSize: '11px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 8px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -591,7 +650,7 @@ export default function FaturasPessoaFisica() {
                             placeholder="Buscar solicitante" 
                             value={filtroSolicitante} 
                             onChange={e => setFiltroSolicitante(e.target.value)} 
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 8px', fontSize: '11px', boxSizing: 'border-box' }} 
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 8px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', color: '#0f172a' }} 
                         />
                     </div>
 
@@ -600,7 +659,7 @@ export default function FaturasPessoaFisica() {
                         <select 
                             value={filtroStatusConciliacao} 
                             onChange={e => setFiltroStatusConciliacao(e.target.value)}
-                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px' }}
+                            style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '0 6px', fontSize: '11px', backgroundColor: '#ffffff', color: '#0f172a' }}
                         >
                             <option value="">TODOS</option>
                             <option value="CONCILIADO">CONCILIADO</option>
@@ -639,13 +698,14 @@ export default function FaturasPessoaFisica() {
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px', minWidth: '800px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px', minWidth: '900px' }}>
                         <thead>
                             <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
                                 <th style={{ padding: '10px' }}>Data</th>
                                 <th style={{ padding: '10px' }}>Banco</th>
                                 <th style={{ padding: '10px' }}>Favorecido</th>
                                 <th style={{ padding: '10px' }}>Categoria</th>
+                                <th style={{ padding: '10px' }}>Obra</th>
 
                                 <th style={{ padding: '10px', textAlign: 'right', minWidth: '130px' }}>
                                     <div style={{ 
@@ -673,11 +733,11 @@ export default function FaturasPessoaFisica() {
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan="10" style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>Carregando faturas...</td>
+                                    <td colSpan="11" style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>Carregando faturas...</td>
                                 </tr>
                             ) : faturasFiltradas.length === 0 ? (
                                 <tr>
-                                    <td colSpan="10" style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Nenhuma fatura encontrada com os filtros informados.</td>
+                                    <td colSpan="11" style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>Nenhuma fatura encontrada com os filtros informados.</td>
                                 </tr>
                             ) : (
                                 faturasFiltradas.map((item, index) => (
@@ -702,6 +762,12 @@ export default function FaturasPessoaFisica() {
                                                 {item.categoria_nome || '---'}
                                             </span>
                                         </td>
+
+                                        <td style={{ padding: '10px' }}>
+    <span style={{ backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', color: '#334155', fontSize: '11px', fontWeight: 'bold' }}>
+        {item.obra_nome || item.nome_obra || '---'}
+    </span>
+</td>
 
                                         <td style={{ padding: '10px', fontWeight: 'bold', color: '#15803d', textAlign: 'right' }}>
                                             R$ {Number(item.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}

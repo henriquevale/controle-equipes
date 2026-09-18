@@ -20,21 +20,24 @@ export default function RelatorioFaturasPF({ API_URL, mostrarMensagem }) {
   const [favorecido, setFavorecido] = useState('');
   const [solicitante, setSolicitante] = useState('');
   const [categoria, setCategoria] = useState('');
+  const [obra, setObra] = useState('');
   const [conciliado, setConciliado] = useState('');
 
   // Estados de dados da API
   const [listaCategorias, setListaCategorias] = useState([]);
+  const [listaObras, setListaObras] = useState([]);
   const [dadosRelatorio, setDadosRelatorio] = useState(null);
 
-  // Carrega opções de categorias no primeiro carregamento
+  // Carrega opções de categorias e obras no primeiro carregamento
   useEffect(() => {
     carregarCategorias();
+    carregarObras();
   }, []);
 
   // Recarrega relatório ao alterar os filtros principais
   useEffect(() => {
     carregarRelatorio();
-  }, [preset, banco, conciliado, categoria, dataInicio, dataFim]);
+  }, [preset, banco, conciliado, categoria, obra, dataInicio, dataFim]);
 
   const carregarCategorias = async () => {
     try {
@@ -42,6 +45,27 @@ export default function RelatorioFaturasPF({ API_URL, mostrarMensagem }) {
       setListaCategorias(res.data || []);
     } catch (err) {
       console.error("Erro ao carregar lista de categorias:", err);
+    }
+  };
+
+  const carregarObras = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/obras`);
+      let dadosObras = [];
+      if (Array.isArray(res.data)) {
+        dadosObras = res.data;
+      } else if (res.data && Array.isArray(res.data.obras)) {
+        dadosObras = res.data.obras;
+      }
+
+      const obrasPadronizadas = dadosObras.map(item => ({
+        id: item.id,
+        nome: item.codigo_obra ? `${item.codigo_obra} - ${item.nome_obra}` : (item.nome_obra || item.nome)
+      }));
+
+      setListaObras(obrasPadronizadas);
+    } catch (err) {
+      console.error("Erro ao carregar lista de obras:", err);
     }
   };
 
@@ -62,6 +86,7 @@ export default function RelatorioFaturasPF({ API_URL, mostrarMensagem }) {
       if (favorecido) params.append('favorecido', favorecido);
       if (solicitante) params.append('solicitante', solicitante);
       if (categoria) params.append('categoria', categoria);
+      if (obra) params.append('obra', obra);
       if (conciliado) params.append('conciliado', conciliado);
 
       const res = await axios.get(`${API_URL}/faturas-pessoa-fisica/relatorio?${params.toString()}`);
@@ -144,6 +169,21 @@ export default function RelatorioFaturasPF({ API_URL, mostrarMensagem }) {
               <option value="">-- Todas as Categorias --</option>
               {listaCategorias.map((cat) => (
                 <option key={cat.id} value={cat.id}>{cat.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtro por Obra */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Obra</label>
+            <select
+              value={obra}
+              onChange={(e) => setObra(e.target.value)}
+              style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}
+            >
+              <option value="">-- Todas as Obras --</option>
+              {listaObras.map((item) => (
+                <option key={item.id} value={item.id}>{item.nome}</option>
               ))}
             </select>
           </div>
