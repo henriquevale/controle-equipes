@@ -4,7 +4,8 @@ import { Trash2, Edit3, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Se
 
 export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL: propsApiUrl, mostrarMensagemGlobal }) {
   // Garante o uso correto da URL vinda por props ou fallback local
-  const API_URL = propsApiUrl || 'http://localhost:3001/api';
+  //const API_URL = propsApiUrl || 'http://localhost:3001/api';
+  const API_URL = propsApiUrl || 'https://controle-equipes.onrender.com/api';
 
   const [funcionarioEmEdicao, setFuncionarioEmEdicao] = useState(null);
   const [funcionarioDetalhar, setFuncionarioDetalhar] = useState(null);
@@ -55,39 +56,50 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   }, [API_URL]);
 
   useEffect(() => {
-    if (funcionarioEmEdicao) {
-      setFormData({
-        nome: funcionarioEmEdicao.nome || '',
-        matricula: funcionarioEmEdicao.matricula || '',
-        cargo: funcionarioEmEdicao.cargo || '',
-        // Mapeia caso venha id_usuario_gestor, gestor_id ou id_gestor
-        id_usuario_gestor: funcionarioEmEdicao.id_usuario_gestor || funcionarioEmEdicao.gestor_id || funcionarioEmEdicao.id_gestor || '',
-        ativo: funcionarioEmEdicao.ativo || 'ATIVO',
-        cpf: funcionarioEmEdicao.cpf || '',
-        telefone: funcionarioEmEdicao.telefone || '',
-        // Trata variações de nomenclatura dos tamanhos
-        tam_calca: funcionarioEmEdicao.tam_calca || funcionarioEmEdicao.tamanho_calca || '',
-        tam_camisa: funcionarioEmEdicao.tam_camisa || funcionarioEmEdicao.tamanho_camisa || '',
-        tam_calcado: funcionarioEmEdicao.tam_calcado || funcionarioEmEdicao.tamanho_calcado || funcionarioEmEdicao.tam_sapato || '',
-        data_admissao: formatarDataParaInput(funcionarioEmEdicao.data_admissao),
-        data_demissao: formatarDataParaInput(funcionarioEmEdicao.data_demissao),
-        data_postagem_aso_pasta: formatarDataParaInput(funcionarioEmEdicao.data_postagem_aso_pasta),
-        data_documentos_rh_completos: formatarDataParaInput(funcionarioEmEdicao.data_documentos_rh_completos),
-        observacoes: funcionarioEmEdicao.observacoes || ''
-      });
-
-      setTimeout(() => {
-        scrollFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    } else {
+  const carregarDadosCompletos = async () => {
+    if (!funcionarioEmEdicao) {
       setFormData({
         nome: '', matricula: '', cargo: '', id_usuario_gestor: '', ativo: 'ATIVO',
         cpf: '', telefone: '', tam_calca: '', tam_camisa: '', tam_calcado: '',
         data_admissao: '', data_demissao: '', data_postagem_aso_pasta: '',
         data_documentos_rh_completos: '', observacoes: ''
       });
+      return;
     }
-  }, [funcionarioEmEdicao]);
+
+    try {
+      // Busca os dados diretamente da rota que retorna todos os campos
+      const res = await axios.get(`${API_URL}/rh/funcionarios-geral`);
+      const completo = res.data?.find(f => Number(f.id) === Number(funcionarioEmEdicao.id)) || funcionarioEmEdicao;
+
+      setFormData({
+        nome: completo.nome || '',
+        matricula: completo.matricula || '',
+        cargo: completo.cargo || '',
+        id_usuario_gestor: completo.id_usuario_gestor || completo.gestor_id || completo.id_gestor || '',
+        ativo: completo.ativo || 'ATIVO',
+        cpf: completo.cpf || '',
+        telefone: completo.telefone || '',
+        tam_calca: completo.tam_calca || completo.tamanho_calca || '',
+        tam_camisa: completo.tam_camisa || completo.tamanho_camisa || '',
+        tam_calcado: completo.tam_calcado || completo.tamanho_calcado || completo.tam_sapato || '',
+        data_admissao: formatarDataParaInput(completo.data_admissao),
+        data_demissao: formatarDataParaInput(completo.data_demissao),
+        data_postagem_aso_pasta: formatarDataParaInput(completo.data_postagem_aso_pasta),
+        data_documentos_rh_completos: formatarDataParaInput(completo.data_documentos_rh_completos),
+        observacoes: completo.observacoes || ''
+      });
+
+      setTimeout(() => {
+        scrollFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    } catch (err) {
+      console.error("Erro ao carregar dados do funcionário para edição:", err);
+    }
+  };
+
+  carregarDadosCompletos();
+}, [funcionarioEmEdicao, API_URL]);
 
   const safeLista = Array.isArray(listaFuncionarios) ? listaFuncionarios : [];
   const totalGeral = safeLista.length;

@@ -33,11 +33,10 @@ export default function RelatorioCustos({ API_URL, mostrarMensagem }) {
     carregarFiltrosIniciais();
   }, []);
 
-  // Recarrega relatório quando altera filtros de atalho ou filtros dropdown
-// Atualiza o useEffect para disparar a busca quando datas manuais mudarem também
-useEffect(() => {
-  carregarRelatorio();
-}, [preset, categoriaId, tipoDestino, destinoId, dataInicio, dataFim]);
+  // Recarrega relatório quando altera qualquer filtro principal
+  useEffect(() => {
+    carregarRelatorio();
+  }, [preset, categoriaId, tipoDestino, destinoId, dataInicio, dataFim]);
 
   const carregarFiltrosIniciais = async () => {
     try {
@@ -46,7 +45,7 @@ useEffect(() => {
       setCentrosCusto(resDestinos.data.centrosCusto || []);
       setObras(resDestinos.data.obras || []);
 
-      // Carrega Categorias (pode adaptar para sua rota de busca de categorias)
+      // Carrega Categorias
       const resCat = await axios.get(`${API_URL}/categorias-financeiras`);
       setCategorias(resCat.data || []);
     } catch (err) {
@@ -59,11 +58,14 @@ useEffect(() => {
     try {
       const params = new URLSearchParams();
       
-      if (preset) params.append('periodo_preset', preset);
-      if (dataInicio && dataFim && !preset) {
+      // Se houver intervalo customizado (data inicio e fim), prioriza ele e ignora o preset
+      if (dataInicio && dataFim) {
         params.append('data_inicio', dataInicio);
         params.append('data_fim', dataFim);
+      } else if (preset) {
+        params.append('periodo_preset', preset);
       }
+
       if (categoriaId) params.append('categoria_id', categoriaId);
       if (tipoDestino) params.append('tipo_destino', tipoDestino);
       if (destinoId) params.append('destino_id', destinoId);
@@ -88,9 +90,20 @@ useEffect(() => {
     setDataFim('');
   };
 
+  // Funções para resetar o preset ao selecionar datas manuais
+  const handleDataInicioChange = (e) => {
+    setDataInicio(e.target.value);
+    setPreset(''); // Limpa o preset para que o intervalo customizado se torne ativo
+  };
+
+  const handleDataFimChange = (e) => {
+    setDataFim(e.target.value);
+    setPreset(''); // Limpa o preset para que o intervalo customizado se torne ativo
+  };
+
   const handleDataManualSubmit = (e) => {
-    e.preventDefault();
-    setPreset(''); // Limpa o preset para dar prioridade à data customizada
+    if (e) e.preventDefault();
+    setPreset(''); // Garante que o preset está limpo
     carregarRelatorio();
   };
 
@@ -106,40 +119,28 @@ useEffect(() => {
             <Filter style={{ width: '18px', height: '18px', color: '#2563eb' }} />
             <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Filtros de Análise Financeira</h3>
           </div>
-
-          {/* Atalhos de Período (Req. 6) */}
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {[
-              { id: '7d', label: '1 Semana' },
-              { id: '30d', label: '30 Dias' },
-              { id: '6m', label: '6 Meses' },
-              { id: '12m', label: '12 Meses' }
-            ].map((p) => (
-              <button
-                key={p.id}
-                onClick={() => handlePresetChange(p.id)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid',
-                  borderColor: preset === p.id ? '#2563eb' : '#cbd5e1',
-                  backgroundColor: preset === p.id ? '#eff6ff' : '#fff',
-                  color: preset === p.id ? '#1d4ed8' : '#475569',
-                  fontWeight: preset === p.id ? 'bold' : 'normal',
-                  fontSize: '11px',
-                  cursor: 'pointer'
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Linha dos Selects e Datas Customizadas */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
           
-          {/* Filtro por Categoria (Req. 3) */}
+          {/* Select de Período Rápido */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Período Rápido</label>
+            <select
+              value={preset}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}
+            >
+              <option value="">-- Personalizado --</option>
+              <option value="7d">1 Semana</option>
+              <option value="30d">30 Dias</option>
+              <option value="6m">6 Meses</option>
+              <option value="12m">12 Meses</option>
+            </select>
+          </div>
+
+          {/* Filtro por Categoria */}
           <div>
             <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Categoria</label>
             <select
@@ -154,7 +155,7 @@ useEffect(() => {
             </select>
           </div>
 
-          {/* Filtro Obra / Centro Custo (Req. 4) */}
+          {/* Filtro Obra / Centro Custo */}
           <div>
             <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Destino (Obra / Centro)</label>
             <select
@@ -186,14 +187,14 @@ useEffect(() => {
             </select>
           </div>
 
-          {/* Filtro Intervalo Customizado de Data (Req. 2) */}
+          {/* Filtro Intervalo Customizado de Data */}
           <div style={{ gridColumn: 'span 2', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Data Início</label>
               <input
                 type="date"
                 value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
+                onChange={handleDataInicioChange}
                 style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}
               />
             </div>
@@ -202,7 +203,7 @@ useEffect(() => {
               <input
                 type="date"
                 value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
+                onChange={handleDataFimChange}
                 style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}
               />
             </div>
@@ -227,76 +228,76 @@ useEffect(() => {
       ) : dadosRelatorio ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-{/* CARDS DINÂMICOS QUE REAGEM AOS FILTROS */}
-<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-  
-  <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #16a34a' }}>
-    <span style={{ fontSize: '11px', color: '#166534', fontWeight: 'bold' }}>RECEITAS FILTRADAS</span>
-    <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#15803d' }}>
-      {formatarMoeda(dadosRelatorio.resumoFiltrado?.total_receitas)}
-    </p>
-  </div>
+          {/* CARDS DINÂMICOS QUE REAGEM AOS FILTROS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            
+            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #16a34a' }}>
+              <span style={{ fontSize: '11px', color: '#166534', fontWeight: 'bold' }}>RECEITAS FILTRADAS</span>
+              <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#15803d' }}>
+                {formatarMoeda(dadosRelatorio.resumoFiltrado?.total_receitas)}
+              </p>
+            </div>
 
-  <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #dc2626' }}>
-    <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 'bold' }}>DESPESAS FILTRADAS</span>
-    <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#b91c1c' }}>
-      {formatarMoeda(dadosRelatorio.resumoFiltrado?.total_despesas)}
-    </p>
-  </div>
+            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #dc2626' }}>
+              <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 'bold' }}>DESPESAS FILTRADAS</span>
+              <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#b91c1c' }}>
+                {formatarMoeda(dadosRelatorio.resumoFiltrado?.total_despesas)}
+              </p>
+            </div>
 
-  <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #2563eb' }}>
-    <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold' }}>BALANÇO LÍQUIDO</span>
-    <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#1d4ed8' }}>
-      {formatarMoeda(dadosRelatorio.resumoFiltrado?.resultado_liquido)}
-    </p>
-  </div>
+            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #2563eb' }}>
+              <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold' }}>BALANÇO LÍQUIDO</span>
+              <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: '#1d4ed8' }}>
+                {formatarMoeda(dadosRelatorio.resumoFiltrado?.resultado_liquido)}
+              </p>
+            </div>
 
-</div>
-{/* GRÁFICO DE HISTÓRICO & MÉDIA DE DESPESAS */}
-<div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '20px' }}>
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-    <div>
-      <h4 style={{ margin: 0, fontSize: '14px', color: '#1e293b' }}>Evolução Financeira</h4>
-      <span style={{ fontSize: '11px', color: '#64748b' }}>
-        Média Mensal de Despesas: <strong>{formatarMoeda(dadosRelatorio.mediaMensal?.despesas)}</strong>
-      </span>
-    </div>
-  </div>
+          </div>
 
-  <div style={{ width: '100%', height: 300 }}>
-    <ResponsiveContainer width="100%" height="100%">
-      {/* CORREÇÃO AQUI: trocado dadosGrafico12Meses por dadosGrafico */}
-      <AreaChart data={dadosRelatorio.dadosGrafico || []}>
-        <defs>
-          <linearGradient id="colorDespesas" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-            <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-          </linearGradient>
-          <linearGradient id="colorReceitas" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
-            <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="mes_formatado" style={{ fontSize: '11px' }} />
-        <YAxis style={{ fontSize: '11px' }} tickFormatter={(v) => `R$ ${v/1000}k`} />
-        <Tooltip formatter={(value) => formatarMoeda(value)} />
-        <Legend />
-        
-        {/* CORREÇÃO AQUI: trocado media12Meses por mediaMensal */}
-        <ReferenceLine 
-          y={dadosRelatorio.mediaMensal?.despesas} 
-          label={{ value: 'Média Despesas', fill: '#dc2626', fontSize: 10, position: 'top' }} 
-          stroke="#dc2626" 
-          strokeDasharray="3 3" 
-        />
+          {/* GRÁFICO DE HISTÓRICO & MÉDIA DE DESPESAS */}
+          <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '14px', color: '#1e293b' }}>Evolução Financeira</h4>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                  Média Mensal de Despesas: <strong>{formatarMoeda(dadosRelatorio.mediaMensal?.despesas)}</strong>
+                </span>
+              </div>
+            </div>
 
-        <Area type="monotone" dataKey="receitas" name="Receitas" stroke="#22c55e" fillOpacity={1} fill="url(#colorReceitas)" />
-        <Area type="monotone" dataKey="despesas" name="Despesas" stroke="#ef4444" fillOpacity={1} fill="url(#colorDespesas)" />
-      </AreaChart>
-    </ResponsiveContainer>
-  </div>
-</div>
+            <div style={{ width: '100%', height: 300 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dadosRelatorio.dadosGrafico || []}>
+                  <defs>
+                    <linearGradient id="colorDespesas" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorReceitas" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="mes_formatado" style={{ fontSize: '11px' }} />
+                  <YAxis style={{ fontSize: '11px' }} tickFormatter={(v) => `R$ ${v/1000}k`} />
+                  <Tooltip formatter={(value) => formatarMoeda(value)} />
+                  <Legend />
+                  
+                  <ReferenceLine 
+                    y={dadosRelatorio.mediaMensal?.despesas} 
+                    label={{ value: 'Média Despesas', fill: '#dc2626', fontSize: 10, position: 'top' }} 
+                    stroke="#dc2626" 
+                    strokeDasharray="3 3" 
+                  />
+
+                  <Area type="monotone" dataKey="receitas" name="Receitas" stroke="#22c55e" fillOpacity={1} fill="url(#colorReceitas)" />
+                  <Area type="monotone" dataKey="despesas" name="Despesas" stroke="#ef4444" fillOpacity={1} fill="url(#colorDespesas)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
           {/* TABELA DE CATEGORIAS DO PERÍODO SELECIONADO */}
           <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '20px' }}>
             <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#1e293b' }}>
