@@ -39,6 +39,7 @@ import RelatorioCustos from './assets/RelatorioCustos';
 import FaturasPessoaFisica from './assets/FaturasPessoaFisica';
 import RelatorioPF from './assets/RelatorioPF';
 import MeuPerfil from './assets/MeuPerfil';
+import DashboardFinanceiro from './assets/DashboardFinanceiro';
 
 const API_URL = 'http://localhost:3001/api';
 // const API_URL = 'https://api-controle-impacto.duckdns.org/api';
@@ -154,8 +155,9 @@ export default function App() {
       itens: [
         { id: 'IMPORTAR_FINANCEIRO', label: 'Importar Conta Azul', icon: FileText, cargos: ['MASTER'] },
         { id: 'RELATORIO_CUSTOS', label: 'Relatório de Custos', icon: BarChart3, cargos: ['MASTER'] },
-        { id: 'FATURAS_PESSOA_FISICA', label: 'Faturas Pessoa Física', icon: FileText, cargos: ['MASTER', 'ENGENHARIA'] },
-        { id: 'RELATORIO_PF', label: 'Relatório Pessoa Física', icon: FileText, cargos: ['MASTER', 'ENGENHARIA'] },
+        { id: 'FATURAS_PESSOA_FISICA', label: 'Faturas Pessoa Física', icon: FileText, cargos: ['MASTER', 'FINANCEIRO'] },
+        { id: 'RELATORIO_PF', label: 'Relatório Pessoa Física', icon: FileText, cargos: ['MASTER', 'FINANCEIRO'] },
+        { id: 'DASHBOARD_FINANCEIRO', label: 'Dashboard Financeiro', icon: BarChart3, cargos: ['MASTER', 'FINANCEIRO'] },
       ]
     }
   ];
@@ -720,7 +722,14 @@ export default function App() {
                   localStorage.setItem('usuario', JSON.stringify(novoUsuario));
                 }} 
               />
-            )}             
+            )}
+            {abaAtiva === 'DASHBOARD_FINANCEIRO' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
+              <DashboardFinanceiro 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+                usuarioLogado={usuarioLogado} 
+              />
+            )}  
           </div>  
         </main>
       </div>

@@ -780,5 +780,259 @@ router.delete('/faturas-pessoa-fisica/:id', async (req, res) => {
   }
 });   
 
+// GET: Relatório Unificado com Tabela Detalhada por Categoria + Faturamentos Diretos
+router.get('/financeiro/dashboard-geral', async (req, res) => {
+  try {
+    const { 
+      data_inicio, 
+      data_fim, 
+      periodo_preset, 
+      categoria_id, 
+      obra_id 
+    } = req.query;
 
+    let whereFin = ['1=1'];
+    let whereFat = ['1=1'];
+    // CÓDIGO CORRIGIDO:
+    let whereFD  = [
+      "fd.status IN ('NF recebida e em estoque', 'Concluído')",
+      "fd.status NOT IN ('CANCELADO', 'EXCLUIDO', 'DELETADO')"
+    ];
+
+    let paramsFin = [];
+    let paramsFat = [];
+    let paramsFD  = [];
+
+    if (categoria_id) {
+      whereFin.push('lf.categoria_id = ?');
+      paramsFin.push(categoria_id);
+
+      whereFat.push('f.categoria_id = ?');
+      paramsFat.push(categoria_id);
+      
+      // Faturamentos Diretos caem como categoria única 'F.D', então ao filtrar por categoria_id de tabela, ele zera a menos que seja intencional
+    }
+
+    if (obra_id) {
+      whereFin.push('lf.obra_id = ?');
+      paramsFin.push(obra_id);
+
+      whereFat.push('f.obra_id = ?');
+      paramsFat.push(obra_id);
+
+      whereFD.push('fd.obra_id = ?');
+      paramsFD.push(obra_id);
+    }
+
+    let inicio = data_inicio;
+    let fim = data_fim;
+
+    if (periodo_preset) {
+      const hoje = new Date();
+      fim = hoje.toISOString().split('T')[0];
+      let dInicio = new Date();
+      if (periodo_preset === '7d') dInicio.setDate(hoje.getDate() - 7);
+      else if (periodo_preset === '30d') dInicio.setDate(hoje.getDate() - 30);
+      else if (periodo_preset === '6m') dInicio.setMonth(hoje.getMonth() - 6);
+      else if (periodo_preset === '12m') dInicio.setMonth(hoje.getMonth() - 12);
+      inicio = dInicio.toISOString().split('T')[0];
+    }
+
+    if (inicio && fim) {
+      whereFin.push('lf.data_movimento BETWEEN ? AND ?');
+      paramsFin.push(inicio, fim);
+
+      whereFat.push('f.data_fatura BETWEEN ? AND ?');
+      paramsFat.push(inicio, fim);
+
+      whereFD.push('COALESCE(fd.data_nota_fiscal, fd.data_solicitacao) BETWEEN ? AND ?');
+      paramsFD.push(inicio, fim);
+    }
+
+    const stringFin = whereFin.join(' AND ');
+    const stringFat = whereFat.join(' AND ');
+    const stringFD  = whereFD.join(' AND ');
+
+    // 1. Totalizadores Rápidos
+    const sqlResumoFin = `
+      SELECT 
+        SUM(CASE WHEN lf.tipo = 'RECEITA' THEN lf.valor ELSE 0 END) AS total_receitas,
+        SUM(CASE WHEN lf.tipo = 'DESPESA' THEN lf.valor ELSE 0 END) AS total_despesas
+      FROM lancamentos_financeiros lf
+      WHERE ${stringFin}
+    `;
+    const [resumoFin] = await db.query(sqlResumoFin, paramsFin);
+
+    const sqlResumoFat = `
+      SELECT 
+        SUM(f.valor) AS total_faturas,
+        SUM(CASE WHEN f.conciliado_em IS NOT NULL THEN f.valor ELSE 0 END) AS total_conciliado,
+        SUM(CASE WHEN f.conciliado_em IS NULL THEN f.valor ELSE 0 END) AS total_pendente
+      FROM faturas_pessoa_fisica f
+      WHERE ${stringFat}
+    `;
+    const [resumoFat] = await db.query(sqlResumoFat, paramsFat);
+
+    const sqlResumoFD = `
+      SELECT 
+        SUM(COALESCE(fd.valor_nota_fiscal, 0) + COALESCE(fd.valor_frete, 0)) AS total_fd
+      FROM faturamentos_diretos fd
+      WHERE ${stringFD}
+    `;
+    const [resumoFD] = await db.query(sqlResumoFD, paramsFD);
+
+    // 2. Gráfico Consolidado (Unificando LF, Faturas PF e Faturamento Direto)
+    const sqlGraficoUnificado = `
+      SELECT 
+        mes_ano,
+        mes_formatado,
+        SUM(receitas) AS receitas,
+        SUM(despesas) AS despesas,
+        SUM(faturas_negativas) AS faturas,
+        SUM(fd_negativo) AS faturamentos_diretos,
+        (SUM(despesas) - SUM(faturas_negativas) - SUM(fd_negativo)) AS total_saidas,
+        (SUM(receitas) + SUM(despesas) - SUM(faturas_negativas) - SUM(fd_negativo)) AS saldo_geral
+      FROM (
+        SELECT 
+          DATE_FORMAT(lf.data_movimento, '%Y-%m') AS mes_ano,
+          DATE_FORMAT(lf.data_movimento, '%m/%Y') AS mes_formatado,
+          SUM(CASE WHEN lf.tipo = 'RECEITA' THEN lf.valor ELSE 0 END) AS receitas,
+          SUM(CASE WHEN lf.tipo = 'DESPESA' THEN lf.valor ELSE 0 END) AS despesas,
+          0 AS faturas_negativas,
+          0 AS fd_negativo
+        FROM lancamentos_financeiros lf
+        WHERE ${stringFin}
+        GROUP BY DATE_FORMAT(lf.data_movimento, '%Y-%m'), DATE_FORMAT(lf.data_movimento, '%m/%Y')
+
+        UNION ALL
+
+        SELECT 
+          DATE_FORMAT(f.data_fatura, '%Y-%m') AS mes_ano,
+          DATE_FORMAT(f.data_fatura, '%m/%Y') AS mes_formatado,
+          0 AS receitas,
+          0 AS despesas,
+          SUM(f.valor) AS faturas_negativas,
+          0 AS fd_negativo
+        FROM faturas_pessoa_fisica f
+        WHERE ${stringFat}
+        GROUP BY DATE_FORMAT(f.data_fatura, '%Y-%m'), DATE_FORMAT(f.data_fatura, '%m/%Y')
+
+        UNION ALL
+
+        SELECT 
+          DATE_FORMAT(COALESCE(fd.data_nota_fiscal, fd.data_solicitacao), '%Y-%m') AS mes_ano,
+          DATE_FORMAT(COALESCE(fd.data_nota_fiscal, fd.data_solicitacao), '%m/%Y') AS mes_formatado,
+          0 AS receitas,
+          0 AS despesas,
+          0 AS faturas_negativas,
+          SUM(COALESCE(fd.valor_nota_fiscal, 0) + COALESCE(fd.valor_frete, 0)) AS fd_negativo
+        FROM faturamentos_diretos fd
+        WHERE ${stringFD}
+        GROUP BY DATE_FORMAT(COALESCE(fd.data_nota_fiscal, fd.data_solicitacao), '%Y-%m'), DATE_FORMAT(COALESCE(fd.data_nota_fiscal, fd.data_solicitacao), '%m/%Y')
+      ) unificado
+      GROUP BY mes_ano, mes_formatado
+      ORDER BY mes_ano ASC
+    `;
+    const [graficoUnificado] = await db.query(sqlGraficoUnificado, [...paramsFin, ...paramsFat, ...paramsFD]);
+
+    // 3. TABELA DE CATEGORIAS (Agrupada)
+    const sqlTabelaCategorias = `
+      SELECT 
+        categoria_nome,
+        tipo_categoria,
+        SUM(qtd_custos) AS qtd_custos,
+        SUM(valor_custo) AS valor_custo,
+        SUM(qtd_pf) AS qtd_pf,
+        SUM(valor_pf) AS valor_pf
+      FROM (
+        SELECT 
+          COALESCE(c.nome, 'Sem Categoria') AS categoria_nome,
+          COALESCE(lf.tipo, 'DESPESA') AS tipo_categoria,
+          COUNT(lf.id) AS qtd_custos,
+          SUM(lf.valor) AS valor_custo,
+          0 AS qtd_pf,
+          0 AS valor_pf
+        FROM lancamentos_financeiros lf
+        LEFT JOIN categorias_financeiras c ON c.id = lf.categoria_id
+        WHERE ${stringFin}
+        GROUP BY c.nome, lf.tipo
+
+        UNION ALL
+
+        SELECT 
+          COALESCE(c.nome, 'Sem Categoria') AS categoria_nome,
+          'DESPESA' AS tipo_categoria,
+          0 AS qtd_custos,
+          0 AS valor_custo,
+          COUNT(f.id) AS qtd_pf,
+          SUM(f.valor) AS valor_pf
+        FROM faturas_pessoa_fisica f
+        LEFT JOIN categorias_financeiras c ON c.id = f.categoria_id
+        WHERE ${stringFat}
+        GROUP BY c.nome
+
+        UNION ALL
+
+        SELECT 
+          'Faturamento Direto (F.D)' AS categoria_nome,
+          'DESPESA' AS tipo_categoria,
+          COUNT(fd.id) AS qtd_custos,
+          SUM(COALESCE(fd.valor_nota_fiscal, 0) + COALESCE(fd.valor_frete, 0)) AS valor_custo,
+          0 AS qtd_pf,
+          0 AS valor_pf
+        FROM faturamentos_diretos fd
+        WHERE ${stringFD}
+      ) tabela
+      GROUP BY categoria_nome, tipo_categoria
+      ORDER BY categoria_nome ASC
+    `;
+    const [tabelaCategorias] = await db.query(sqlTabelaCategorias, [...paramsFin, ...paramsFat, ...paramsFD]);
+
+    const tabelaFormatada = tabelaCategorias.map(item => {
+      const vCusto = Number(item.valor_custo || 0);
+      const vPFBruto = Number(item.valor_pf || 0);
+      const vPF = vPFBruto > 0 ? -Math.abs(vPFBruto) : vPFBruto;
+
+      return {
+        categoria: item.categoria_nome,
+        tipo: item.tipo_categoria,
+        qtdCustos: Number(item.qtd_custos || 0),
+        totalCusto: vCusto,
+        qtdPF: Number(item.qtd_pf || 0),
+        totalPF: vPF
+      };
+    });
+
+    const totalReceitas = Number(resumoFin[0]?.total_receitas || 0);
+    const totalDespesas = Number(resumoFin[0]?.total_despesas || 0);
+    const totalFaturasBruto = Number(resumoFat[0]?.total_faturas || 0);
+    const totalFDBruto = Number(resumoFD[0]?.total_fd || 0);
+
+    const totalFaturasNegativas = totalFaturasBruto > 0 ? -Math.abs(totalFaturasBruto) : totalFaturasBruto;
+    const totalFDNegativo = totalFDBruto > 0 ? -Math.abs(totalFDBruto) : totalFDBruto;
+
+    // Saídas incluem Despesas + Faturas PF + Faturamento Direto
+    const totalSaidas = totalDespesas + totalFaturasNegativas + totalFDNegativo;
+    const saldoGeral = totalReceitas + totalSaidas;
+
+    res.json({
+      resumoGeral: {
+        total_receitas: totalReceitas,
+        total_despesas: totalDespesas,
+        total_faturas: totalFaturasNegativas,
+        total_fd: totalFDNegativo,
+        total_saidas: totalSaidas,
+        saldo_geral: saldoGeral,
+        faturas_conciliadas: -Math.abs(Number(resumoFat[0]?.total_conciliado || 0)),
+        faturas_pendentes: -Math.abs(Number(resumoFat[0]?.total_pendente || 0))
+      },
+      dadosGrafico: graficoUnificado,
+      tabelaCategorias: tabelaFormatada
+    });
+
+  } catch (err) {
+    console.error('Erro ao gerar dashboard geral:', err);
+    res.status(500).json({ error: 'Erro ao carregar dados do dashboard geral.' });
+  }
+});
 export default router;

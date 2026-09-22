@@ -1788,7 +1788,7 @@ function getOrderBySql(ordenacao, tipoRelatorio) {
 
 // 16-A. GET: Relatório por Produto / Material
 router.get('/relatorios/compras-por-material', async (req, res) => {
-  const { data_inicio, data_fim, fornecedor_id, obra_id, ordenacao } = req.query;
+  const { data_inicio, data_fim, fornecedor_id, obra_id, ordenacao, status } = req.query;
 
   try {
     let sql = `
@@ -1808,10 +1808,19 @@ router.get('/relatorios/compras-por-material', async (req, res) => {
       FROM faturamento_itens fi
       INNER JOIN faturamentos_diretos fd ON fi.faturamento_id = fd.id
       INNER JOIN materiais m ON fi.material_id = m.id
-      WHERE fd.status != 'Cancelado'
+      WHERE 1=1
     `;
 
     const params = [];
+
+    // Tratamento de Múltiplos Status
+    if (status && status.trim() !== '') {
+      const listaStatus = status.split(',').map(s => s.trim());
+      sql += ` AND fd.status IN (${listaStatus.map(() => '?').join(',')})`;
+      params.push(...listaStatus);
+    } else {
+      sql += ` AND fd.status != 'Cancelado'`;
+    }
 
     if (data_inicio) {
       sql += ` AND fd.data_solicitacao >= ?`;
@@ -1843,7 +1852,7 @@ router.get('/relatorios/compras-por-material', async (req, res) => {
 
 // 16-B. GET: Relatório por Fornecedor
 router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
-  const { data_inicio, data_fim, material_id, obra_id, ordenacao } = req.query;
+  const { data_inicio, data_fim, material_id, obra_id, ordenacao, status } = req.query;
 
   try {
     let sql = `
@@ -1860,10 +1869,18 @@ router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
       FROM faturamentos_diretos fd
       INNER JOIN fornecedores f ON fd.fornecedor_id = f.id
       INNER JOIN faturamento_itens fi ON fi.faturamento_id = fd.id
-      WHERE fd.status != 'Cancelado'
+      WHERE 1=1
     `;
 
     const params = [];
+
+    if (status && status.trim() !== '') {
+      const listaStatus = status.split(',').map(s => s.trim());
+      sql += ` AND fd.status IN (${listaStatus.map(() => '?').join(',')})`;
+      params.push(...listaStatus);
+    } else {
+      sql += ` AND fd.status != 'Cancelado'`;
+    }
 
     if (data_inicio) {
       sql += ` AND fd.data_solicitacao >= ?`;
@@ -1895,7 +1912,7 @@ router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
 
 // 16-C. GET: Relatório por Obra
 router.get('/relatorios/compras-por-obra', async (req, res) => {
-  const { data_inicio, data_fim, fornecedor_id, material_id, ordenacao } = req.query;
+  const { data_inicio, data_fim, fornecedor_id, material_id, ordenacao, status } = req.query;
 
   try {
     let sql = `
@@ -1910,10 +1927,18 @@ router.get('/relatorios/compras-por-obra', async (req, res) => {
       FROM faturamentos_diretos fd
       INNER JOIN obras o ON fd.obra_id = o.id
       INNER JOIN faturamento_itens fi ON fi.faturamento_id = fd.id
-      WHERE fd.status != 'Cancelado'
+      WHERE 1=1
     `;
 
     const params = [];
+
+    if (status && status.trim() !== '') {
+      const listaStatus = status.split(',').map(s => s.trim());
+      sql += ` AND fd.status IN (${listaStatus.map(() => '?').join(',')})`;
+      params.push(...listaStatus);
+    } else {
+      sql += ` AND fd.status != 'Cancelado'`;
+    }
 
     if (data_inicio) {
       sql += ` AND fd.data_solicitacao >= ?`;

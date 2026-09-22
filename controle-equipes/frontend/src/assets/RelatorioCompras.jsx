@@ -1,9 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   ShoppingBag, Truck, Building2, Filter, 
-  DollarSign, Package, ArrowUpDown
+  DollarSign, Package, CheckSquare
 } from 'lucide-react';
+
+// Status disponíveis na aplicação
+const OPCOES_STATUS = [
+  'Solicitado',
+  'NF recebida e em estoque',
+  'Concluído',
+  'Cancelado'
+];
 
 export default function RelatorioCompras({ API_URL, mostrarMensagem }) {
   // Aba ativa: 'materiais' | 'fornecedores' | 'obras'
@@ -27,13 +35,39 @@ export default function RelatorioCompras({ API_URL, mostrarMensagem }) {
   const [filtroObra, setFiltroObra] = useState('');
   const [ordenacao, setOrdenacao] = useState('maior_gasto');
 
+  // Filtro de Status (Multi-seleção por Checkbox)
+  const [statusSelecionados, setStatusSelecionados] = useState([
+    'Solicitado',
+    'NF recebida e em estoque',
+    'Concluído'
+  ]);
+  const [menuStatusAberto, setMenuStatusAberto] = useState(false);
+  const dropdownRef = useRef(null);
+
   useEffect(() => {
     carregarFiltrosAuxiliares();
+
+    // Fecha o menu dropdown ao clicar fora dele
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setMenuStatusAberto(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   useEffect(() => {
     carregarRelatorios();
   }, [abaAtiva, ordenacao]); // Recarrega ao trocar de aba ou mudar ordenação
+
+  const toggleStatus = (status) => {
+    if (statusSelecionados.includes(status)) {
+      setStatusSelecionados(statusSelecionados.filter(s => s !== status));
+    } else {
+      setStatusSelecionados([...statusSelecionados, status]);
+    }
+  };
 
   const carregarFiltrosAuxiliares = async () => {
     try {
@@ -55,7 +89,8 @@ export default function RelatorioCompras({ API_URL, mostrarMensagem }) {
       const paramsBase = {
         data_inicio: dataInicio,
         data_fim: dataFim,
-        ordenacao
+        ordenacao,
+        status: statusSelecionados.join(',') // Envia lista separada por vírgula
       };
 
       if (abaAtiva === 'materiais') {
@@ -82,6 +117,7 @@ export default function RelatorioCompras({ API_URL, mostrarMensagem }) {
 
   const handleFiltrar = (e) => {
     e.preventDefault();
+    setMenuStatusAberto(false);
     carregarRelatorios();
   };
 
@@ -109,7 +145,7 @@ export default function RelatorioCompras({ API_URL, mostrarMensagem }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       
-      {/* METRICAS DE CABEÇALHO */}
+      {/* MÉTRICAS DE CABEÇALHO */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ backgroundColor: '#dbeafe', padding: '10px', borderRadius: '8px', color: '#2563eb' }}>
@@ -157,6 +193,46 @@ export default function RelatorioCompras({ API_URL, mostrarMensagem }) {
         <div>
           <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' }}>DATA FIM</label>
           <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={inputStyle} />
+        </div>
+
+        {/* FILTRO MULTI-SELEÇÃO DE STATUS */}
+        <div style={{ position: 'relative' }} ref={dropdownRef}>
+          <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569', display: 'block', marginBottom: '4px' }}>STATUS DE COMPRA</label>
+          <button 
+            type="button" 
+            onClick={() => setMenuStatusAberto(!menuStatusAberto)}
+            style={{ ...inputStyle, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', minWidth: '160px', justifyContent: 'space-between' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CheckSquare style={{ width: '12px', height: '12px', color: '#0284c7' }} />
+              {statusSelecionados.length === 0 
+                ? 'Nenhum' 
+                : statusSelecionados.length === OPCOES_STATUS.length 
+                  ? 'Todos os Status' 
+                  : `${statusSelecionados.length} selecionado(s)`}
+            </span>
+            <span style={{ fontSize: '9px', color: '#64748b' }}>▼</span>
+          </button>
+
+          {menuStatusAberto && (
+            <div style={{
+              position: 'absolute', top: '100%', left: 0, zIndex: 50, marginTop: '4px',
+              backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px',
+              padding: '8px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)', display: 'flex',
+              flexDirection: 'column', gap: '6px', minWidth: '210px'
+            }}>
+              {OPCOES_STATUS.map(st => (
+                <label key={st} style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#334155', userSelect: 'none' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={statusSelecionados.includes(st)} 
+                    onChange={() => toggleStatus(st)}
+                  />
+                  {st}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         {abaAtiva !== 'fornecedores' && (
