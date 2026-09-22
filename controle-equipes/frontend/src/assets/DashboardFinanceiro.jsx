@@ -5,7 +5,7 @@ import {
   CreditCard, PieChart, ShieldAlert, CheckCircle2, FileText 
 } from 'lucide-react';
 import { 
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
+  ResponsiveContainer, AreaChart, Area, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip, Legend 
 } from 'recharts';
 
@@ -99,6 +99,30 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
     return '#0f172a';             // Preto
   };
 
+  // Tratamento dos dados para o Gráfico (E cálculo do Resultado Líquido)
+  const dadosGraficoTratados = React.useMemo(() => {
+    if (!dados?.dadosGrafico) return [];
+
+    return dados.dadosGrafico.map(item => {
+      const rec = Math.abs(Number(item.receitas || 0));
+      const desp = -Math.abs(Number(item.despesas || 0));
+      const fat = -Math.abs(Number(item.faturas || 0));
+      const fd = -Math.abs(Number(item.faturamentos_diretos || 0));
+      
+      // Soma o valor positivo de Receitas com os valores negativos das saídas
+      const saldoPeriodo = rec + desp + fat + fd;
+
+      return {
+        ...item,
+        receitas: rec,
+        despesas: desp,
+        faturas: fat,
+        faturamentos_diretos: fd,
+        saldo_periodo: saldoPeriodo
+      };
+    });
+  }, [dados?.dadosGrafico]);
+
   // Cálculos para o Rodapé da Tabela
   const totaisTabela = React.useMemo(() => {
     if (!dados?.tabelaCategorias) return { qtdCustos: 0, totalCusto: 0, qtdPF: 0, totalPF: 0, qtdTotal: 0, totalGeral: 0 };
@@ -152,7 +176,9 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
             <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}>
               <option value="">-- Todas as Categorias --</option>
               {categorias.map((c) => (
-                <option key={c.id} value={c.id}>{c.nome}</option>
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
               ))}
             </select>
           </div>
@@ -162,7 +188,9 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
             <select value={obraId} onChange={(e) => setObraId(e.target.value)} style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}>
               <option value="">-- Todas as Obras --</option>
               {obras.map((o) => (
-                <option key={o.id} value={o.id}>{o.nome_obra || o.nome}</option>
+                <option key={o.id} value={o.id}>
+                  {o.nome_obra || o.nome}
+                </option>
               ))}
             </select>
           </div>
@@ -203,14 +231,14 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
             </div>
 
             <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #dc2626' }}>
-              <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 'bold' }}>DESPESAS OPERACIONAIS</span>
+              <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 'bold' }}>DESPESAS OPERACIONAIS</span>
               <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: obterCorValor(dados.resumoGeral?.total_despesas, true) }}>
                 {formatarMoeda(dados.resumoGeral?.total_despesas, true)}
               </p>
             </div>
 
-            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #d97706' }}>
-              <span style={{ fontSize: '11px', color: '#92400e', fontWeight: 'bold' }}>TOTAL FATURAS PF</span>
+            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #dc2626' }}>
+              <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 'bold' }}>TOTAL FATURAS PF</span>
               <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: obterCorValor(dados.resumoGeral?.total_faturas, true) }}>
                 {formatarMoeda(dados.resumoGeral?.total_faturas, true)}
               </p>
@@ -220,14 +248,14 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
             </div>
 
             <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #e11d48' }}>
-              <span style={{ fontSize: '11px', color: '#9f1239', fontWeight: 'bold' }}>FATURAMENTO DIRETO (F.D)</span>
+              <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 'bold' }}>FATURAMENTO DIRETO (F.D)</span>
               <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: obterCorValor(dados.resumoGeral?.total_fd, true) }}>
                 {formatarMoeda(dados.resumoGeral?.total_fd, true)}
               </p>
             </div>
 
-            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #9333ea' }}>
-              <span style={{ fontSize: '11px', color: '#6b21a8', fontWeight: 'bold' }}>TOTAL SAÍDAS GERAIS</span>
+            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #dc2626' }}>
+              <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 'bold' }}>TOTAL SAÍDAS GERAIS</span>
               <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: obterCorValor(dados.resumoGeral?.total_saidas, true) }}>
                 {formatarMoeda(dados.resumoGeral?.total_saidas, true)}
               </p>
@@ -245,12 +273,12 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
           {/* GRÁFICO CONSOLIDADO */}
           <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '20px' }}>
             <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#1e293b' }}>
-              Evolução Unificada: Receitas vs. Despesas vs. Faturas PF vs. Faturamento Direto
+              Evolução Unificada: Receitas vs. Despesas vs. Faturas PF vs. Faturamento Direto vs. Resultado Líquido
             </h4>
 
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dados.dadosGrafico || []}>
+                <AreaChart data={dadosGraficoTratados}>
                   <defs>
                     <linearGradient id="gradReceitas" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
@@ -273,16 +301,23 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
                   <XAxis dataKey="mes_formatado" style={{ fontSize: '11px' }} />
                   <YAxis style={{ fontSize: '11px' }} tickFormatter={(v) => `R$ ${v/1000}k`} />
                   
-                  <Tooltip formatter={(value, name) => {
-                    const isSaida = name !== 'Receitas';
-                    return formatarMoeda(value, isSaida);
-                  }} />
+                  <Tooltip formatter={(value) => formatarMoeda(value)} />
                   <Legend />
 
                   <Area type="monotone" dataKey="receitas" name="Receitas" stroke="#22c55e" fillOpacity={1} fill="url(#gradReceitas)" />
                   <Area type="monotone" dataKey="despesas" name="Despesas Operacionais" stroke="#ef4444" fillOpacity={1} fill="url(#gradDespesas)" />
                   <Area type="monotone" dataKey="faturas" name="Faturas Pessoa Física" stroke="#f59e0b" fillOpacity={1} fill="url(#gradFaturas)" />
                   <Area type="monotone" dataKey="faturamentos_diretos" name="Faturamento Direto" stroke="#0284c7" fillOpacity={1} fill="url(#gradFD)" />
+
+                  {/* Linha Roxa indicando o Resultado Líquido do Mês */}
+                  <Line 
+                    type="monotone" 
+                    dataKey="saldo_periodo" 
+                    name="Resultado Líquido" 
+                    stroke="#9333ea" 
+                    strokeWidth={3} 
+                    dot={{ r: 4, fill: '#9333ea' }} 
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
