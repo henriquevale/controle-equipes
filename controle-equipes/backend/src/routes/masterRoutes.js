@@ -2088,4 +2088,117 @@ router.delete('/cadastro-atividades/:id', async (req, res) => {
   }
 });
 
+router.get('/materiais/comparativo', async (req, res) => {
+  try {
+    const { tipo_local, id_local, data_inicio, data_fim } = req.query;
+
+    let filtroFd = [];
+    let filtroEstoque = [];
+    let filtroApontados = [];
+
+    // 1. Filtros de Data
+    if (data_inicio) {
+      filtroFd.push(`fat.data_solicitacao >= ?`);
+      filtroApontados.push(`d.data_diario >= ?`);
+    }
+    if (data_fim) {
+      filtroFd.push(`fat.data_solicitacao <= ?`);
+      filtroApontados.push(`d.data_diario <= ?`);
+    }
+
+    // 2. Filtros de Localização
+    if (tipo_local && id_local) {
+      const idLocalNum = parseInt(id_local);
+      if (tipo_local.toUpperCase() === 'OBRA') {
+        filtroFd.push(`fat.obra_id = ?`);
+        filtroEstoque.push(`e.local_id = ? AND e.local_tipo = 'OBRA'`);
+        filtroApontados.push(`d.id_obra = ?`);
+      } else if (tipo_local.toUpperCase() === 'BASE') {
+        filtroEstoque.push(`e.local_id = ? AND e.local_tipo = 'BASE'`);
+      }
+    }
+
+    const whereFd = filtroFd.length > 0 ? `AND ${filtroFd.join(' AND ')}` : '';
+    const whereEstoque = filtroEstoque.length > 0 ? `AND ${filtroEstoque.join(' AND ')}` : '';
+    const whereApontados = filtroApontados.length > 0 ? `AND ${filtroApontados.join(' AND ')}` : '';
+
+    const sqlQuery = `
+      SELECT 
+        m.id AS material_id,
+        m.codigo,
+        m.descricao AS nome,
+        m.tipo AS categoria,
+        m.unidade_estoque,
+        m.unidade_consumo,
+        m.fator_conversao_consumo,
+        m.consumo_base,
+        m.quantidade_aplicada,
+
+        /* 1. Faturamento Direto */
+        COALESCE((
+          SELECT SUM(fi.quantidade) 
+          FROM faturamento_itens fi
+          INNER JOIN faturamentos_diretos fat ON fat.id = fi.faturamento_id
+          WHERE fi.material_id = m.id ${whereFd}
+        ), 0) AS qtd_faturamento_direto,
+
+        COALESCE((
+          SELECT SUM(fi.quantidade * fi.valor_unitario) 
+          FROM faturamento_itens fi
+          INNER JOIN faturamentos_diretos fat ON fat.id = fi.faturamento_id
+          WHERE fi.material_id = m.id ${whereFd}
+        ), 0) AS valor_faturamento_direto,
+
+        /* 2. Saldo em Estoque */
+        COALESCE((
+          SELECT SUM(e.quantidade) 
+          FROM estoque_saldos e 
+          WHERE e.material_id = m.id ${whereEstoque}
+        ), 0) AS saldo_estoque,
+
+        /* 3. Materiais Apontados (Corrigido para diario_efetivo) */
+        COALESCE((
+          SELECT SUM(dma.quantidade) 
+          FROM diario_materiais_apontados dma
+          INNER JOIN diario_efetivo d ON d.id = dma.id_diario
+          WHERE dma.id_material = m.id ${whereApontados}
+        ), 0) AS qtd_apontada
+
+      FROM materiais m
+      ORDER BY m.descricao ASC;
+    `;
+
+    // Montagem dos parâmetros em ordem exata para cada subquery
+    const finalParams = [];
+
+    // Subquery 1: Faturamento (Quantidade)
+    if (data_inicio) finalParams.push(data_inicio);
+    if (data_fim) finalParams.push(data_fim);
+    if (tipo_local && id_local && tipo_local.toUpperCase() === 'OBRA') finalParams.push(parseInt(id_local));
+
+    // Subquery 2: Faturamento (Valor)
+    if (data_inicio) finalParams.push(data_inicio);
+    if (data_fim) finalParams.push(data_fim);
+    if (tipo_local && id_local && tipo_local.toUpperCase() === 'OBRA') finalParams.push(parseInt(id_local));
+
+    // Subquery 3: Estoque
+    if (tipo_local && id_local) finalParams.push(parseInt(id_local));
+
+    // Subquery 4: Apontados
+    if (data_inicio) finalParams.push(data_inicio);
+    if (data_fim) finalParams.push(data_fim);
+    if (tipo_local && id_local && tipo_local.toUpperCase() === 'OBRA') finalParams.push(parseInt(id_local));
+
+    const [rows] = await db.query(sqlQuery, finalParams);
+    return res.status(200).json(rows);
+
+  } catch (error) {
+    console.error('Erro na rota /materiais/comparativo:', error);
+    return res.status(500).json({ 
+      erro: 'Erro interno ao buscar o comparativo de materiais.',
+      detalhe: error.message 
+    });
+  }
+});
+
 export default router;

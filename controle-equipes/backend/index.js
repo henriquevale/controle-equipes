@@ -8,7 +8,6 @@ import masterRoutes from './src/routes/masterRoutes.js'; // 💡 Ajuste este cam
 import dashboardRoutes from './src/routes/dashboardRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 import frotasRoutes from './src/routes/frotasRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 import financeiroRoutes from './src/routes/financeiroRoutes.js'; // 💡 Ajuste este caminho se o seu arquivoim
-import comparMatRoutes from './src/routes/comparMatRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 //  estiver em outra pasta
 // !
 dotenv.config();
@@ -27,7 +26,6 @@ app.use('/api', gestorRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', frotasRoutes);
 app.use('/api', financeiroRoutes);
-app.use('/api', comparMatRoutes); // Adicione esta linha para vincular as rotas de comparativo de materiais
 // 🟢 ADICIONE ESTAS LINHAS AQUI PARA SUMIR O CANNOT GET:
 app.get('/', (req, res) => {
   res.json({ 

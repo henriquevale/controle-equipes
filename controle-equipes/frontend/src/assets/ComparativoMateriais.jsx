@@ -5,13 +5,13 @@ import {
   Search, 
   RefreshCw, 
   Building2, 
-  HardHat, 
-  Filter, 
-  DollarSign,
-  Package
+  HardHat
 } from 'lucide-react';
 
-export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/api', mostrarMensagem }) {
+const DEFAULT_API_URL = 'http://localhost:3001/api';
+//const DEFAULT_API_URL = 'https://api-controle-impacto.duckdns.org/api';
+
+export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostrarMensagem }) {
   const [busca, setBusca] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [dataInicio, setDataInicio] = useState('');
@@ -19,10 +19,8 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
 
   const [bases, setBases] = useState([]);
   const [obras, setObras] = useState([]);
-  const [baseObras, setBaseObras] = useState([]);
   const [baseSelecionada, setBaseSelecionada] = useState('');
   const [obraSelecionada, setObraSelecionada] = useState('');
-  const [obrasFiltradas, setObrasFiltradas] = useState([]);
 
   const [materiais, setMateriais] = useState([]);
   const [categoriasDisponiveis, setCategoriasDisponiveis] = useState([]);
@@ -32,37 +30,32 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
     carregarLocais();
   }, []);
 
-  useEffect(() => {
-    fetchComparativo();
-  }, [baseSelecionada, obraSelecionada]);
-
   const carregarLocais = async () => {
     try {
       const resLocais = await axios.get(`${API_URL}/master/locais`).catch(() => ({ data: {} }));
       setBases(resLocais.data.bases || []);
       setObras(resLocais.data.obras || []);
-      setBaseObras(resLocais.data.baseObras || []);
-      setObrasFiltradas(resLocais.data.obras || []);
     } catch (e) {
       console.error("Erro ao carregar locais:", e);
     }
   };
 
+  // Handler para seleção de Base (Limpa a obra para garantir verificação individual)
   const handleBaseChange = (e) => {
-    const baseId = e.target.value;
-    setBaseSelecionada(baseId);
-    setObraSelecionada('');
-
-    if (!baseId) {
-      setObrasFiltradas(obras);
-      return;
+    const val = e.target.value;
+    setBaseSelecionada(val);
+    if (val) {
+      setObraSelecionada('');
     }
+  };
 
-    const idsObrasDaBase = baseObras
-      .filter(bo => String(bo.base_id) === String(baseId))
-      .map(bo => Number(bo.obra_id));
-
-    setObrasFiltradas(obras.filter(o => idsObrasDaBase.includes(Number(o.id))));
+  // Handler para seleção de Obra (Limpa a base para garantir verificação individual)
+  const handleObraChange = (e) => {
+    const val = e.target.value;
+    setObraSelecionada(val);
+    if (val) {
+      setBaseSelecionada('');
+    }
   };
 
   const fetchComparativo = useCallback(async () => {
@@ -80,7 +73,8 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
       if (dataInicio) params.data_inicio = dataInicio;
       if (dataFim) params.data_fim = dataFim;
 
-      const response = await axios.get(`${API_URL}/master/materiais/comparativo`, { params });
+      const urlDestino = `${API_URL}/materiais/comparativo`;
+      const response = await axios.get(urlDestino, { params });
       const dados = Array.isArray(response.data) ? response.data : [];
       setMateriais(dados);
 
@@ -94,7 +88,20 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
     }
   }, [API_URL, baseSelecionada, obraSelecionada, dataInicio, dataFim, mostrarMensagem]);
 
+  useEffect(() => {
+    fetchComparativo();
+  }, [baseSelecionada, obraSelecionada, dataInicio, dataFim]);
+
   const materiaisFiltrados = materiais.filter((item) => {
+    const qtdApontada = Number(item.qtd_apontada || 0);
+    const qtdFatDireto = Number(item.qtd_faturamento_direto || 0);
+    const saldoEstoque = Number(item.saldo_estoque || 0);
+
+    // Oculta itens cujas 3 quantidades são iguais a zero
+    if (qtdApontada === 0 && qtdFatDireto === 0 && saldoEstoque === 0) {
+      return false;
+    }
+
     const nome = String(item.nome || item.descricao || '').toLowerCase();
     const codigo = String(item.codigo || '').toLowerCase();
     const termo = busca.toLowerCase();
@@ -127,10 +134,10 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
           <div>
             <h3 style={{ fontSize: '14px', fontWeight: 'bold', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <BarChart3 style={{ width: '18px', height: '18px', color: '#2563eb' }} />
-              Comparativo: Faturamento Direto vs. Estoque Interno
+              Comparativo: Faturamento Direto vs. Estoque vs. Apontamentos
             </h3>
             <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
-              Cruzamento de informações de materiais entre faturamento direto nas obras e volumes de estoque.
+              Cruzamento de informações de faturamento direto, saldos de estoque e relatórios diários de apontamento.
             </p>
           </div>
 
@@ -147,12 +154,21 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', alignItems: 'flex-end' }}>
           <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
               <Building2 style={{ width: '12px', height: '12px' }} /> BASE
             </label>
-            <select value={baseSelecionada} onChange={handleBaseChange} style={inputStyle}>
+            <select 
+              value={baseSelecionada} 
+              onChange={handleBaseChange} 
+              disabled={Boolean(obraSelecionada)}
+              style={{
+                ...inputStyle,
+                backgroundColor: obraSelecionada ? '#f1f5f9' : '#fff',
+                cursor: obraSelecionada ? 'not-allowed' : 'pointer'
+              }}
+            >
               <option value="">Todas as Bases</option>
               {bases.map(b => (
                 <option key={`base-${b.id}`} value={b.id}>{b.nome}</option>
@@ -161,29 +177,41 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
           </div>
 
           <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: baseSelecionada ? '#64748b' : '#cbd5e1', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
               <HardHat style={{ width: '12px', height: '12px' }} /> OBRA
             </label>
             <select 
               value={obraSelecionada} 
-              onChange={e => setObraSelecionada(e.target.value)} 
-              disabled={!baseSelecionada}
-              style={{ ...inputStyle, backgroundColor: baseSelecionada ? '#fff' : '#f8fafc', cursor: baseSelecionada ? 'pointer' : 'not-allowed' }}
+              onChange={handleObraChange} 
+              disabled={Boolean(baseSelecionada)}
+              style={{
+                ...inputStyle,
+                backgroundColor: baseSelecionada ? '#f1f5f9' : '#fff',
+                cursor: baseSelecionada ? 'not-allowed' : 'pointer'
+              }}
             >
-              <option value="">
-                {!baseSelecionada ? 'Selecione uma base primeiro' : obrasFiltradas.length === 0 ? 'Nenhuma obra' : 'Todas as Obras'}
-              </option>
-              {obrasFiltradas.map(o => (
+              <option value="">Todas as Obras</option>
+              {obras.map(o => (
                 <option key={`obra-${o.id}`} value={o.id}>{o.nome_obra || o.nome}</option>
               ))}
             </select>
           </div>
 
           <div>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', marginBottom: '4px', display: 'block' }}>DATA INÍCIO</label>
+            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={inputStyle} />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', marginBottom: '4px', display: 'block' }}>DATA FIM</label>
+            <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={inputStyle} />
+          </div>
+
+          <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', marginBottom: '4px', display: 'block' }}>BUSCAR MATERIAL</label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search style={{ position: 'absolute', left: '8px', width: '12px', height: '12px', color: '#94a3b8' }} />
-              <input type="text" placeholder="Código ou Descrição..." value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, paddingLeft: '26px' }} />
+              <input type="text" placeholder="Nome ou Descrição..." value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, paddingLeft: '26px' }} />
             </div>
           </div>
 
@@ -196,19 +224,6 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
               ))}
             </select>
           </div>
-
-          <div>
-            <button
-              onClick={fetchComparativo}
-              style={{
-                height: '36px', width: '100%', backgroundColor: '#2563eb', color: '#fff', border: 'none',
-                borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', gap: '6px'
-              }}
-            >
-              <Filter style={{ width: '12px', height: '12px' }} /> Filtrar
-            </button>
-          </div>
         </div>
       </div>
 
@@ -217,79 +232,53 @@ export default function ComparativoMateriais({ API_URL = 'http://localhost:3001/
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
           <thead>
             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
-              <th style={{ padding: '10px 12px' }}>Código</th>
               <th style={{ padding: '10px 12px' }}>Descrição do Material</th>
               <th style={{ padding: '10px 12px' }}>Un. Estoque</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0f9ff' }}>Qtd. Fat. Direto</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0f9ff' }}>Total Fat. Direto (R$)</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0fdf4' }}>Saldo Estoque</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0fdf4' }}>Total Estoque (R$)</th>
-              <th style={{ padding: '10px 12px', textAlign: 'center' }}>Proporção Direct/Estoque</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#fff7ed', color: '#c2410c' }}>QTD APONTADA</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0f9ff', color: '#0369a1' }}>QTD FAT. DIRETO</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0fdf4', color: '#15803d' }}>QTD ESTOQUE</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando comparativo...</td>
+                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando comparativo...</td>
               </tr>
             ) : materiaisFiltrados.length === 0 ? (
               <tr>
-                <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
-                  Nenhum material registrado no comparativo.
+                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                  Nenhum material com movimentação encontrado.
                 </td>
               </tr>
             ) : (
               materiaisFiltrados.map((mat) => {
-                const codigoMat = mat.codigo || '-';
                 const nomeMat = mat.nome || mat.descricao || 'Sem Descrição';
                 const unEstoque = mat.unidade_estoque || 'UN';
 
+                const qtdApontada = Number(mat.qtd_apontada || 0);
                 const qtdFatDireto = Number(mat.qtd_faturamento_direto || 0);
-                const valorFatDireto = Number(mat.valor_faturamento_direto || 0);
-
                 const saldoEstoque = Number(mat.saldo_estoque || 0);
-                const valorEstoque = Number(mat.valor_estoque || 0);
-
-                const totalGeral = qtdFatDireto + saldoEstoque;
-                const percFatDireto = totalGeral > 0 ? ((qtdFatDireto / totalGeral) * 100).toFixed(0) : 0;
-                const percEstoque = totalGeral > 0 ? ((saldoEstoque / totalGeral) * 100).toFixed(0) : 0;
 
                 return (
                   <tr key={`mat-comp-${mat.id || mat.material_id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#334155' }}>
-                      {codigoMat}
-                    </td>
                     <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>
                       {nomeMat}
                     </td>
                     <td style={{ padding: '10px 12px', color: '#64748b' }}>{unEstoque}</td>
 
-                    {/* DADOS FATURAMENTO DIRETO */}
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#0369a1', backgroundColor: '#f8fafc' }}>
+                    {/* QTD APONTADA (Laranja) */}
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#ea580c', backgroundColor: '#fff7ed' }}>
+                      {qtdApontada.toLocaleString('pt-BR')} {unEstoque}
+                    </td>
+
+                    {/* QTD FAT. DIRETO (Azul) */}
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#0284c7', backgroundColor: '#f0f9ff' }}>
                       {qtdFatDireto.toLocaleString('pt-BR')} {unEstoque}
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#0284c7', backgroundColor: '#f8fafc' }}>
-                      R$ {valorFatDireto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
 
-                    {/* DADOS ESTOQUE */}
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#15803d', backgroundColor: '#fcfdfc' }}>
+                    {/* QTD ESTOQUE (Verde) */}
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#16a34a', backgroundColor: '#f0fdf4' }}>
                       {saldoEstoque.toLocaleString('pt-BR')} {unEstoque}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#16a34a', backgroundColor: '#fcfdfc' }}>
-                      R$ {valorEstoque.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-
-                    {/* BARRAS PROPORCIONAIS DE BALANÇO */}
-                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
-                        <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#0284c7' }}>{percFatDireto}%</span>
-                        <div style={{ width: '60px', height: '6px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden', display: 'flex' }}>
-                          <div style={{ width: `${percFatDireto}%`, backgroundColor: '#0284c7' }} />
-                          <div style={{ width: `${percEstoque}%`, backgroundColor: '#16a34a' }} />
-                        </div>
-                        <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#16a34a' }}>{percEstoque}%</span>
-                      </div>
                     </td>
                   </tr>
                 );
