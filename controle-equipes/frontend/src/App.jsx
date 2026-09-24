@@ -44,7 +44,7 @@ import ComparativoMateriais from './assets/ComparativoMateriais';
 import CadastroAtividades from './assets/CadastroAtividades';
 
 const API_URL = 'http://localhost:3001/api';
-// const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
 
 export default function App() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
@@ -104,7 +104,7 @@ export default function App() {
       titulo: 'Campo & Produção',
       icone: HardHat,
       itens: [
-        { id: 'DASHBOARD_OBRA', label: 'Dashboard da Obra', icon: BarChart3, cargos: ['MASTER', 'GESTOR'] },  
+        { id: 'DASHBOARD_OBRA', label: 'Dashboard da Obra', icon: BarChart3, cargos: ['MASTER'] },  
         { id: 'EQUIPE', label: 'Agendamento de Obra', icon: CalendarX, cargos: ['MASTER', 'GESTOR'] },
         { id: 'DIARIO_TECNICO', label: 'Diário de Obra', icon: ClipboardList, cargos: ['MASTER', 'GESTOR'] },
         { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
@@ -121,12 +121,12 @@ export default function App() {
         { id: 'FATURAMENTO_DIRETO', label: 'Faturamento Direto', icon: FileText, cargos: ['ENGENHARIA', 'MASTER'] },
         { id: 'CADASTRO_MATERIAIS', label: 'Cadastrar Materiais', icon: Package, cargos: ['ENGENHARIA', 'MASTER'] },
         { id: 'CADASTRO_FORNECEDORES', label: 'Cadastrar Fornecedores', icon: Truck, cargos: ['ENGENHARIA', 'MASTER'] },
-        { id: 'BASE', label: 'Gerenciar Bases', icon: Building2, cargos: ['ENGENHARIA', 'MASTER'] },
-        { id: 'ESTOQUE', label: 'Estoque Saldos', icon: Boxes, cargos: ['ENGENHARIA', 'MASTER'] },
+        { id: 'BASE', label: 'Gerenciar Bases', icon: Building2, cargos: ['MASTER'] },
+        { id: 'ESTOQUE', label: 'Estoque Saldos', icon: Boxes, cargos: ['MASTER'] },
         { id: 'ESTOQUE_MOVIMENTACOES', label: 'Movimentações Estoque', icon: TrendingUp, cargos: ['MASTER'] },
-        { id: 'RELATORIO_COMPRAS', label: 'Relatório de Compras', icon: BarChart3, cargos: ['MASTER'] },
+        { id: 'RELATORIO_COMPRAS', label: 'Relatório de Compras', icon: BarChart3, cargos: ['MASTER', 'FINANCEIRO'] },
         { id: 'RELATORIO_MOVIMENTACAO', label: 'Relatório Movimentação', icon: TrendingUp, cargos: ['MASTER'] },
-        { id: 'COMPARATIVO_MATERIAIS', label: 'Comparativo de Materiais', icon: CheckCircle2, cargos: ['MASTER', 'ENGENHARIA', 'FINANCEIRO'] }
+        { id: 'COMPARATIVO_MATERIAIS', label: 'Comparativo de Materiais', icon: CheckCircle2, cargos: ['MASTER', 'FINANCEIRO'] }
       ]
     },
     {
@@ -134,11 +134,11 @@ export default function App() {
       titulo: 'Frota & Logística',
       icone: Car,
       itens: [
-        { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'RH'] },
-        { id: 'CADASTRO_ITENS_MANUTENCAO', label: 'Itens de Manutenção', icon: Wrench, cargos: ['MASTER', 'RH'] },
-        { id: 'MANUTENCAO_VEICULO', label: 'Manutenção de Veículos', icon: Wrench, cargos: ['MASTER', 'RH'] },
-        { id: 'RELATORIO_VEICULOS', label: 'Relatório de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
-        { id: 'RELATORIO_MANUTENCAO_VEICULOS', label: 'Relatório de Manutenção de Veículos', icon: FileText, cargos: ['MASTER', 'RH', 'GESTOR', 'ENGENHARIA'] },
+        { id: 'CADASTRO_VEICULO', label: 'Gerenciar Veículos', icon: Car, cargos: ['MASTER', 'FROTAS'] },
+        { id: 'CADASTRO_ITENS_MANUTENCAO', label: 'Itens de Manutenção', icon: Wrench, cargos: ['MASTER', 'FROTAS'] },
+        { id: 'MANUTENCAO_VEICULO', label: 'Manutenção de Veículos', icon: Wrench, cargos: ['MASTER', 'FROTAS'] },
+        { id: 'RELATORIO_VEICULOS', label: 'Relatório de Veículos', icon: FileText, cargos: ['MASTER', 'FROTAS', 'GESTOR'] },
+        { id: 'RELATORIO_MANUTENCAO_VEICULOS', label: 'Relatório de Manutenção de Veículos', icon: FileText, cargos: ['MASTER', 'FROTAS', 'FINANCEIRO'] },
       ]
     },
     {
@@ -157,8 +157,8 @@ export default function App() {
       titulo: 'Financeiro',
       icone: DollarSign,
       itens: [
-        { id: 'IMPORTAR_FINANCEIRO', label: 'Importar Conta Azul', icon: FileText, cargos: ['MASTER'] },
-        { id: 'RELATORIO_CUSTOS', label: 'Relatório de Custos', icon: BarChart3, cargos: ['MASTER'] },
+        { id: 'IMPORTAR_FINANCEIRO', label: 'Importar Conta Azul', icon: FileText, cargos: ['MASTER', 'FINANCEIRO'] },
+        { id: 'RELATORIO_CUSTOS', label: 'Relatório de Custos', icon: BarChart3, cargos: ['MASTER', 'FINANCEIRO'] },
         { id: 'FATURAS_PESSOA_FISICA', label: 'Faturas Pessoa Física', icon: FileText, cargos: ['MASTER', 'FINANCEIRO'] },
         { id: 'RELATORIO_PF', label: 'Relatório Pessoa Física', icon: FileText, cargos: ['MASTER', 'FINANCEIRO'] },
         { id: 'DASHBOARD_FINANCEIRO', label: 'Dashboard Financeiro', icon: BarChart3, cargos: ['MASTER', 'FINANCEIRO'] },
@@ -657,7 +657,7 @@ export default function App() {
             {abaAtiva === 'CADASTRO_FORNECEDORES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <CadastroFornecedores API_URL={API_URL} mostrarMensagem={mostrarMensagem} usuarioLogado={usuarioLogado} />
             )}
-            {abaAtiva === 'DASHBOARD_OBRA' && (
+            {abaAtiva === 'DASHBOARD_OBRA' && ['MASTER'].includes(usuarioLogado.cargo) && (
               <DashboardObra 
                 obrasDisponiveis={listaObrasBanco} 
                 usuarioLogado={usuarioLogado} 
@@ -668,18 +668,18 @@ export default function App() {
               <FaturamentoDireto API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
 
-            {abaAtiva === 'BASE' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'BASE' && ['MASTER'].includes(usuarioLogado.cargo) && (
               <Base API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
 
-            {abaAtiva === 'ESTOQUE' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'ESTOQUE' && ['MASTER'].includes(usuarioLogado.cargo) && (
               <EstoqueSaldos API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
 
-            {abaAtiva === 'ESTOQUE_MOVIMENTACOES' && usuarioLogado.cargo === 'MASTER' && (
+            {abaAtiva === 'ESTOQUE_MOVIMENTACOES' && ['MASTER'].includes(usuarioLogado.cargo) && (
               <EstoqueMovimentacoes API_URL={API_URL} mostrarMensagem={mostrarMensagem} usuarioLogado={usuarioLogado} />
             )}
-            {abaAtiva === 'RELATORIO_COMPRAS' && usuarioLogado.cargo === 'MASTER' && (
+            {abaAtiva === 'RELATORIO_COMPRAS' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <RelatorioCompras API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
             )}
             {abaAtiva === 'RELATORIO_MOVIMENTACAO' && usuarioLogado.cargo === 'MASTER' && (
@@ -692,25 +692,25 @@ export default function App() {
               <RelatorioManutencaoVeiculos usuarioLogado={usuarioLogado} />
             )}
             {abaAtiva === 'MANUTENCAO_VEICULO' && <ManutencaoVeiculo usuarioLogado={usuarioLogado} />}
-            {abaAtiva === 'IMPORTAR_FINANCEIRO' && usuarioLogado.cargo === 'MASTER' && (
+            {abaAtiva === 'IMPORTAR_FINANCEIRO'&& ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <ImportadorFinanceiro 
                 API_URL={API_URL} 
                 mostrarMensagem={mostrarMensagem} 
               />
             )}
-            {abaAtiva === 'RELATORIO_CUSTOS' && usuarioLogado.cargo === 'MASTER' && (
+            {abaAtiva === 'RELATORIO_CUSTOS' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <RelatorioCustos 
                 API_URL={API_URL} 
                 mostrarMensagem={mostrarMensagem} 
               />
             )}  
-            {abaAtiva === 'FATURAS_PESSOA_FISICA' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'FATURAS_PESSOA_FISICA' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <FaturasPessoaFisica 
                 API_URL={API_URL} 
                 mostrarMensagem={mostrarMensagem} 
               />
             )}
-           {abaAtiva === 'RELATORIO_PF' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+           {abaAtiva === 'RELATORIO_PF' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <RelatorioPF 
                 API_URL={API_URL} 
                 mostrarMensagem={mostrarMensagem} 
@@ -734,14 +734,14 @@ export default function App() {
                 usuarioLogado={usuarioLogado} 
               />
             )}
-            {abaAtiva === 'RELATORIO_VEICULOS' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'RELATORIO_VEICULOS' && ['MASTER', 'FROTAS'].includes(usuarioLogado.cargo) && (
               <RelatorioVeiculoUsados 
                 API_URL={API_URL}
                 mostrarMensagem={mostrarMensagem}
                 usuarioLogado={usuarioLogado}
               />
             )}
-            {abaAtiva === 'COMPARATIVO_MATERIAIS' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'COMPARATIVO_MATERIAIS' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <ComparativoMateriais 
                 API_URL={API_URL}
                 mostrarMensagem={mostrarMensagem}
