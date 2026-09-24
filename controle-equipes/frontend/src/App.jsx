@@ -40,6 +40,8 @@ import FaturasPessoaFisica from './assets/FaturasPessoaFisica';
 import RelatorioPF from './assets/RelatorioPF';
 import MeuPerfil from './assets/MeuPerfil';
 import DashboardFinanceiro from './assets/DashboardFinanceiro';
+import ComparativoMateriais from './assets/ComparativoMateriais';
+import CadastroAtividades from './assets/CadastroAtividades';
 
 const API_URL = 'http://localhost:3001/api';
 // const API_URL = 'https://api-controle-impacto.duckdns.org/api';
@@ -108,6 +110,7 @@ export default function App() {
         { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'DIAS_PENDENTES', label: 'Diários Pendentes', icon: CalendarX, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'HISTORICO_MATERIAIS', label: 'Histórico de Materiais', icon: TrendingUp, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
+        { id: 'CADASTRO_ATIVIDADES', label: 'Cadastro de Atividades', icon: FileText, cargos: ['ENGENHARIA', 'MASTER'] }
       ]
     },
     {
@@ -123,6 +126,7 @@ export default function App() {
         { id: 'ESTOQUE_MOVIMENTACOES', label: 'Movimentações Estoque', icon: TrendingUp, cargos: ['MASTER'] },
         { id: 'RELATORIO_COMPRAS', label: 'Relatório de Compras', icon: BarChart3, cargos: ['MASTER'] },
         { id: 'RELATORIO_MOVIMENTACAO', label: 'Relatório Movimentação', icon: TrendingUp, cargos: ['MASTER'] },
+        { id: 'COMPARATIVO_MATERIAIS', label: 'Comparativo de Materiais', icon: CheckCircle2, cargos: ['MASTER', 'ENGENHARIA', 'FINANCEIRO'] }
       ]
     },
     {
@@ -729,7 +733,28 @@ export default function App() {
                 mostrarMensagem={mostrarMensagem} 
                 usuarioLogado={usuarioLogado} 
               />
+            )}
+            {abaAtiva === 'RELATORIO_VEICULOS' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+              <RelatorioVeiculoUsados 
+                API_URL={API_URL}
+                mostrarMensagem={mostrarMensagem}
+                usuarioLogado={usuarioLogado}
+              />
+            )}
+            {abaAtiva === 'COMPARATIVO_MATERIAIS' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+              <ComparativoMateriais 
+                API_URL={API_URL}
+                mostrarMensagem={mostrarMensagem}
+                usuarioLogado={usuarioLogado}
+              />
             )}  
+            {abaAtiva == 'CADASTRO_ATIVIDADES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+              <CadastroAtividades 
+                API_URL={API_URL}
+                mostrarMensagem={mostrarMensagem}
+                usuarioLogado={usuarioLogado}
+              />
+            )}
           </div>  
         </main>
       </div>

@@ -409,10 +409,12 @@ router.get('/master/obras-todas', async (req, res) => {
 // 13. ROTAS DE MATERIAIS (CODIGO, DESCRICAO, UNIDADE_MEDIDA, TIPO)
 // ========================================================
 
-// 13-A. GET: Listar todos os materiais
 router.get('/materiais', async (req, res) => {
+  const { diario } = req.query;
+
   try {
-    const sql = `
+    // Se passar ?diario=true na URL, filtra por exibir_diario_obra = 1
+    let sql = `
       SELECT 
         m.id, 
         m.codigo, 
@@ -427,23 +429,34 @@ router.get('/materiais', async (req, res) => {
         m.quantidade_aplicada,
         m.unidade_aplicada,
         m.consumo_base,
+        m.exibir_diario_obra,
         m.unidade_consumo AS unidade_medida,
         GROUP_CONCAT(fm.id_fornecedor) AS fornecedores_ids
       FROM materiais m
       LEFT JOIN fornecedor_materiais fm ON m.id = fm.id_material
+    `;
+
+    if (diario === 'true') {
+      sql += ` WHERE m.exibir_diario_obra = 1 `;
+    }
+
+    sql += `
       GROUP BY 
         m.id, m.codigo, m.descricao, m.tipo, 
         m.unidade_estoque, m.unidade_consumo, m.unidade_orcamento, 
         m.fator_conversao_consumo, m.fator_conversao_orcamento,
-        m.tem_rendimento, m.quantidade_aplicada, m.unidade_aplicada, m.consumo_base
+        m.tem_rendimento, m.quantidade_aplicada, m.unidade_aplicada, m.consumo_base,
+        m.exibir_diario_obra
       ORDER BY m.descricao ASC
     `;
+
     const [rows] = await db.execute(sql);
-    
+
     const formatados = rows.map(mat => ({
       ...mat,
       tem_conversao: Number(mat.fator_conversao_consumo) > 1,
       tem_rendimento: Boolean(mat.tem_rendimento),
+      exibir_diario_obra: mat.exibir_diario_obra !== undefined ? Boolean(mat.exibir_diario_obra) : true,
       fornecedores_ids: mat.fornecedores_ids 
         ? mat.fornecedores_ids.split(',').map(Number) 
         : []
@@ -470,10 +483,11 @@ router.post('/materiais', async (req, res) => {
     tem_rendimento,
     quantidade_aplicada,
     unidade_aplicada,
-    consumo_base
+    consumo_base,
+    exibir_diario_obra
   } = req.body;
 
-  if (!descricao) {
+  if (!descricao || descricao.trim() === '') {
     return res.status(400).json({ error: 'A descrição é obrigatória.' });
   }
 
@@ -491,26 +505,27 @@ router.post('/materiais', async (req, res) => {
         tem_rendimento,
         quantidade_aplicada,
         unidade_aplicada,
-        consumo_base
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        consumo_base,
+        exibir_diario_obra
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     
     const codigoValido = codigo && codigo.trim() !== '' ? codigo.trim().toUpperCase() : null;
     const descMaiuscula = descricao.trim().toUpperCase();
-    const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
+    const tipoMaiusculo = tipo && tipo.trim() !== '' ? tipo.trim().toUpperCase() : 'HORIZONTAL';
     
-    const unEstoque = unidade_estoque ? unidade_estoque.trim().toUpperCase() : 'UN';
-    const unConsumo = unidade_consumo ? unidade_consumo.trim().toUpperCase() : 'UN';
-    const unOrcamento = unidade_orcamento ? unidade_orcamento.trim().toUpperCase() : unConsumo;
+    const unEstoque = unidade_estoque && unidade_estoque.trim() !== '' ? unidade_estoque.trim().toUpperCase() : 'UN';
+    const unConsumo = unidade_consumo && unidade_consumo.trim() !== '' ? unidade_consumo.trim().toUpperCase() : 'UN';
+    const unOrcamento = unidade_orcamento && unidade_orcamento.trim() !== '' ? unidade_orcamento.trim().toUpperCase() : unConsumo;
 
-    const fatorConsumo = parseFloat(fator_conversao_consumo) || 1;
-    const fatorOrcamento = parseFloat(fator_conversao_orcamento) || fatorConsumo;
+    const fatorConsumo = isNaN(parseFloat(fator_conversao_consumo)) ? 1 : parseFloat(fator_conversao_consumo);
+    const fatorOrcamento = isNaN(parseFloat(fator_conversao_orcamento)) ? fatorConsumo : parseFloat(fator_conversao_orcamento);
 
-    // Tratamento dos novos campos de Rendimento
     const temRend = tem_rendimento ? 1 : 0;
-    const qtdAplicada = parseFloat(quantidade_aplicada) || 1;
-    const unAplicada = unidade_aplicada ? unidade_aplicada.trim().toUpperCase() : null;
-    const consBase = parseFloat(consumo_base) || 1;
+    const qtdAplicada = isNaN(parseFloat(quantidade_aplicada)) ? 1 : parseFloat(quantidade_aplicada);
+    const unAplicada = unidade_aplicada && unidade_aplicada.trim() !== '' ? unidade_aplicada.trim().toUpperCase() : null;
+    const consBase = isNaN(parseFloat(consumo_base)) ? 1 : parseFloat(consumo_base);
+    const exibirDiario = exibir_diario_obra !== undefined ? (exibir_diario_obra ? 1 : 0) : 1;
 
     const [result] = await db.execute(sql, [
       codigoValido,
@@ -524,7 +539,8 @@ router.post('/materiais', async (req, res) => {
       temRend,
       qtdAplicada,
       unAplicada,
-      consBase
+      consBase,
+      exibirDiario
     ]);
 
     res.status(201).json({ success: true, message: 'Material cadastrado com sucesso!', id: result.insertId });
@@ -549,10 +565,15 @@ router.put('/materiais/:id', async (req, res) => {
     tem_rendimento,
     quantidade_aplicada,
     unidade_aplicada,
-    consumo_base
+    consumo_base,
+    exibir_diario_obra
   } = req.body;
 
-  if (!descricao) {
+  if (!id || isNaN(parseInt(id))) {
+    return res.status(400).json({ error: 'ID de material inválido.' });
+  }
+
+  if (!descricao || descricao.trim() === '') {
     return res.status(400).json({ error: 'A descrição é obrigatória.' });
   }
 
@@ -571,26 +592,27 @@ router.put('/materiais/:id', async (req, res) => {
         tem_rendimento = ?,
         quantidade_aplicada = ?,
         unidade_aplicada = ?,
-        consumo_base = ?
+        consumo_base = ?,
+        exibir_diario_obra = ?
       WHERE id = ?
     `;
     
     const codigoValido = codigo && codigo.trim() !== '' ? codigo.trim().toUpperCase() : null;
     const descMaiuscula = descricao.trim().toUpperCase();
-    const tipoMaiusculo = tipo ? tipo.trim().toUpperCase() : 'HORIZONTAL';
+    const tipoMaiusculo = tipo && tipo.trim() !== '' ? tipo.trim().toUpperCase() : 'HORIZONTAL';
     
-    const unEstoque = unidade_estoque ? unidade_estoque.trim().toUpperCase() : 'UN';
-    const unConsumo = unidade_consumo ? unidade_consumo.trim().toUpperCase() : 'UN';
-    const unOrcamento = unidade_orcamento ? unidade_orcamento.trim().toUpperCase() : unConsumo;
+    const unEstoque = unidade_estoque && unidade_estoque.trim() !== '' ? unidade_estoque.trim().toUpperCase() : 'UN';
+    const unConsumo = unidade_consumo && unidade_consumo.trim() !== '' ? unidade_consumo.trim().toUpperCase() : 'UN';
+    const unOrcamento = unidade_orcamento && unidade_orcamento.trim() !== '' ? unidade_orcamento.trim().toUpperCase() : unConsumo;
 
-    const fatorConsumo = parseFloat(fator_conversao_consumo) || 1;
-    const fatorOrcamento = parseFloat(fator_conversao_orcamento) || fatorConsumo;
+    const fatorConsumo = isNaN(parseFloat(fator_conversao_consumo)) ? 1 : parseFloat(fator_conversao_consumo);
+    const fatorOrcamento = isNaN(parseFloat(fator_conversao_orcamento)) ? fatorConsumo : parseFloat(fator_conversao_orcamento);
 
-    // Tratamento dos novos campos de Rendimento
     const temRend = tem_rendimento ? 1 : 0;
-    const qtdAplicada = parseFloat(quantidade_aplicada) || 1;
-    const unAplicada = unidade_aplicada ? unidade_aplicada.trim().toUpperCase() : null;
-    const consBase = parseFloat(consumo_base) || 1;
+    const qtdAplicada = isNaN(parseFloat(quantidade_aplicada)) ? 1 : parseFloat(quantidade_aplicada);
+    const unAplicada = unidade_aplicada && unidade_aplicada.trim() !== '' ? unidade_aplicada.trim().toUpperCase() : null;
+    const consBase = isNaN(parseFloat(consumo_base)) ? 1 : parseFloat(consumo_base);
+    const exibirDiario = exibir_diario_obra !== undefined ? (exibir_diario_obra ? 1 : 0) : 1;
 
     await db.execute(sql, [
       codigoValido,
@@ -605,6 +627,7 @@ router.put('/materiais/:id', async (req, res) => {
       qtdAplicada,
       unAplicada,
       consBase,
+      exibirDiario,
       parseInt(id)
     ]);
 
@@ -614,10 +637,13 @@ router.put('/materiais/:id', async (req, res) => {
     res.status(500).json({ error: 'Erro ao atualizar o material no banco de dados.' });
   }
 });
-
-// 13-D. DELETE: Excluir material (Permanece sem alterações)
+// 13-D. DELETE: Excluir material
 router.delete('/materiais/:id', async (req, res) => {
   const { id } = req.params;
+
+  if (!id || isNaN(parseInt(id))) {
+    return res.status(400).json({ error: 'ID de material inválido.' });
+  }
 
   try {
     const sql = 'DELETE FROM materiais WHERE id = ?';
@@ -629,7 +655,6 @@ router.delete('/materiais/:id', async (req, res) => {
     res.status(500).json({ error: 'Erro ao excluir o material. Verifique se ele não possui vínculos atrelados.' });
   }
 });
-
 // ========================================================
 // 14. ROTAS DE FORNECEDORES E VÍNCULOS DE MATERIAIS
 // ========================================================
@@ -1965,6 +1990,101 @@ router.get('/relatorios/compras-por-obra', async (req, res) => {
   } catch (error) {
     console.error("Erro no relatório por obra:", error);
     res.status(500).json({ error: "Erro ao gerar relatório por obra." });
+  }
+});
+
+// ========================================================
+// ROTAS DE CADASTRO DE ATIVIDADES (POST, GET, PUT, DELETE)
+// ========================================================
+
+// GET: Listar todas as atividades cadastradas
+router.get('/cadastro-atividades', async (req, res) => {
+  try {
+    const sql = `
+      SELECT id, categoria, descricao, unidade 
+      FROM cadastro_atividades 
+      ORDER BY descricao ASC
+    `;
+    const [rows] = await db.execute(sql);
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar atividades:', err);
+    res.status(500).json({ error: 'Erro ao carregar lista de atividades.' });
+  }
+});
+
+// POST: Cadastrar nova atividade
+router.post('/cadastro-atividades', async (req, res) => {
+  const { categoria, descricao, unidade_medida, tipo, unidade } = req.body;
+
+  if (!descricao) {
+    return res.status(400).json({ error: 'A descrição da atividade é obrigatória.' });
+  }
+
+  try {
+    const sql = `
+      INSERT INTO cadastro_atividades (categoria, descricao, unidade)
+      VALUES (?, ?, ?)
+    `;
+
+    const catValida = (categoria || tipo || 'HORIZONTAL').trim().toUpperCase();
+    const descValida = descricao.trim().toUpperCase();
+    const unValida = (unidade || unidade_medida || 'UN').trim().toUpperCase();
+
+    const [result] = await db.execute(sql, [catValida, descValida, unValida]);
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Atividade cadastrada com sucesso!', 
+      id: result.insertId 
+    });
+  } catch (err) {
+    console.error('Erro ao cadastrar atividade:', err);
+    res.status(500).json({ error: 'Erro ao salvar a atividade no banco de dados.' });
+  }
+});
+
+// PUT: Atualizar atividade existente
+router.put('/cadastro-atividades/:id', async (req, res) => {
+  const { id } = req.params;
+  const { categoria, descricao, unidade_medida, tipo, unidade } = req.body;
+
+  if (!descricao) {
+    return res.status(400).json({ error: 'A descrição da atividade é obrigatória.' });
+  }
+
+  try {
+    const sql = `
+      UPDATE cadastro_atividades 
+      SET categoria = ?, descricao = ?, unidade = ?
+      WHERE id = ?
+    `;
+
+    const catValida = (categoria || tipo || 'HORIZONTAL').trim().toUpperCase();
+    const descValida = descricao.trim().toUpperCase();
+    const unValida = (unidade || unidade_medida || 'UN').trim().toUpperCase();
+
+    await db.execute(sql, [catValida, descValida, unValida, parseInt(id)]);
+
+    res.json({ success: true, message: 'Atividade atualizada com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao atualizar atividade:', err);
+    res.status(500).json({ error: 'Erro ao atualizar a atividade no banco de dados.' });
+  }
+});
+
+// DELETE: Excluir atividade
+router.delete('/cadastro-atividades/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const sql = 'DELETE FROM cadastro_atividades WHERE id = ?';
+    await db.execute(sql, [parseInt(id)]);
+
+    res.json({ success: true, message: 'Atividade excluída com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao excluir atividade:', err);
+    res.status(500).json({ error: 'Erro ao excluir a atividade. Verifique se ela possui vínculos atrelados.' });
   }
 });
 

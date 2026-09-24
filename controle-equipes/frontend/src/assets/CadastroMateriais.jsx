@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Plus, Search, Edit2, Trash2, Download, CheckSquare, Square } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, Download, CheckSquare, Square, ToggleLeft, ToggleRight } from 'lucide-react';
 
 export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
   const [materiais, setMateriais] = useState([]);
@@ -25,19 +25,18 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
   const formInicial = {
     codigo: '',
     descricao: '',
-    unidade_medida: 'M',  // UNIDADE BASE DE CONSUMO/USO (Ex: Metro)
-    tipo: 'HORIZONTAL',    // TIPO / CATEGORIA
+    unidade_medida: 'M',
+    tipo: 'HORIZONTAL',
+    exibir_diario_obra: true,
 
-    // CONDICIONAL 1: Embalagem de Entrada / Compra vs Estoque
     tem_conversao: false,
     valor_capacidade: 1,
     unidade_embalagem: 'ROLO',
 
-    // CONDICIONAL 2: Rendimento / Capacidade de Aplicação (Placa / Metro)
     tem_rendimento: false,
     quantidade_aplicada: 1,
     unidade_aplicada: 'PLACA',
-    consumo_base: 1 // Qtd da unidade_medida gasta por aplicação
+    consumo_base: 1
   };
 
   const [form, setForm] = useState(formInicial);
@@ -56,6 +55,40 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
     }
   };
 
+  // FUNÇÃO PARA ALTERNAR A FLAG DIRETAMENTE PELA TABELA
+  const handleToggleDiario = async (mat) => {
+    const novoStatus = !mat.exibir_diario_obra;
+
+    // Atualização otimista na tela
+    setMateriais(prev => prev.map(m => m.id === mat.id ? { ...m, exibir_diario_obra: novoStatus } : m));
+
+    try {
+      const payload = {
+        codigo: mat.codigo,
+        descricao: mat.descricao,
+        tipo: mat.tipo,
+        unidade_medida: mat.unidade_medida || mat.unidade_consumo,
+        exibir_diario_obra: novoStatus ? 1 : 0,
+        unidade_estoque: mat.unidade_estoque || mat.unidade_medida,
+        unidade_consumo: mat.unidade_consumo || mat.unidade_medida,
+        unidade_orcamento: mat.unidade_orcamento || mat.unidade_medida,
+        fator_conversao_consumo: mat.fator_conversao_consumo || 1,
+        tem_conversao: mat.tem_conversao ? 1 : 0,
+        tem_rendimento: mat.tem_rendimento ? 1 : 0,
+        unidade_aplicada: mat.unidade_aplicada || mat.unidade_medida,
+        quantidade_aplicada: mat.quantidade_aplicada || 1,
+        consumo_base: mat.consumo_base || 1
+      };
+
+      await axios.put(`${API_URL}/materiais/${mat.id}`, payload);
+      mostrarMensagem(`Visibilidade no Diário alterada com sucesso!`, 'sucesso');
+    } catch (e) {
+      console.error("Erro ao alterar exibição no Diário:", e);
+      mostrarMensagem('Erro ao atualizar status do Diário.', 'erro');
+      carregarMateriais(); // Reverte em caso de falha
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.descricao) return mostrarMensagem('Informe a descrição do material.', 'erro');
@@ -66,15 +99,14 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
         descricao: form.descricao,
         tipo: form.tipo,
         unidade_medida: form.unidade_medida,
+        exibir_diario_obra: form.exibir_diario_obra ? 1 : 0,
         
-        // Dados de Embalagem/Entrada
         unidade_estoque: form.tem_conversao ? form.unidade_embalagem : form.unidade_medida,
         unidade_consumo: form.unidade_medida,
         unidade_orcamento: form.unidade_medida,
         fator_conversao_consumo: form.tem_conversao ? (parseFloat(form.valor_capacidade) || 1) : 1,
         tem_conversao: form.tem_conversao ? 1 : 0,
 
-        // Dados de Rendimento / Capacidade (Placa/Metro)
         tem_rendimento: form.tem_rendimento ? 1 : 0,
         unidade_aplicada: form.tem_rendimento ? form.unidade_aplicada : form.unidade_medida,
         quantidade_aplicada: form.tem_rendimento ? (parseFloat(form.quantidade_aplicada) || 1) : 1,
@@ -108,6 +140,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
       descricao: mat.descricao || '',
       unidade_medida: mat.unidade_medida || mat.unidade_consumo || 'M',
       tipo: mat.tipo || 'HORIZONTAL',
+      exibir_diario_obra: mat.exibir_diario_obra !== undefined ? Boolean(mat.exibir_diario_obra) : true,
       
       tem_conversao: possuiConversao,
       valor_capacidade: mat.fator_conversao_consumo || 1,
@@ -140,7 +173,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
     }
 
     let csvContent = 'data:text/csv;charset=utf-8,\uFEFF';
-    csvContent += 'CODIGO;DESCRICAO;TIPO;UNIDADE_RDO;EMBALAGEM_ENTRADA;RENDIMENTO_CAPACIDADE\n';
+    csvContent += 'CODIGO;DESCRICAO;TIPO;LIBERADO_DIARIO;UNIDADE_RDO;EMBALAGEM_ENTRADA;RENDIMENTO_CAPACIDADE\n';
 
     materiaisFiltrados.forEach((m) => {
       const temConv = Boolean(m.tem_conversao || (m.fator_conversao_consumo && m.fator_conversao_consumo > 1));
@@ -151,8 +184,9 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
 
       const embStr = temConv ? `${fator} ${unMedida} / ${unEstoque}` : `1 ${unMedida}`;
       const rendStr = temRend ? `${m.quantidade_aplicada} ${m.unidade_aplicada} = ${m.consumo_base} ${unMedida}` : '-';
+      const liberadoStr = m.exibir_diario_obra ? 'SIM' : 'NÃO';
 
-      const linha = `"${m.codigo || ''}";"${m.descricao || ''}";"${m.tipo || ''}";"${unMedida}";"${embStr}";"${rendStr}"`;
+      const linha = `"${m.codigo || ''}";"${m.descricao || ''}";"${m.tipo || ''}";"${liberadoStr}";"${unMedida}";"${embStr}";"${rendStr}"`;
       csvContent += linha + '\n';
     });
 
@@ -184,7 +218,6 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           
-          {/* CAMPOS PRINCIPAIS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
             
             <div>
@@ -236,6 +269,24 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
               </select>
             </div>
 
+          </div>
+
+          {/* CHECKBOX DO FORMULÁRIO */}
+          <div style={{ backgroundColor: '#eff6ff', padding: '10px 12px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e40af' }}>
+              <input 
+                type="checkbox" 
+                checked={form.exibir_diario_obra} 
+                onChange={e => setForm({ ...form, exibir_diario_obra: e.target.checked })}
+                style={{ display: 'none' }}
+              />
+              {form.exibir_diario_obra ? (
+                <CheckSquare style={{ width: '18px', height: '18px', color: '#2563eb' }} />
+              ) : (
+                <Square style={{ width: '18px', height: '18px', color: '#93c5fd' }} />
+              )}
+              <span>Disponibilizar e listar este material na tela do Diário de Obra Técnico?</span>
+            </label>
           </div>
 
           {/* CHECKBOX 1: COMPRA / EMBALAGEM vs USO */}
@@ -290,80 +341,75 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
           </div>
 
           {/* CHECKBOX 2: CAPACIDADE DE USO / RENDIMENTO APLICADO */}
-<div style={{ backgroundColor: '#f0fdf4', padding: '10px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#166534' }}>
-    <input 
-      type="checkbox" 
-      checked={form.tem_rendimento} 
-      onChange={e => setForm({ ...form, tem_rendimento: e.target.checked })}
-      style={{ display: 'none' }}
-    />
-    {form.tem_rendimento ? (
-      <CheckSquare style={{ width: '18px', height: '18px', color: '#16a34a' }} />
-    ) : (
-      <Square style={{ width: '18px', height: '18px', color: '#86efac' }} />
-    )}
-    <span>Este material possui uma capacidade de rendimento por aplicação (Ex: Placa por Metro / Metro por Peça)?</span>
-  </label>
+          <div style={{ backgroundColor: '#f0fdf4', padding: '10px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#166534' }}>
+              <input 
+                type="checkbox" 
+                checked={form.tem_rendimento} 
+                onChange={e => setForm({ ...form, tem_rendimento: e.target.checked })}
+                style={{ display: 'none' }}
+              />
+              {form.tem_rendimento ? (
+                <CheckSquare style={{ width: '18px', height: '18px', color: '#16a34a' }} />
+              ) : (
+                <Square style={{ width: '18px', height: '18px', color: '#86efac' }} />
+              )}
+              <span>Este material possui uma capacidade de rendimento por aplicação (Ex: Placa por Metro / Metro por Peça)?</span>
+            </label>
 
-  {form.tem_rendimento && (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end', marginTop: '4px', paddingTop: '8px', borderTop: '1px dashed #86efac' }}>
-      
-      {/* 1º CAMPO: CONSUMO BASE */}
-      <div>
-        <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#14532d', display: 'block', marginBottom: '4px' }}>
-          CONSUMO BASE ({form.unidade_medida})
-        </label>
-        <input 
-          type="number" 
-          step="0.0001"
-          placeholder="Ex: 2.5" 
-          value={form.consumo_base} 
-          onChange={e => setForm({ ...form, consumo_base: e.target.value })}
-          style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #16a34a', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', fontWeight: 'bold' }}
-        />
-      </div>
+            {form.tem_rendimento && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end', marginTop: '4px', paddingTop: '8px', borderTop: '1px dashed #86efac' }}>
+                
+                <div>
+                  <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#14532d', display: 'block', marginBottom: '4px' }}>
+                    CONSUMO BASE ({form.unidade_medida})
+                  </label>
+                  <input 
+                    type="number" 
+                    step="0.0001"
+                    placeholder="Ex: 2.5" 
+                    value={form.consumo_base} 
+                    onChange={e => setForm({ ...form, consumo_base: e.target.value })}
+                    style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #16a34a', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', fontWeight: 'bold' }}
+                  />
+                </div>
 
-      {/* 2º CAMPO: UNIDADE APLICADA */}
-      <div>
-        <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#14532d', display: 'block', marginBottom: '4px' }}>
-          UNIDADE APLICADA / ESTRUTURA
-        </label>
-        <select 
-          value={form.unidade_aplicada} 
-          onChange={e => setForm({ ...form, unidade_aplicada: e.target.value })}
-          style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #16a34a', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', fontWeight: 'bold' }}
-        >
-          {opcoesUnidades.map(op => (
-            <option key={`rend-${op.value}`} value={op.value}>{op.label}</option>
-          ))}
-        </select>
-      </div>
+                <div>
+                  <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#14532d', display: 'block', marginBottom: '4px' }}>
+                    UNIDADE APLICADA / ESTRUTURA
+                  </label>
+                  <select 
+                    value={form.unidade_aplicada} 
+                    onChange={e => setForm({ ...form, unidade_aplicada: e.target.value })}
+                    style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #16a34a', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', fontWeight: 'bold' }}
+                  >
+                    {opcoesUnidades.map(op => (
+                      <option key={`rend-${op.value}`} value={op.value}>{op.label}</option>
+                    ))}
+                  </select>
+                </div>
 
-      {/* 3º CAMPO: QTD APLICADA / RENDIMENTO */}
-      <div>
-        <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#14532d', display: 'block', marginBottom: '4px' }}>
-          QTD APLICADA / RENDIMENTO
-        </label>
-        <input 
-          type="number" 
-          step="0.0001"
-          placeholder="Ex: 1" 
-          value={form.quantidade_aplicada} 
-          onChange={e => setForm({ ...form, quantidade_aplicada: e.target.value })}
-          style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #16a34a', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', fontWeight: 'bold' }}
-        />
-      </div>
+                <div>
+                  <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#14532d', display: 'block', marginBottom: '4px' }}>
+                    QTD APLICADA / RENDIMENTO
+                  </label>
+                  <input 
+                    type="number" 
+                    step="0.0001"
+                    placeholder="Ex: 1" 
+                    value={form.quantidade_aplicada} 
+                    onChange={e => setForm({ ...form, quantidade_aplicada: e.target.value })}
+                    style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #16a34a', borderRadius: '4px', fontSize: '11px', boxSizing: 'border-box', backgroundColor: '#ffffff', fontWeight: 'bold' }}
+                  />
+                </div>
 
-      {/* TEXTO DE AJUDA COM A ORDEM INVERTIDA */}
-      <div style={{ fontSize: '10px', color: '#14532d', backgroundColor: '#dcfce7', padding: '6px 10px', borderRadius: '4px', lineHeight: '1.3' }}>
-        <strong>Regra de Produção:</strong> Consome-se <strong>{form.consumo_base || 1} {form.unidade_medida}</strong> para produzir/render <strong>{form.quantidade_aplicada || 1} {form.unidade_aplicada}</strong>.
-      </div>
-    </div>
-  )}
-</div>
+                <div style={{ fontSize: '10px', color: '#14532d', backgroundColor: '#dcfce7', padding: '6px 10px', borderRadius: '4px', lineHeight: '1.3' }}>
+                  <strong>Regra de Produção:</strong> Consome-se <strong>{form.consumo_base || 1} {form.unidade_medida}</strong> para produzir/render <strong>{form.quantidade_aplicada || 1} {form.unidade_aplicada}</strong>.
+                </div>
+              </div>
+            )}
+          </div>
 
-          {/* BOTÕES DE AÇÃO */}
           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             {editandoId && (
               <button type="button" onClick={() => { setEditandoId(null); setForm(formInicial); }} style={{ height: '32px', padding: '0 16px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>
@@ -419,14 +465,15 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
           </div>
         </div>
 
-        {/* TABELA COM A COLUNA TIPO DE VOLTA */}
+        {/* TABELA COM TOGGLE INTERATIVO NA COLUNA "NO DIÁRIO?" */}
         <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '4px', width: '100%' }}>
-          <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+          <table style={{ width: '100%', minWidth: '950px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                 <th style={{ padding: '8px 12px' }}>Código</th>
                 <th style={{ padding: '8px 12px' }}>Descrição</th>
                 <th style={{ padding: '8px 12px' }}>Tipo / Categoria</th>
+                <th style={{ padding: '8px 12px', textAlign: 'center' }}>No Diário?</th>
                 <th style={{ padding: '8px 12px' }}>Unidade RDO</th>
                 <th style={{ padding: '8px 12px' }}>Embalagem Entrada</th>
                 <th style={{ padding: '8px 12px' }}>Capacidade / Rendimento</th>
@@ -436,7 +483,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
             <tbody>
               {materiaisFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan="7" style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>Nenhum material encontrado.</td>
+                  <td colSpan="8" style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>Nenhum material encontrado.</td>
                 </tr>
               ) : (
                 materiaisFiltrados.map((mat) => {
@@ -444,6 +491,7 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
                   const temRend = Boolean(mat.tem_rendimento);
                   const unMedida = mat.unidade_medida || mat.unidade_consumo || 'M';
                   const unEstoque = mat.unidade_estoque || unMedida;
+                  const liberadoDiario = mat.exibir_diario_obra !== undefined ? Boolean(mat.exibir_diario_obra) : true;
 
                   return (
                     <tr key={mat.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -454,6 +502,43 @@ export default function CadastroMateriais({ API_URL, mostrarMensagem }) {
                           {mat.tipo || 'HORIZONTAL'}
                         </span>
                       </td>
+
+                      {/* BOTÃO TOGGLE INTERATIVO DIRETO NA TABELA */}
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDiario(mat)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontWeight: 'bold',
+                            fontSize: '10px',
+                            backgroundColor: liberadoDiario ? '#dcfce7' : '#fee2e2',
+                            color: liberadoDiario ? '#15803d' : '#b91c1c',
+                            transition: 'all 0.2s'
+                          }}
+                          title={liberadoDiario ? 'Clique para remover do Diário de Obra' : 'Clique para exibir no Diário de Obra'}
+                        >
+                          {liberadoDiario ? (
+                            <>
+                              <ToggleRight style={{ width: '18px', height: '18px', color: '#16a34a' }} />
+                              <span>SIM</span>
+                            </>
+                          ) : (
+                            <>
+                              <ToggleLeft style={{ width: '18px', height: '18px', color: '#dc2626' }} />
+                              <span>NÃO</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+
                       <td style={{ padding: '8px 12px', fontWeight: 'bold', color: '#16a34a' }}>{unMedida}</td>
                       <td style={{ padding: '8px 12px' }}>
                         {temConv ? (

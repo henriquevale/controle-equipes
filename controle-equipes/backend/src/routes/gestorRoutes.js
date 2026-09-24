@@ -481,32 +481,38 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 4. Grava Atividades Executadas
+    // 4. Grava Atividades Executadas (agora incluindo id_atividade)
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
-      const sqlAtividade = `INSERT INTO diario_atividades (id_diario, tipo_servico, quantidade) VALUES (?, ?, ?)`;
+      const sqlAtividade = `INSERT INTO diario_atividades (id_diario, id_atividade, tipo_servico, quantidade) VALUES (?, ?, ?, ?)`;
       for (const l of atividades_tachas) {
         const nomeServico = l.tipo_servico || l.tipoServico || l.servico || l.atividade;
         if (!nomeServico) continue;
         
+        const idAtividadeValido = l.id_atividade || l.idAtividade || null;
+
         await connection.execute(sqlAtividade, [
           diarioId, 
+          idAtividadeValido ? parseInt(idAtividadeValido) : null,
           String(nomeServico).trim(), 
           parseFloat(l.quantidade) || 0.00
         ]);
       }
     }
 
-    // 5. Grava Materiais Apontados
+    // 5. Grava Materiais Apontados (agora incluindo id_material)
     await connection.execute('DELETE FROM diario_materiais_apontados WHERE id_diario = ?', [diarioId]);
     if (materials_apontados && materials_apontados.length > 0) {
-      const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, material_nome, quantidade) VALUES (?, ?, ?)`;
+      const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, id_material, material_nome, quantidade) VALUES (?, ?, ?, ?)`;
       for (const m of materials_apontados) {
         const materialNome = m.material || m.nome;
         if (!materialNome) continue; 
         
+        const idMaterialValido = m.id_material || m.idMaterial || null;
+
         await connection.execute(sqlMaterial, [
           diarioId, 
+          idMaterialValido ? parseInt(idMaterialValido) : null,
           String(materialNome).trim(), 
           parseFloat(m.quantidade) || 0.00
         ]);
@@ -598,15 +604,17 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
     `;
     const [efetivoRows] = await db.execute(sqlEfetivo, [diarioId]);
 
+    // Busca Atividades incluindo o id_atividade
     const sqlAtividades = `
-      SELECT tipo_servico as tipoServico, quantidade 
+      SELECT id_atividade, tipo_servico as tipoServico, quantidade 
       FROM diario_atividades 
       WHERE id_diario = ?
     `;
     const [atividadesRows] = await db.execute(sqlAtividades, [diarioId]);
 
+    // Busca Materiais incluindo o id_material
     const sqlMateriais = `
-      SELECT material_nome as material, quantidade 
+      SELECT id_material, material_nome as material, quantidade 
       FROM diario_materiais_apontados 
       WHERE id_diario = ?
     `;
@@ -1599,5 +1607,24 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
   }
 });
 
-
+// GET exclusivo para listagens operacionais (ex: Diário de Obra)
+router.get('/materiais/diario-obra', async (req, res) => {
+  try {
+    const sql = `
+      SELECT 
+        id, 
+        codigo, 
+        descricao, 
+        unidade_consumo AS unidade_medida
+      FROM materiais 
+      WHERE exibir_diario_obra = 1 
+      ORDER BY descricao ASC
+    `;
+    const [rows] = await db.execute(sql);
+    res.json(rows);
+  } catch (err) {
+    console.error('Erro ao buscar materiais para o Diário de Obra:', err);
+    res.status(500).json({ error: 'Erro ao carregar materiais do diário.' });
+  }
+});
 export default router;

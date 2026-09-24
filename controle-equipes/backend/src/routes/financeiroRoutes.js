@@ -788,12 +788,13 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
       data_fim, 
       periodo_preset, 
       categoria_id, 
-      obra_id 
+      obra_id,       // Mantido para compatibilidade anterior
+      tipo_destino,  // 'OBRA' ou 'CENTRO_CUSTO'
+      destino_id 
     } = req.query;
 
     let whereFin = ['1=1'];
     let whereFat = ['1=1'];
-    // CÓDIGO CORRIGIDO:
     let whereFD  = [
       "fd.status IN ('NF recebida e em estoque', 'Concluído')",
       "fd.status NOT IN ('CANCELADO', 'EXCLUIDO', 'DELETADO')"
@@ -803,27 +804,46 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
     let paramsFat = [];
     let paramsFD  = [];
 
-    if (categoria_id) {
+    // Função auxiliar para verificar parâmetros válidos
+    const ehValido = (val) => val && val !== '' && val !== 'null' && val !== 'undefined' && val !== '0';
+
+    // 1. Filtro por Categoria
+    if (ehValido(categoria_id)) {
       whereFin.push('lf.categoria_id = ?');
-      paramsFin.push(categoria_id);
+      paramsFin.push(Number(categoria_id));
 
       whereFat.push('f.categoria_id = ?');
-      paramsFat.push(categoria_id);
+      paramsFat.push(Number(categoria_id));
       
-      // Faturamentos Diretos caem como categoria única 'F.D', então ao filtrar por categoria_id de tabela, ele zera a menos que seja intencional
+      // Faturamentos Diretos não têm categoria_id individual; se filtrar por categoria, ZERA os FDs
+      whereFD.push('1 = 0');
     }
 
-    if (obra_id) {
+    // 2. Filtro por Destino (Obra ou Centro de Custo)
+    const idObraFinal = ehValido(obra_id) ? obra_id : (tipo_destino === 'OBRA' && ehValido(destino_id) ? destino_id : null);
+    const idCentroCustoFinal = (tipo_destino === 'CENTRO_CUSTO' && ehValido(destino_id)) ? destino_id : null;
+
+    if (idObraFinal) {
       whereFin.push('lf.obra_id = ?');
-      paramsFin.push(obra_id);
+      paramsFin.push(Number(idObraFinal));
 
       whereFat.push('f.obra_id = ?');
-      paramsFat.push(obra_id);
+      paramsFat.push(Number(idObraFinal));
 
       whereFD.push('fd.obra_id = ?');
-      paramsFD.push(obra_id);
+      paramsFD.push(Number(idObraFinal));
+    } else if (idCentroCustoFinal) {
+      whereFin.push('lf.centro_custo_id = ?');
+      paramsFin.push(Number(idCentroCustoFinal));
+
+      whereFat.push('f.centro_custo_id = ?');
+      paramsFat.push(Number(idCentroCustoFinal));
+
+      // Faturamentos Diretos pertencem diretamente a Obras, portanto zeramos no filtro por Centro de Custo
+      whereFD.push('1 = 0');
     }
 
+    // 3. Trata Datas (Preset ou Período Personalizado)
     let inicio = data_inicio;
     let fim = data_fim;
 
@@ -838,7 +858,7 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
       inicio = dInicio.toISOString().split('T')[0];
     }
 
-    if (inicio && fim) {
+    if (ehValido(inicio) && ehValido(fim)) {
       whereFin.push('lf.data_movimento BETWEEN ? AND ?');
       paramsFin.push(inicio, fim);
 
@@ -853,7 +873,7 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
     const stringFat = whereFat.join(' AND ');
     const stringFD  = whereFD.join(' AND ');
 
-    // 1. Totalizadores Rápidos
+    // 1. Totalizadores
     const sqlResumoFin = `
       SELECT 
         SUM(CASE WHEN lf.tipo = 'RECEITA' THEN lf.valor ELSE 0 END) AS total_receitas,
@@ -881,7 +901,7 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
     `;
     const [resumoFD] = await db.query(sqlResumoFD, paramsFD);
 
-    // 2. Gráfico Consolidado (Unificando LF, Faturas PF e Faturamento Direto)
+    // 2. Gráfico Consolidado
     const sqlGraficoUnificado = `
       SELECT 
         mes_ano,
@@ -935,7 +955,7 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
     `;
     const [graficoUnificado] = await db.query(sqlGraficoUnificado, [...paramsFin, ...paramsFat, ...paramsFD]);
 
-    // 3. TABELA DE CATEGORIAS (Agrupada)
+    // 3. Tabela por Categorias
     const sqlTabelaCategorias = `
       SELECT 
         categoria_nome,
@@ -1011,7 +1031,6 @@ router.get('/financeiro/dashboard-geral', async (req, res) => {
     const totalFaturasNegativas = totalFaturasBruto > 0 ? -Math.abs(totalFaturasBruto) : totalFaturasBruto;
     const totalFDNegativo = totalFDBruto > 0 ? -Math.abs(totalFDBruto) : totalFDBruto;
 
-    // Saídas incluem Despesas + Faturas PF + Faturamento Direto
     const totalSaidas = totalDespesas + totalFaturasNegativas + totalFDNegativo;
     const saldoGeral = totalReceitas + totalSaidas;
 

@@ -17,11 +17,15 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [categoriaId, setCategoriaId] = useState('');
-  const [obraId, setObraId] = useState('');
+  
+  // Filtro Unificado Destino (Obra / Centro de Custo)
+  const [tipoDestino, setTipoDestino] = useState(''); // 'OBRA' ou 'CENTRO_CUSTO'
+  const [destinoId, setDestinoId] = useState('');
 
   // Opções dos selects
   const [categorias, setCategorias] = useState([]);
   const [obras, setObras] = useState([]);
+  const [centrosCusto, setCentrosCusto] = useState([]);
 
   // Dados unificados
   const [dados, setDados] = useState(null);
@@ -37,16 +41,17 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
 
   useEffect(() => {
     carregarDashboard();
-  }, [preset, categoriaId, obraId, dataInicio, dataFim]);
+  }, [preset, categoriaId, tipoDestino, destinoId, dataInicio, dataFim]);
 
   const carregarFiltros = async () => {
     try {
-      const [resCat, resObras] = await Promise.all([
+      const [resCat, resDestinos] = await Promise.all([
         axios.get(`${API_URL}/categorias-financeiras`),
-        axios.get(`${API_URL}/faturas-pessoa-fisica-obras`)
+        axios.get(`${API_URL}/financeiro/centros-custo-obras`)
       ]);
       setCategorias(resCat.data || []);
-      setObras(resObras.data || []);
+      setCentrosCusto(resDestinos.data.centrosCusto || []);
+      setObras(resDestinos.data.obras || []);
     } catch (err) {
       console.error("Erro ao carregar filtros do dashboard:", err);
     }
@@ -64,7 +69,8 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
       }
 
       if (categoriaId) params.append('categoria_id', categoriaId);
-      if (obraId) params.append('obra_id', obraId);
+      if (tipoDestino) params.append('tipo_destino', tipoDestino);
+      if (destinoId) params.append('destino_id', destinoId);
 
       // Adiciona parâmetro com timestamp _t para evitar cache do navegador/proxy
       params.append('_t', Date.now().toString());
@@ -183,15 +189,35 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
             </select>
           </div>
 
+          {/* Filtro Obra / Centro Custo */}
           <div>
-            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Obra</label>
-            <select value={obraId} onChange={(e) => setObraId(e.target.value)} style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}>
-              <option value="">-- Todas as Obras --</option>
-              {obras.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.nome_obra || o.nome}
-                </option>
-              ))}
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Destino (Obra / Centro)</label>
+            <select
+              value={tipoDestino ? `${tipoDestino}:${destinoId}` : ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val) {
+                  setTipoDestino('');
+                  setDestinoId('');
+                } else {
+                  const [tipo, id] = val.split(':');
+                  setTipoDestino(tipo);
+                  setDestinoId(id);
+                }
+              }}
+              style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 8px', fontSize: '12px' }}
+            >
+              <option value="">-- Todos os Destinos --</option>
+              <optgroup label="Obras">
+                {obras.map((o) => (
+                  <option key={`OBRA:${o.id}`} value={`OBRA:${o.id}`}>🏗️ {o.nome_obra || o.nome}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Centros de Custo">
+                {centrosCusto.map((c) => (
+                  <option key={`CENTRO_CUSTO:${c.id}`} value={`CENTRO_CUSTO:${c.id}`}>🏢 {c.nome}</option>
+                ))}
+              </optgroup>
             </select>
           </div>
 
@@ -261,8 +287,8 @@ export default function DashboardGeral({ API_URL, mostrarMensagem }) {
               </p>
             </div>
 
-            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: `4px solid ${dados.resumoGeral?.saldo_geral >= 0 ? '#2563eb' : '#ef4444'}` }}>
-              <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold' }}>SALDO CONSOLIDADO</span>
+            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', borderLeft: `4px solid ${dados.resumoGeral?.saldo_geral >= 0 ? '#166534' : '#ef4444'}` }}>
+              <span style={{ fontSize: '11px', color: '#166534', fontWeight: 'bold' }}>SALDO CONSOLIDADO</span>
               <p style={{ margin: '4px 0 0 0', fontSize: '18px', fontWeight: 'bold', color: obterCorValor(dados.resumoGeral?.saldo_geral) }}>
                 {formatarMoeda(dados.resumoGeral?.saldo_geral)}
               </p>

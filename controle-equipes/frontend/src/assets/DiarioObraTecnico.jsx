@@ -6,52 +6,14 @@ import autoTable from 'jspdf-autotable';
 
 const API_URL = 'http://localhost:3001/api';
 
-const SERVICOS_PADRONIZADOS = [
-  "REMOÇÃO DE TACHA (UN)",
-  "IMPLANTAÇÃO DE TACHA (UN)",
-  "PINTURA MECÂNICA (M²)",
-  "PINTURA MANUAL (M²)",
-  "TERMOPLÁSTICO (M²)",
-  "PLÁSTICO A FRIO (M²)",
-  "IMPLANTAÇÃO DEFENSA (UN)",
-  "IMPLANTAÇÃO TAE UN (UN)",
-  "IMPLANTAÇÃO DE TACHÃO (UN)",
-  "IMPLANTAÇÃO TERMINAL AÉREO (UN)",
-  "FRESAGEM (M²)",
-  "REMOÇÃO PLACA SOLO (UN)",
-  "IMPLANTAR PLACA SOLO (UN)",
-  "REMOÇÃO PLACA AÉREA (UN)",
-  "IMPLANTAR PLACA AÉREA (UN)",
-  "IMPLANTAR  PÓRTICO (UN)"
-];
-
-const MATERIAIS_PADRONIZADOS = [
-  "TACHA MONODIRECIONAL (UN)",
-  "TACHA BIDIRECIONAL (UN)",
-  "TACHÃO MONODIRECIONAL (UN)",
-  "TACHÃO BIDIRECIONAL (UN)",
-  "TINTA DE DEMARCAÇÃO VIÁRIA - BRANCA (GL)",
-  "TINTA DE DEMARCAÇÃO VIÁRIA - AMARELA (GL)",
-  "MICROESFERA DE VIDRO - PREMIX (KG)",
-  "MICROESFERA DE VIDRO - DROP-ON (KG)",
-  "SOLVENTE PARA TINTA (L)",
-  "PLÁSTICO A FRIO - RESINA (KG)",
-  "TERMOPLÁSTICO (KG)",
-  "DEFENSA METÁLICA (M)",
-  "TAE (UN)",
-  "POSTE PARA DEFENSA (UN)",
-  "PLACA SOLO (UN)",
-  "PLACA AÉREA (UN)",
-  "PÓRTICO (UN)",
-  "SEMI/PÓRTICO (UN)"
-];
-
 export default function DiarioObraTecnico({ usuarioLogado }) {
   const [dataDiario, setDataDiario] = useState(new Date().toISOString().split('T')[0]);
   const [idObraSelecionada, setIdObraSelecionada] = useState('');
   const [obraDadosCompletos, setObraDadosCompletos] = useState(null);
   
   const [obrasDoGestor, setObrasDoGestor] = useState([]);
+  const [listaAtividadesCadastradas, setListaAtividadesCadastradas] = useState([]);
+  const [listaMateriaisCadastrados, setListaMateriaisCadastrados] = useState([]);
   const [termoBuscaObra, setTermoBuscaObra] = useState('');
   const [obrasFiltradasExcel, setObrasFiltradasExcel] = useState([]);
   const [mostrarGridExcelObra, setMostrarGridExcelObra] = useState(false);
@@ -81,6 +43,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
   useEffect(() => {
     carregarObrasIniciais();
+    carregarCadastroAtividades();
+    carregarCadastroMateriais();
   }, []);
 
   useEffect(() => {
@@ -115,10 +79,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setMateriaisLancados([]);
     } else if (idObraSelecionada && equipeConfirmada) {
       if (atividadesLancadas.length === 0) {
-        setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
+        setAtividadesLancadas([{ id_atividade: '', tipoServico: '', quantidade: '' }]);
       }
       if (materiaisLancados.length === 0) {
-        setMateriaisLancados([{ material: '', quantidade: '' }]);
+        setMateriaisLancados([{ id_material: '', material_nome: '', quantidade: '' }]);
       }
     }
   }, [statusDiario, equipeConfirmada]);
@@ -132,6 +96,24 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setEquipeSelecionadaFiltro('GERAL');
     }
   }, [efetivoAgendado]);
+
+  const carregarCadastroAtividades = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/cadastro-atividades`);
+      setListaAtividadesCadastradas(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar cadastro de atividades:", e);
+    }
+  };
+
+  const carregarCadastroMateriais = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/materiais/diario-obra`);
+      setListaMateriaisCadastrados(res.data || []);
+    } catch (e) {
+      console.error("Erro ao carregar cadastro de materiais:", e);
+    }
+  };
 
   const carregarVeiculosDoSistema = async () => {
     try {
@@ -226,8 +208,23 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         setStatusDiario(status || 'Normal');
         setObservacoesContratada(observacoes || '');
 
-        setAtividadesLancadas(atividades_tachas || []);
-        setMateriaisLancados(materials_apontados || []);
+        // Mapeia atividades garantindo 'id_atividade' e 'tipoServico' (que vai para tipo_servico no BD)
+        setAtividadesLancadas(
+          (atividades_tachas || []).map(a => ({
+            id_atividade: a.id_atividade || a.id_material || '',
+            tipoServico: a.tipoServico || a.tipo_servico || '',
+            quantidade: a.quantidade || ''
+          }))
+        );
+
+        // Mapeia materiais garantindo 'id_material' e 'material_nome'
+        setMateriaisLancados(
+          (materials_apontados || []).map(m => ({
+            id_material: m.id_material || '',
+            material_nome: m.material_nome || m.material || '',
+            quantidade: m.quantidade || ''
+          }))
+        );
 
         if (efetivo_confirmado && efetivo_confirmado.length > 0) {
           colaboradoresCarregados = efetivo_confirmado.map(colab => ({
@@ -280,16 +277,34 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
+  // --- MÉTODOS DE ATIVIDADES ---
   const adicionarLinhaAtividade = () => {
     if (rdoInterrompido) return;
-    setAtividadesLancadas([...atividadesLancadas, { tipoServico: '', quantidade: '' }]);
+    setAtividadesLancadas([...atividadesLancadas, { id_atividade: '', tipoServico: '', quantidade: '' }]);
     setSalvoComSucesso(false);
   };
 
   const removerLinhaAtividade = (index) => {
     if (rdoInterrompido) return;
     const listaNova = atividadesLancadas.filter((_, i) => i !== index);
-    setAtividadesLancadas(listaNova.length > 0 ? listaNova : [{ tipoServico: '', quantidade: '' }]);
+    setAtividadesLancadas(listaNova.length > 0 ? listaNova : [{ id_atividade: '', tipoServico: '', quantidade: '' }]);
+    setSalvoComSucesso(false);
+  };
+
+  const handleMudarAtividadeSelecionada = (index, idAtividadeSelecionada) => {
+    const listaNova = [...atividadesLancadas];
+    const atvEncontrada = listaAtividadesCadastradas.find(a => String(a.id) === String(idAtividadeSelecionada));
+
+    if (atvEncontrada) {
+      const descFormatada = `${atvEncontrada.descricao} (${atvEncontrada.unidade || 'UN'})`;
+      listaNova[index].id_atividade = atvEncontrada.id;
+      listaNova[index].tipoServico = descFormatada;
+    } else {
+      listaNova[index].id_atividade = '';
+      listaNova[index].tipoServico = '';
+    }
+
+    setAtividadesLancadas(listaNova);
     setSalvoComSucesso(false);
   };
 
@@ -300,16 +315,38 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
+  // --- MÉTODOS DE MATERIAIS ---
   const adicionarLinhaMaterial = () => {
     if (rdoInterrompido) return;
-    setMateriaisLancados([...materiaisLancados, { material: '', quantidade: '' }]);
+    setMateriaisLancados([...materiaisLancados, { id_material: '', material_nome: '', quantidade: '' }]);
     setSalvoComSucesso(false);
   };
 
   const removerLinhaMaterial = (index) => {
     if (rdoInterrompido) return;
     const listaNova = materiaisLancados.filter((_, i) => i !== index);
-    setMateriaisLancados(listaNova.length > 0 ? listaNova : [{ material: '', quantidade: '' }]);
+    setMateriaisLancados(listaNova.length > 0 ? listaNova : [{ id_material: '', material_nome: '', quantidade: '' }]);
+    setSalvoComSucesso(false);
+  };
+
+  const handleMudarMaterialSelecionado = (index, idMaterialSelecionado) => {
+    const listaNova = [...materiaisLancados];
+    const matEncontrado = listaMateriaisCadastrados.find(m => String(m.id || m) === String(idMaterialSelecionado));
+
+    if (matEncontrado) {
+      if (typeof matEncontrado === 'object') {
+        listaNova[index].id_material = matEncontrado.id || null;
+        listaNova[index].material_nome = matEncontrado.nome || matEncontrado.descricao || '';
+      } else {
+        listaNova[index].id_material = null;
+        listaNova[index].material_nome = matEncontrado;
+      }
+    } else {
+      listaNova[index].id_material = '';
+      listaNova[index].material_nome = '';
+    }
+
+    setMateriaisLancados(listaNova);
     setSalvoComSucesso(false);
   };
 
@@ -361,20 +398,26 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       }
 
       setStatusEnvio({ texto: "Processando e salvando relatório unificado...", tipo: "processando" });
+      
+      // Mapeia atividades para enviar id_atividade e tipo_servico
       const atividadesFiltradas = (ehEquipeFolguista || rdoInterrompido)
         ? []
         : atividadesLancadas
             .filter(act => act.tipoServico && act.tipoServico.trim() !== '')
             .map(act => ({
-              tipoServico: act.tipoServico,
+              id_atividade: act.id_atividade || null,
+              tipo_servico: act.tipoServico,
               quantidade: parseFloat(act.quantidade) || 0.00
             }));
+
+      // Mapeia materiais para enviar id_material e material_nome
       const materiaisFiltradas = (ehEquipeFolguista || obraDadosCompletos?.tipo_obra === 'ADMINISTRATIVA' || rdoInterrompido)
         ? []
         : materiaisLancados
-            .filter(mat => mat.material && mat.material.trim() !== '')
+            .filter(mat => mat.material_nome && mat.material_nome.trim() !== '')
             .map(mat => ({
-              material: mat.material,
+              id_material: mat.id_material || null,
+              material_nome: mat.material_nome,
               quantidade: parseFloat(mat.quantidade) || 0.00
             }));
 
@@ -555,8 +598,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         
         const colunasMateriais = ["Item", "Descrição do Insumo / Material", "Qtd Aplicada"];
         const linesMateriais = rdoInterrompido ? [] : materiaisLancados
-          .filter(mat => mat.material !== '')
-          .map((mat, index) => [String(index + 1), String(mat.material), mat.quantidade || '0.00']);
+          .filter(mat => mat.material_nome !== '')
+          .map((mat, index) => [String(index + 1), String(mat.material_nome), mat.quantidade || '0.00']);
         autoTable(doc, {
           startY: currentY + 2,
           head: [colunasMateriais],
@@ -618,7 +661,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       {/* BLOCO 1: ESCOPO DE SELEÇÃO */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
         <div style={{ padding: '8px 12px', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', borderBottom: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569' }}>
-          <span></span>
+          <span>SELEÇÃO DE DATA E OBRA ALVO</span>
         </div>
         
         <div style={{ padding: '12px 16px', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: idObraSelecionada ? '1px dashed #cbd5e1' : 'none' }}>
@@ -702,8 +745,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 type="button"
                 onClick={() => {
                   setEquipeConfirmada(false);
-                  setAtividadesLancadas([{ tipoServico: '', quantidade: '' }]);
-                  setMateriaisLancados([{ material: '', quantidade: '' }]);
+                  setAtividadesLancadas([{ id_atividade: '', tipoServico: '', quantidade: '' }]);
+                  setMateriaisLancados([{ id_material: '', material_nome: '', quantidade: '' }]);
                   setSalvoComSucesso(false);
                 }}
                 style={{ height: '32px', padding: '0 16px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
@@ -902,7 +945,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             </div>
           </div>
 
-          {/* SEÇÃO 2: PRODUÇÃO */}
+          {/* SEÇÃO 2: PRODUÇÃO (MAPEADO PARA diario_atividades COM id_atividade) */}
           {!ehEquipeFolguista && (
             <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
               <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -920,9 +963,17 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {atividadesLancadas.map((act, index) => (
                     <div key={`act-${index}`} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <select value={act.tipoServico} onChange={e => handleMudarAtividadeCampo(index, 'tipoServico', e.target.value)} style={{ flex: 1, height: '30px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
+                      <select 
+                        value={act.id_atividade || ''} 
+                        onChange={e => handleMudarAtividadeSelecionada(index, e.target.value)} 
+                        style={{ flex: 1, height: '30px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                      >
                         <option value="">-- SELECIONE O SERVIÇO --</option>
-                        {SERVICOS_PADRONIZADOS.map(s => <option key={s} value={s}>{s}</option>)}
+                        {listaAtividadesCadastradas.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.descricao} ({a.unidade || 'UN'}) - [{a.categoria || 'GERAL'}]
+                          </option>
+                        ))}
                       </select>
                       <input type="number" placeholder="Qtd" value={act.quantidade} onChange={e => handleMudarAtividadeCampo(index, 'quantidade', e.target.value)} style={{ width: '90px', height: '28px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
                       <button type="button" onClick={() => removerLinhaAtividade(index)} style={{ padding: '6px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}><Trash2 size={14} /></button>
@@ -933,7 +984,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             </div>
           )}
 
-          {/* SEÇÃO 3: MATERIAIS */}
+          {/* SEÇÃO 3: MATERIAIS (MAPEADO PARA diario_materiais_apontados COM id_material E material_nome) */}
           {!ehEquipeFolguista && obraDadosCompletos?.tipo_obra !== 'ADMINISTRATIVA' && (
             <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
               <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -951,9 +1002,21 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {materiaisLancados.map((mat, index) => (
                     <div key={`mat-${index}`} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <select value={mat.material} onChange={e => handleMudarMaterialCampo(index, 'material', e.target.value)} style={{ flex: 1, height: '30px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
+                      <select 
+                        value={mat.id_material || ''} 
+                        onChange={e => handleMudarMaterialSelecionado(index, e.target.value)} 
+                        style={{ flex: 1, height: '30px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                      >
                         <option value="">-- SELECIONE O MATERIAL --</option>
-                        {MATERIAIS_PADRONIZADOS.map(m => <option key={m} value={m}>{m}</option>)}
+                        {listaMateriaisCadastrados.map(m => {
+                          const idVal = typeof m === 'object' ? m.id : m;
+                          const nomeExibicao = typeof m === 'object' ? `${m.nome || m.descricao} ${m.unidade ? `(${m.unidade})` : ''}` : m;
+                          return (
+                            <option key={idVal} value={idVal}>
+                              {nomeExibicao}
+                            </option>
+                          );
+                        })}
                       </select>
                       <input type="number" placeholder="Qtd" value={mat.quantidade} onChange={e => handleMudarMaterialCampo(index, 'quantidade', e.target.value)} style={{ width: '90px', height: '28px', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
                       <button type="button" onClick={() => removerLinhaMaterial(index)} style={{ padding: '6px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}><Trash2 size={14} /></button>
