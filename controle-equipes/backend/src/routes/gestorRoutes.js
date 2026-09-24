@@ -325,6 +325,9 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 // ========================================================
 // 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO
 // ========================================================
+// ========================================================
+// 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO
+// ========================================================
 router.post('/gestor/salvar-diario-completo', async (req, res) => {
   const { 
     data_diario, 
@@ -481,7 +484,7 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 4. Grava Atividades Executadas (agora incluindo id_atividade)
+    // 4. Grava Atividades Executadas (incluindo id_atividade)
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
       const sqlAtividade = `INSERT INTO diario_atividades (id_diario, id_atividade, tipo_servico, quantidade) VALUES (?, ?, ?, ?)`;
@@ -500,12 +503,12 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 5. Grava Materiais Apontados (agora incluindo id_material)
+    // 5. Grava Materiais Apontados (CORRIGIDO: Suporte a material_nome, material e nome)
     await connection.execute('DELETE FROM diario_materiais_apontados WHERE id_diario = ?', [diarioId]);
     if (materials_apontados && materials_apontados.length > 0) {
       const sqlMaterial = `INSERT INTO diario_materiais_apontados (id_diario, id_material, material_nome, quantidade) VALUES (?, ?, ?, ?)`;
       for (const m of materials_apontados) {
-        const materialNome = m.material || m.nome;
+        const materialNome = m.material_nome || m.material || m.nome;
         if (!materialNome) continue; 
         
         const idMaterialValido = m.id_material || m.idMaterial || null;
