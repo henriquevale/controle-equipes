@@ -40,7 +40,6 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
     }
   };
 
-  // Handler para seleção de Base (Limpa a obra para garantir verificação individual)
   const handleBaseChange = (e) => {
     const val = e.target.value;
     setBaseSelecionada(val);
@@ -49,7 +48,6 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
     }
   };
 
-  // Handler para seleção de Obra (Limpa a base para garantir verificação individual)
   const handleObraChange = (e) => {
     const val = e.target.value;
     setObraSelecionada(val);
@@ -94,11 +92,12 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
 
   const materiaisFiltrados = materiais.filter((item) => {
     const qtdApontada = Number(item.qtd_apontada || 0);
-    const qtdFatDireto = Number(item.qtd_faturamento_direto || 0);
+    const qtdFatFinalizado = Number(item.qtd_fat_direto_finalizado || 0);
+    const qtdFatPendente = Number(item.qtd_fat_direto_pendente || 0);
     const saldoEstoque = Number(item.saldo_estoque || 0);
 
-    // Oculta itens cujas 3 quantidades são iguais a zero
-    if (qtdApontada === 0 && qtdFatDireto === 0 && saldoEstoque === 0) {
+    // Oculta itens cujas quantidades em todas as frentes sejam zero
+    if (qtdApontada === 0 && qtdFatFinalizado === 0 && qtdFatPendente === 0 && saldoEstoque === 0) {
       return false;
     }
 
@@ -137,7 +136,7 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
               Comparativo: Faturamento Direto vs. Estoque vs. Apontamentos
             </h3>
             <p style={{ fontSize: '11px', color: '#64748b', margin: '2px 0 0 0' }}>
-              Cruzamento de informações de faturamento direto, saldos de estoque e relatórios diários de apontamento.
+              Cruzamento de informações de faturamento direto (finalizados e pendentes), saldos de estoque e relatórios diários de apontamento.
             </p>
           </div>
 
@@ -235,18 +234,19 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
               <th style={{ padding: '10px 12px' }}>Descrição do Material</th>
               <th style={{ padding: '10px 12px' }}>Un. Estoque</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#fff7ed', color: '#c2410c' }}>QTD APONTADA</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0f9ff', color: '#0369a1' }}>QTD FAT. DIRETO</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0f9ff', color: '#0369a1' }}>FAT. DIRETO FINALIZADO</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#fefce8', color: '#a16207' }}>FAT. DIRETO PENDENTE</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', backgroundColor: '#f0fdf4', color: '#15803d' }}>QTD ESTOQUE</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando comparativo...</td>
+                <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Carregando comparativo...</td>
               </tr>
             ) : materiaisFiltrados.length === 0 ? (
               <tr>
-                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
                   Nenhum material com movimentação encontrado.
                 </td>
               </tr>
@@ -256,7 +256,8 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
                 const unEstoque = mat.unidade_estoque || 'UN';
 
                 const qtdApontada = Number(mat.qtd_apontada || 0);
-                const qtdFatDireto = Number(mat.qtd_faturamento_direto || 0);
+                const qtdFatFinalizado = Number(mat.qtd_fat_direto_finalizado || 0);
+                const qtdFatPendente = Number(mat.qtd_fat_direto_pendente || 0);
                 const saldoEstoque = Number(mat.saldo_estoque || 0);
 
                 return (
@@ -271,9 +272,14 @@ export default function ComparativoMateriais({ API_URL = DEFAULT_API_URL, mostra
                       {qtdApontada.toLocaleString('pt-BR')} {unEstoque}
                     </td>
 
-                    {/* QTD FAT. DIRETO (Azul) */}
+                    {/* FAT. DIRETO FINALIZADO (Azul) */}
                     <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#0284c7', backgroundColor: '#f0f9ff' }}>
-                      {qtdFatDireto.toLocaleString('pt-BR')} {unEstoque}
+                      {qtdFatFinalizado.toLocaleString('pt-BR')} {unEstoque}
+                    </td>
+
+                    {/* FAT. DIRETO PENDENTE (Amarelo) */}
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#ca8a04', backgroundColor: '#fefce8' }}>
+                      {qtdFatPendente.toLocaleString('pt-BR')} {unEstoque}
                     </td>
 
                     {/* QTD ESTOQUE (Verde) */}

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { ArrowRightLeft, Plus, Search, Filter, Download, Edit2, Trash2, CheckSquare, Square, X } from 'lucide-react';
 
+const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+
 export default function EstoqueMovimentacoes({ API_URL, mostrarMensagem, usuarioLogado }) {
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [materiais, setMateriais] = useState([]);

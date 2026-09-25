@@ -2093,34 +2093,52 @@ router.get('/materiais/comparativo', async (req, res) => {
     const { tipo_local, id_local, data_inicio, data_fim } = req.query;
 
     let filtroFd = [];
-    let filtroEstoque = [];
     let filtroApontados = [];
+
+    let paramsFd = [];
+    let paramsApontados = [];
 
     // 1. Filtros de Data
     if (data_inicio) {
       filtroFd.push(`fat.data_solicitacao >= ?`);
-      filtroApontados.push(`d.data_diario >= ?`);
-    }
-    if (data_fim) {
-      filtroFd.push(`fat.data_solicitacao <= ?`);
-      filtroApontados.push(`d.data_diario <= ?`);
+      paramsFd.push(data_inicio);
+
+      filtroApontados.push(`dma.data_diario >= ?`);
+      paramsApontados.push(data_inicio);
     }
 
-    // 2. Filtros de Localização
-    if (tipo_local && id_local) {
-      const idLocalNum = parseInt(id_local);
-      if (tipo_local.toUpperCase() === 'OBRA') {
+    if (data_fim) {
+      filtroFd.push(`fat.data_solicitacao <= ?`);
+      paramsFd.push(data_fim);
+
+      filtroApontados.push(`dma.data_diario <= ?`);
+      paramsApontados.push(data_fim);
+    }
+
+    // 2. Trata parâmetros de Localização
+    const idLocalNum = id_local ? parseInt(id_local) : null;
+    const tipoLocalUpper = tipo_local ? tipo_local.toUpperCase() : null;
+
+    if (tipoLocalUpper && idLocalNum) {
+      if (tipoLocalUpper === 'OBRA') {
         filtroFd.push(`fat.obra_id = ?`);
-        filtroEstoque.push(`e.local_id = ? AND e.local_tipo = 'OBRA'`);
-        filtroApontados.push(`d.id_obra = ?`);
-      } else if (tipo_local.toUpperCase() === 'BASE') {
-        filtroEstoque.push(`e.local_id = ? AND e.local_tipo = 'BASE'`);
+        paramsFd.push(idLocalNum);
+
+        filtroApontados.push(`dma.id_obra = ?`);
+        paramsApontados.push(idLocalNum);
+      } else if (tipoLocalUpper === 'BASE') {
+        filtroFd.push(`fat.obra_id IN (SELECT obra_id FROM base_obras WHERE base_id = ?)`);
+        paramsFd.push(idLocalNum);
+
+        filtroApontados.push(`dma.id_obra IN (SELECT obra_id FROM base_obras WHERE base_id = ?)`);
+        paramsApontados.push(idLocalNum);
       }
     }
 
     const whereFd = filtroFd.length > 0 ? `AND ${filtroFd.join(' AND ')}` : '';
-    const whereEstoque = filtroEstoque.length > 0 ? `AND ${filtroEstoque.join(' AND ')}` : '';
     const whereApontados = filtroApontados.length > 0 ? `AND ${filtroApontados.join(' AND ')}` : '';
+
+    const statusFinalizados = "('NF Recebida e em Estoque', 'Concluído')";
 
     const sqlQuery = `
       SELECT 
@@ -2134,60 +2152,105 @@ router.get('/materiais/comparativo', async (req, res) => {
         m.consumo_base,
         m.quantidade_aplicada,
 
-        /* 1. Faturamento Direto */
+/* 1.1 Faturamento Direto - Finalizados (Com conversão para unidade de consumo) */
         COALESCE((
-          SELECT SUM(fi.quantidade) 
+          SELECT SUM(fi.quantidade / COALESCE(NULLIF(m.fator_conversao_consumo, 0), 1)) 
           FROM faturamento_itens fi
           INNER JOIN faturamentos_diretos fat ON fat.id = fi.faturamento_id
-          WHERE fi.material_id = m.id ${whereFd}
-        ), 0) AS qtd_faturamento_direto,
+          WHERE fi.material_id = m.id 
+            AND fat.status IN ${statusFinalizados} ${whereFd}
+        ), 0) AS qtd_fat_direto_finalizado,
 
         COALESCE((
           SELECT SUM(fi.quantidade * fi.valor_unitario) 
           FROM faturamento_itens fi
           INNER JOIN faturamentos_diretos fat ON fat.id = fi.faturamento_id
-          WHERE fi.material_id = m.id ${whereFd}
-        ), 0) AS valor_faturamento_direto,
+          WHERE fi.material_id = m.id 
+            AND fat.status IN ${statusFinalizados} ${whereFd}
+        ), 0) AS valor_fat_direto_finalizado,
 
-        /* 2. Saldo em Estoque */
+        /* 1.2 Faturamento Direto - Pendentes (Com conversão para unidade de consumo) */
         COALESCE((
-          SELECT SUM(e.quantidade) 
-          FROM estoque_saldos e 
-          WHERE e.material_id = m.id ${whereEstoque}
+          SELECT SUM(fi.quantidade / COALESCE(NULLIF(m.fator_conversao_consumo, 0), 1)) 
+          FROM faturamento_itens fi
+          INNER JOIN faturamentos_diretos fat ON fat.id = fi.faturamento_id
+          WHERE fi.material_id = m.id 
+            AND (fat.status NOT IN ${statusFinalizados} OR fat.status IS NULL) ${whereFd}
+        ), 0) AS qtd_fat_direto_pendente,
+
+        COALESCE((
+          SELECT SUM(fi.quantidade * fi.valor_unitario) 
+          FROM faturamento_itens fi
+          INNER JOIN faturamentos_diretos fat ON fat.id = fi.faturamento_id
+          WHERE fi.material_id = m.id 
+            AND (fat.status NOT IN ${statusFinalizados} OR fat.status IS NULL) ${whereFd}
+        ), 0) AS valor_fat_direto_pendente,
+
+        /* 2. Saldo em Estoque (Unificado com a lógica de /saldos) */
+        COALESCE((
+          SELECT SUM(
+            CASE 
+              WHEN ? IS NOT NULL THEN
+                CASE 
+                  WHEN (? = 'OBRA' AND mov.destino_tipo = 'OBRA' AND mov.destino_id = ?) THEN mov.quantidade
+                  WHEN (? = 'BASE' AND (
+                    (mov.destino_tipo = 'BASE' AND mov.destino_id = ?) OR
+                    (mov.destino_tipo = 'OBRA' AND mov.destino_id IN (SELECT obra_id FROM base_obras WHERE base_id = ?))
+                  )) THEN mov.quantidade
+
+                  WHEN (? = 'OBRA' AND mov.origem_tipo = 'OBRA' AND mov.origem_id = ?) THEN -mov.quantidade
+                  WHEN (? = 'BASE' AND (
+                    (mov.origem_tipo = 'BASE' AND mov.origem_id = ?) OR
+                    (mov.origem_tipo = 'OBRA' AND mov.origem_id IN (SELECT obra_id FROM base_obras WHERE base_id = ?))
+                  )) THEN -mov.quantidade
+
+                  ELSE 0 
+                END
+              ELSE 
+                CASE 
+                  WHEN mov.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA') THEN mov.quantidade 
+                  WHEN mov.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -mov.quantidade 
+                  ELSE 0 
+                END
+            END
+          )
+          FROM estoque_movimentacoes mov 
+          WHERE mov.material_id = m.id 
+            AND UPPER(mov.status) = 'CONCLUIDO'
         ), 0) AS saldo_estoque,
 
-        /* 3. Materiais Apontados (Corrigido para diario_efetivo) */
+        /* 3. Materiais Apontados RDO (Com conversão) */
         COALESCE((
           SELECT SUM(dma.quantidade) 
           FROM diario_materiais_apontados dma
-          INNER JOIN diario_efetivo d ON d.id = dma.id_diario
           WHERE dma.id_material = m.id ${whereApontados}
-        ), 0) AS qtd_apontada
+        ), 0) / COALESCE(NULLIF(m.fator_conversao_consumo, 0), 1) AS qtd_apontada
 
       FROM materiais m
       ORDER BY m.descricao ASC;
     `;
 
-    // Montagem dos parâmetros em ordem exata para cada subquery
-    const finalParams = [];
+    // Parâmetros para a subquery de saldo do estoque (alinhados com cada ? do CASE)
+    const paramsCalculoEstoque = [
+      idLocalNum,             // ? IS NOT NULL
+      
+      // Entradas (+)
+      tipoLocalUpper, idLocalNum,               // OBRA destino
+      tipoLocalUpper, idLocalNum, idLocalNum,   // BASE destino
 
-    // Subquery 1: Faturamento (Quantidade)
-    if (data_inicio) finalParams.push(data_inicio);
-    if (data_fim) finalParams.push(data_fim);
-    if (tipo_local && id_local && tipo_local.toUpperCase() === 'OBRA') finalParams.push(parseInt(id_local));
+      // Saídas (-)
+      tipoLocalUpper, idLocalNum,               // OBRA origem
+      tipoLocalUpper, idLocalNum, idLocalNum    // BASE origem
+    ];
 
-    // Subquery 2: Faturamento (Valor)
-    if (data_inicio) finalParams.push(data_inicio);
-    if (data_fim) finalParams.push(data_fim);
-    if (tipo_local && id_local && tipo_local.toUpperCase() === 'OBRA') finalParams.push(parseInt(id_local));
-
-    // Subquery 3: Estoque
-    if (tipo_local && id_local) finalParams.push(parseInt(id_local));
-
-    // Subquery 4: Apontados
-    if (data_inicio) finalParams.push(data_inicio);
-    if (data_fim) finalParams.push(data_fim);
-    if (tipo_local && id_local && tipo_local.toUpperCase() === 'OBRA') finalParams.push(parseInt(id_local));
+    const finalParams = [
+      ...paramsFd,             // 1. Qtd Fat Direto Finalizado
+      ...paramsFd,             // 2. Valor Fat Direto Finalizado
+      ...paramsFd,             // 3. Qtd Fat Direto Pendente
+      ...paramsFd,             // 4. Valor Fat Direto Pendente
+      ...paramsCalculoEstoque, // 5. Saldo Estoque
+      ...paramsApontados       // 6. Apontamentos
+    ];
 
     const [rows] = await db.query(sqlQuery, finalParams);
     return res.status(200).json(rows);
