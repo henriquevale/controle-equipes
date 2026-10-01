@@ -1874,19 +1874,25 @@ router.put('/planejamento/:id', async (req, res) => {
     await connection.beginTransaction();
 
     const { id } = req.params;
-    const { obra_id, frente_trabalho, atividades, data_inicio, data_fim } = req.body;
+    const { 
+      obra_id, 
+      frente_trabalho, 
+      atividade, 
+      id_atividade, 
+      descricao, 
+      unidade_medida, 
+      quantidade_planejada, 
+      data_inicio, 
+      data_fim, 
+      topicos 
+    } = req.body;
 
     if (!id) {
       return res.status(400).json({ error: "ID do planejamento não fornecido." });
     }
 
-    const itemAtualizar = Array.isArray(atividades) && atividades.length > 0 ? atividades[0] : req.body;
-
-    // Obtém o id_obra do payload raiz ou do próprio item
-    const obraIdFinal = obra_id || itemAtualizar.obra_id || itemAtualizar.id_obra;
-
-    let idAtividadeFinal = itemAtualizar.id_atividade || itemAtualizar.idAtividade || null;
-    let nomeAtividadeTexto = itemAtualizar.atividade ? String(itemAtualizar.atividade).trim() : '';
+    let idAtividadeFinal = id_atividade || null;
+    let nomeAtividadeTexto = atividade ? String(atividade).trim() : '';
 
     if (!idAtividadeFinal && nomeAtividadeTexto) {
       const [cadRes] = await connection.execute(
@@ -1922,23 +1928,24 @@ router.put('/planejamento/:id', async (req, res) => {
     `;
 
     await connection.execute(sqlUpdate, [
-      obraIdFinal ? parseInt(obraIdFinal) : null,
+      obra_id ? parseInt(obra_id) : null,
       frente_trabalho || 'Geral',
       idAtividadeFinal ? parseInt(idAtividadeFinal) : null,
       nomeAtividadeTexto,
-      itemAtualizar.descricao ? itemAtualizar.descricao.trim() : null,
-      itemAtualizar.unidade_medida || 'UN',
-      parseFloat(itemAtualizar.quantidade_planejada) || 0,
+      descricao ? descricao.trim() : null,
+      unidade_medida || 'UN',
+      parseFloat(quantidade_planejada) || 0,
       data_inicio || null,
       data_fim || null,
       parseInt(id)
     ]);
 
-    if (Array.isArray(itemAtualizar.topicos)) {
+    // Atualiza tópicos vinculados a esta atividade específica
+    if (Array.isArray(topicos)) {
       await connection.execute(`DELETE FROM planejamento_topicos WHERE id_planejamento = ?`, [parseInt(id)]);
 
       const sqlTopico = `INSERT INTO planejamento_topicos (id_planejamento, descricao, concluido) VALUES (?, ?, ?)`;
-      for (const topico of itemAtualizar.topicos) {
+      for (const topico of topicos) {
         if (topico.descricao && topico.descricao.trim()) {
           await connection.execute(sqlTopico, [
             parseInt(id),
@@ -1959,5 +1966,22 @@ router.put('/planejamento/:id', async (req, res) => {
     connection.release();
   }
 });
+// 6. EXCLUIR ITEM PLANEJADO (DELETE)
+router.delete('/planejamento/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({ error: "ID do planejamento não fornecido." });
+    }
+
+    const sql = `DELETE FROM planejamento_atividades WHERE id = ?`;
+    await db.execute(sql, [parseInt(id)]);
+
+    return res.json({ message: "Item de planejamento removido com sucesso!" });
+  } catch (error) {
+    console.error("Erro ao remover planejamento:", error);
+    return res.status(500).json({ error: "Erro ao excluir o item do planejamento." });
+  }
+});
 export default router;

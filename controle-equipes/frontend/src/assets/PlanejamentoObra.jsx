@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 import { 
   Calendar, Plus, Search, Edit2, Trash2, 
-  Building2, Check, Activity, X, UserCheck, PieChart
+  Building2, Check, Activity, X, UserCheck, PieChart, Download
 } from 'lucide-react';
 
 export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDisponiveis: obrasProps, usuarioLogado }) {
@@ -57,12 +58,11 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
             params: { usuario_id: idUsuario, cargo: cargoUpper }
           });
 
-      // Alternativa usando masterRoutes e filtrando apenas os gestores
-  const reqGestores = isMaster
-    ? axios.get(`${API_URL}/master/usuarios`)
-        .then(res => ({ data: (res.data || []).filter(u => String(u.cargo).toUpperCase() === 'GESTOR') }))
-        .catch(() => ({ data: [] }))
-    : Promise.resolve({ data: [] });
+      const reqGestores = isMaster
+        ? axios.get(`${API_URL}/master/usuarios`)
+            .then(res => ({ data: (res.data || []).filter(u => String(u.cargo).toUpperCase() === 'GESTOR') }))
+            .catch(() => ({ data: [] }))
+        : Promise.resolve({ data: [] });
 
       const [resPlan, resObras, resCat, resGestores] = await Promise.all([
         axios.get(`${API_URL}/planejamento`, { params: { usuario_id: idUsuario, cargo: cargoUpper } }).catch(() => ({ data: [] })),
@@ -183,23 +183,45 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
     e.preventDefault();
 
     if (!form.obra_id) return mostrarMensagem ? mostrarMensagem('Selecione a Obra.', 'erro') : alert('Selecione a Obra.');
-    if (form.atividades.length === 0) return mostrarMensagem ? mostrarMensagem('Adicione pelo menos uma atividade.', 'erro') : alert('Adicione pelo menos uma atividade.');
-
-    const payload = {
-      obra_id: form.obra_id,
-      id_gestor: usuarioLogado?.id || usuarioLogado?.id_usuario,
-      frente_trabalho: form.frente_trabalho || 'Geral',
-      data_inicio: form.data_inicio,
-      data_fim: form.data_fim,
-      atividades: form.atividades
-    };
 
     try {
       if (editandoId) {
-        await axios.put(`${API_URL}/planejamento/${editandoId}`, payload);
+        // MODO EDIÇÃO: Atualiza apenas o item individual selecionado
+        const atividadeEditando = tempAtividade.atividade 
+          ? tempAtividade 
+          : (form.atividades.length > 0 ? form.atividades[0] : null);
+
+        if (!atividadeEditando || !atividadeEditando.atividade) {
+          return mostrarMensagem ? mostrarMensagem('Informe a atividade para atualização.', 'erro') : alert('Informe a atividade.');
+        }
+
+        const payloadEdicao = {
+          obra_id: form.obra_id,
+          frente_trabalho: form.frente_trabalho || 'Geral',
+          data_inicio: form.data_inicio,
+          data_fim: form.data_fim,
+          atividade: atividadeEditando.atividade,
+          unidade_medida: atividadeEditando.unidade_medida,
+          quantidade_planejada: atividadeEditando.quantidade_planejada,
+          topicos: atividadeEditando.topicos
+        };
+
+        await axios.put(`${API_URL}/planejamento/${editandoId}`, payloadEdicao);
         if (mostrarMensagem) mostrarMensagem('Planejamento atualizado com sucesso!', 'sucesso');
       } else {
-        await axios.post(`${API_URL}/planejamento/salvar-lote`, payload);
+        // MODO CRIAÇÃO: Envia em lote
+        if (form.atividades.length === 0) return mostrarMensagem ? mostrarMensagem('Adicione pelo menos uma atividade.', 'erro') : alert('Adicione pelo menos uma atividade.');
+
+        const payloadCriacao = {
+          obra_id: form.obra_id,
+          id_gestor: usuarioLogado?.id || usuarioLogado?.id_usuario,
+          frente_trabalho: form.frente_trabalho || 'Geral',
+          data_inicio: form.data_inicio,
+          data_fim: form.data_fim,
+          atividades: form.atividades
+        };
+
+        await axios.post(`${API_URL}/planejamento/salvar-lote`, payloadCriacao);
         if (mostrarMensagem) mostrarMensagem('Planejamento cadastrado com sucesso!', 'sucesso');
       }
 
@@ -213,18 +235,24 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
 
   const handleEditar = (plan) => {
     setEditandoId(plan.id);
+
+    const atividadeUnica = {
+      atividade: plan.atividade || '',
+      unidade_medida: plan.unidade_medida || 'UN',
+      quantidade_planejada: plan.quantidade_planejada || 0,
+      topicos: plan.topicos || [],
+      indexEdicaoItem: 0
+    };
+
     setForm({
       obra_id: plan.obra_id || '',
       frente_trabalho: plan.frente_trabalho || '',
       data_inicio: plan.data_inicio ? plan.data_inicio.slice(0, 10) : '',
       data_fim: plan.data_fim ? plan.data_fim.slice(0, 10) : '',
-      atividades: Array.isArray(plan.atividades) ? plan.atividades : [{
-        atividade: plan.atividade || '',
-        unidade_medida: plan.unidade_medida || 'UN',
-        quantidade_planejada: plan.quantidade_planejada || 0,
-        topicos: plan.topicos || []
-      }]
+      atividades: [atividadeUnica]
     });
+
+    setTempAtividade(atividadeUnica);
   };
 
   const handleExcluir = async (plan) => {
@@ -269,7 +297,6 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
     return { percentualExecutado, statusPrazo };
   };
 
-  // Filtro Dinâmico da Tabela (Obra, Gestor, Status, Busca)[cite: 6]
   const planejamentosFiltrados = planejamentos.filter(p => {
     const { statusPrazo } = calcularAnaliseDesempenho(p);
 
@@ -284,7 +311,44 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
     return atendeObra && atendeGestor && atendeStatus && atendeBusca;
   });
 
-  // Cálculo da Consolidação Geral das Porcentagens dos itens filtrados
+  const exportarParaExcel = () => {
+    if (planejamentosFiltrados.length === 0) {
+      if (mostrarMensagem) mostrarMensagem('Não há dados para exportar.', 'erro');
+      else alert('Não há dados para exportar.');
+      return;
+    }
+
+    const dadosExcel = planejamentosFiltrados.map(p => {
+      const obraObj = obrasDisponiveis.find(o => String(o.id) === String(p.obra_id));
+      const { percentualExecutado, statusPrazo } = calcularAnaliseDesempenho(p);
+
+      const topicosTexto = (p.topicos || [])
+        .map(t => `${t.concluido ? '[OK]' : '[ ]'} ${t.descricao}`)
+        .join('; ');
+
+      return {
+        'Obra': obraObj ? (obraObj.nome_obra || obraObj.nome) : `Obra #${p.obra_id}`,
+        'Frente de Trabalho': p.frente_trabalho || 'Geral',
+        'Atividade': p.atividade || '',
+        'Tópicos / Detalhes': topicosTexto || 'Sem tópicos',
+        'Data Inicial': p.data_inicio ? new Date(p.data_inicio).toLocaleDateString('pt-BR') : '',
+        'Data Final': p.data_fim ? new Date(p.data_fim).toLocaleDateString('pt-BR') : '',
+        'Unidade': p.unidade_medida || 'UN',
+        'Qtd. Planejada': parseFloat(p.quantidade_planejada) || 0,
+        'Qtd. Executada': parseFloat(p.quantidade_executada) || 0,
+        'Progresso Real (%)': `${percentualExecutado}%`,
+        'Status do Prazo': statusPrazo.texto
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dadosExcel);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Planejamento");
+
+    const dataAtual = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `Planejamento_Obras_${dataAtual}.xlsx`);
+  };
+
   const resumoMetasGeral = React.useMemo(() => {
     if (planejamentosFiltrados.length === 0) {
       return { totalPlanejado: 0, totalExecutado: 0, percentualPonderado: 0, mediaSimples: 0, concluidos: 0 };
@@ -358,7 +422,7 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
       <div style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
         <h3 style={{ fontSize: '14px', fontWeight: 'bold', color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Activity style={{ width: '18px', height: '18px', color: '#2563eb' }} />
-          {editandoId ? 'Editar Planejamento' : 'Novo Planejamento de Atividades'}
+          {editandoId ? 'Editar Item do Planejamento' : 'Novo Planejamento de Atividades'}
         </h3>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -451,29 +515,32 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button 
-                  type="button" 
-                  onClick={handleAdicionarOuAtualizarAtividade}
-                  style={{ 
-                    height: '34px', 
-                    padding: '0 12px', 
-                    backgroundColor: tempAtividade.indexEdicaoItem !== null ? '#16a34a' : '#0284c7', 
-                    color: '#fff', 
-                    border: 'none', 
-                    borderRadius: '6px', 
-                    fontWeight: 'bold', 
-                    cursor: 'pointer', 
-                    fontSize: '11px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '4px' 
-                  }}
-                >
-                  {tempAtividade.indexEdicaoItem !== null ? <Check style={{ width: '14px', height: '14px' }} /> : <Plus style={{ width: '14px', height: '14px' }} />}
-                  {tempAtividade.indexEdicaoItem !== null ? 'Atualizar Atividade' : 'Add Atividade'}
-                </button>
-              </div>
+              {/* Só exibe o botão de adicionar à lista se NÃO estiver em modo edição */}
+              {!editandoId && (
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button 
+                    type="button" 
+                    onClick={handleAdicionarOuAtualizarAtividade}
+                    style={{ 
+                      height: '34px', 
+                      padding: '0 12px', 
+                      backgroundColor: tempAtividade.indexEdicaoItem !== null ? '#16a34a' : '#0284c7', 
+                      color: '#fff', 
+                      border: 'none', 
+                      borderRadius: '6px', 
+                      fontWeight: 'bold', 
+                      cursor: 'pointer', 
+                      fontSize: '11px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '4px' 
+                    }}
+                  >
+                    {tempAtividade.indexEdicaoItem !== null ? <Check style={{ width: '14px', height: '14px' }} /> : <Plus style={{ width: '14px', height: '14px' }} />}
+                    {tempAtividade.indexEdicaoItem !== null ? 'Atualizar Item' : 'Add Atividade'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div style={{ backgroundColor: '#fff', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', marginTop: '6px' }}>
@@ -510,7 +577,8 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
               )}
             </div>
 
-            {form.atividades.length > 0 && (
+            {/* Oculta a tabela de múltiplos itens acumulados durante a edição */}
+            {!editandoId && form.atividades.length > 0 && (
               <div style={{ marginTop: '12px', overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#fff' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
                   <thead>
@@ -577,7 +645,7 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
             )}
             <button type="submit" style={{ height: '34px', padding: '0 18px', backgroundColor: editandoId ? '#0284c7' : '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Plus style={{ width: '14px', height: '14px' }} />
-              {editandoId ? 'Atualizar Planejamento' : 'Salvar Planejamento'}
+              {editandoId ? 'Atualizar Registro' : 'Salvar Planejamento'}
             </button>
           </div>
         </form>
@@ -636,6 +704,28 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
           </h3>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={exportarParaExcel}
+              style={{
+                height: '32px',
+                padding: '0 12px',
+                backgroundColor: '#16a34a',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Download style={{ width: '14px', height: '14px' }} />
+              Baixar Excel (.xlsx)
+            </button>
+
             <select value={filtroObra} onChange={e => setFiltroObra(e.target.value)} style={{ height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', backgroundColor: '#fff' }}>
               <option value="">-- Todas as Obras --</option>
               {obrasDisponiveis.map(o => (
@@ -643,7 +733,6 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
               ))}
             </select>
 
-            {/* FILTRO DE GESTOR (Disponível apenas para Usuários MASTER) */}
             {isMaster && (
               <select value={filtroGestor} onChange={e => setFiltroGestor(e.target.value)} style={{ height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', backgroundColor: '#fff', borderColor: '#2563eb' }}>
                 <option value="">-- Todos os Gestores --</option>
@@ -662,7 +751,7 @@ export default function PlanejamentoObra({ API_URL, mostrarMensagem, obrasDispon
               <option value="No Prazo">No Prazo</option>
               <option value="Concluído no Prazo">Concluído no Prazo</option>
               <option value="Atrasado (Fora do Prazo)">Atrasado (Fora do Prazo)</option>
-</select>
+            </select>
 
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search style={{ position: 'absolute', left: '10px', width: '14px', height: '14px', color: '#94a3b8' }} />
