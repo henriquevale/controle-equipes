@@ -22,6 +22,7 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
   const [abaCompras, setAbaCompras] = useState('materiais');
 
   const [loading, setLoading] = useState(false);
+  const [planejamentoData, setPlanejamentoData] = useState([]);
   const [atividadesData, setAtividadesData] = useState([]);
   const [materiais, setMateriais] = useState([]);
   const [presenca, setPresenca] = useState({});
@@ -47,6 +48,7 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
       const usuarioCargo = usuarioLogado?.cargo;
 
       const [
+        resPlanejamento,
         resAtividades,
         resMateriais,
         resPresenca,
@@ -56,6 +58,10 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         resCompMat,
         resCompForn
       ] = await Promise.all([
+        axios.get(`${baseUrl}/relatorios/planejado-vs-executado`, {
+          params: { obra_id: obraId, data_inicio: dataInicio, data_fim: dataFim }
+        }).catch(() => ({ data: [] })),
+
         axios.get(`${baseUrl}/relatorios/atividades-executadas`, {
           params: { obra_id: obraId, data_inicio: dataInicio, data_fim: dataFim }
         }).catch(() => ({ data: [] })),
@@ -107,6 +113,7 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         }).catch(() => ({ data: [] }))
       ]);
 
+      setPlanejamentoData(Array.isArray(resPlanejamento.data) ? resPlanejamento.data : []);
       setAtividadesData(Array.isArray(resAtividades.data) ? resAtividades.data : []);
       setMateriais(Array.isArray(resMateriais.data) ? resMateriais.data : []);
       setPresenca(resPresenca.data || {});
@@ -319,6 +326,80 @@ export default function DashboardObra({ obrasDisponiveis = [], usuarioLogado, AP
         <button onClick={handleBuscarDados} style={{ marginTop: '18px', padding: '8px 16px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
           {loading ? 'Carregando...' : 'Filtrar'}
         </button>
+      </div>
+
+      {/* SEÇÃO: PLANEJADO VS EXECUTADO */}
+      <div className="dashboard-card" style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <h3 style={{ fontSize: '14px', margin: 0, color: '#1e293b', fontWeight: 'bold' }}>
+          Avanço do Planejamento (Planejado vs. Executado)
+        </h3>
+
+        {planejamentoData.length === 0 ? (
+          <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+            Nenhum planejamento cadastrado ou produção encontrada para o período.
+          </div>
+        ) : (
+          <>
+            <div style={{ overflowX: 'auto', marginBottom: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1', color: '#475569' }}>
+                    <th style={{ padding: '6px' }}>Frente de Trabalho</th>
+                    <th style={{ padding: '6px' }}>Atividade / Serviço</th>
+                    <th style={{ padding: '6px', textAlign: 'center' }}>Unidade</th>
+                    <th style={{ padding: '6px', textAlign: 'center' }}>Planejado</th>
+                    <th style={{ padding: '6px', textAlign: 'center' }}>Executado</th>
+                    <th style={{ padding: '6px', textAlign: 'center' }}>Desvio</th>
+                    <th style={{ padding: '6px', textAlign: 'center' }}>% Atingido</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planejamentoData.map((item, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '6px', color: '#64748b', fontWeight: 'bold' }}>{item.frente_trabalho || 'GERAL'}</td>
+                      <td style={{ padding: '6px', fontWeight: 'bold', color: '#0f172a' }}>{item.atividade}</td>
+                      <td style={{ padding: '6px', textAlign: 'center', color: '#475569' }}>{item.unidade_medida}</td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: '#2563eb' }}>
+                        {item.planejado.toLocaleString('pt-BR')}
+                      </td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: '#16a34a' }}>
+                        {item.executado.toLocaleString('pt-BR')}
+                      </td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: item.desvio < 0 ? '#dc2626' : '#16a34a' }}>
+                        {item.desvio > 0 ? `+${item.desvio.toLocaleString('pt-BR')}` : item.desvio.toLocaleString('pt-BR')}
+                      </td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold' }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: item.percentualAtingido >= 100 ? '#dcfce7' : item.percentualAtingido >= 70 ? '#fef9c3' : '#fee2e2',
+                          color: item.percentualAtingido >= 100 ? '#15803d' : item.percentualAtingido >= 70 ? '#a16207' : '#b91c1c'
+                        }}>
+                          {item.percentualAtingido}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Gráfico Comparativo de Planejado x Executado */}
+            <div className="chart-container" style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={planejamentoData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="atividade" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: '11px' }} />
+                  <Bar dataKey="planejado" name="Qtd. Planejada" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="executado" name="Qtd. Executada" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
       </div>
 
       {/* 1. GRÁFICO DE ATIVIDADES */}

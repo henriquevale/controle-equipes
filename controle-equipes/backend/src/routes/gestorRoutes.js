@@ -325,9 +325,6 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 // ========================================================
 // 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO
 // ========================================================
-// ========================================================
-// 6. POST: SALVAR DIÁRIO TÉCNICO COMPLETO
-// ========================================================
 router.post('/gestor/salvar-diario-completo', async (req, res) => {
   const { 
     data_diario, 
@@ -484,10 +481,14 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
       }
     }
 
-    // 4. Grava Atividades Executadas (incluindo id_atividade)
+    // 4. Grava Atividades Executadas (atualizado com id_obra e data_diario)
     await connection.execute('DELETE FROM diario_atividades WHERE id_diario = ?', [diarioId]);
     if (atividades_tachas && atividades_tachas.length > 0) {
-      const sqlAtividade = `INSERT INTO diario_atividades (id_diario, id_atividade, tipo_servico, quantidade) VALUES (?, ?, ?, ?)`;
+      const sqlAtividade = `
+        INSERT INTO diario_atividades 
+          (id_diario, id_obra, id_atividade, data_diario, tipo_servico, quantidade) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
       for (const l of atividades_tachas) {
         const nomeServico = l.tipo_servico || l.tipoServico || l.servico || l.atividade;
         if (!nomeServico) continue;
@@ -496,7 +497,9 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
 
         await connection.execute(sqlAtividade, [
           diarioId, 
+          obraIdValida,
           idAtividadeValido ? parseInt(idAtividadeValido) : null,
+          data_diario,
           String(nomeServico).trim(), 
           parseFloat(l.quantidade) || 0.00
         ]);
@@ -575,8 +578,9 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
     const sqlMestre = `
       SELECT id, status, observacoes, id_gestor 
       FROM diario_obra 
-      WHERE id_obra = ? AND data_diario = ? AND equipe = ?
-    `;
+      WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?
+    `.replace(/\u00a0/g, ' ');
+
     const [mestreRows] = await db.execute(sqlMestre, [parseInt(id_obra), data_diario, equipeMaiusculaBusca]);
 
     if (mestreRows.length === 0) {
@@ -585,15 +589,15 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
 
     const diarioId = mestreRows[0].id;
 
-    // Busca do Efetivo trazendo o status do veículo armazenado na diarios_veiculos
+    // Adicionado COLLATE utf8mb4_general_ci no JOIN para resolver o conflito
     const sqlEfetivo = `
       SELECT 
-        dec.id_funcionario,
-        dec.status_presenca,
-        dec.horas_trabalhadas,
-        dec.equipe,
-        dec.data_diario,
-        dec.id_obra,
+        efetivo.id_funcionario,
+        efetivo.status_presenca,
+        efetivo.horas_trabalhadas,
+        efetivo.equipe,
+        efetivo.data_diario,
+        efetivo.id_obra,
         f.nome,
         f.matricula,
         f.cargo,
@@ -601,36 +605,39 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
         dv.status_veiculo,
         dv.status AS status_envio_veiculo,
         v.modelo AS modelo_veiculo, 
-        v.placa AS placa_veiculo    
-      FROM diario_efetivo_confirmado dec
-      INNER JOIN funcionarios f ON dec.id_funcionario = f.id
-      LEFT JOIN diarios_veiculos dv ON dv.id_obra = dec.id_obra 
-        AND dv.data_diario = dec.data_diario 
-        AND UPPER(TRIM(dv.equipe)) = dec.equipe
-        AND dv.id_funcionario = dec.id_funcionario
-      LEFT JOIN veiculos v ON dv.id_veiculo = v.id
-      WHERE dec.id_diario = ?
+        v.placa AS placa_veiculo 
+      FROM diario_efetivo_confirmado efetivo 
+      INNER JOIN funcionarios f ON efetivo.id_funcionario = f.id 
+      LEFT JOIN diarios_veiculos dv ON dv.id_obra = efetivo.id_obra 
+        AND dv.data_diario = efetivo.data_diario 
+        AND UPPER(TRIM(dv.equipe)) COLLATE utf8mb4_general_ci = UPPER(TRIM(efetivo.equipe)) COLLATE utf8mb4_general_ci
+        AND dv.id_funcionario = efetivo.id_funcionario 
+      LEFT JOIN veiculos v ON dv.id_veiculo = v.id 
+      WHERE efetivo.id_diario = ? 
       ORDER BY f.nome ASC
-    `;
+    `.replace(/\u00a0/g, ' ');
+
     const [efetivoRows] = await db.execute(sqlEfetivo, [diarioId]);
 
     // Busca Atividades incluindo o id_atividade
     const sqlAtividades = `
-      SELECT id_atividade, tipo_servico as tipoServico, quantidade 
+      SELECT id_atividade, tipo_servico AS tipoServico, quantidade 
       FROM diario_atividades 
       WHERE id_diario = ?
-    `;
+    `.replace(/\u00a0/g, ' ');
+
     const [atividadesRows] = await db.execute(sqlAtividades, [diarioId]);
 
     // Busca Materiais incluindo o id_material
     const sqlMateriais = `
-      SELECT id_material, material_nome as material, quantidade 
+      SELECT id_material, material_nome AS material, quantidade 
       FROM diario_materiais_apontados 
       WHERE id_diario = ?
-    `;
+    `.replace(/\u00a0/g, ' ');
+
     const [materiaisRows] = await db.execute(sqlMateriais, [diarioId]);
 
-    res.json({
+    return res.json({
       existe: true,
       data_diario,
       id_obra: parseInt(id_obra),
@@ -645,10 +652,9 @@ router.get('/gestor/salvar-diario-completo', async (req, res) => {
 
   } catch (err) {
     console.error("Erro ao recuperar diário completo por equipe:", err);
-    res.status(500).json({ error: "Erro interno ao buscar diário completo." });
+    return res.status(500).json({ error: "Erro interno ao buscar diário completo." });
   }
 });
-
 // ========================================================
 // 13. PUT: ATUALIZAR STATUS DE PRESENÇA DIRETO (GESTOR)
 // ========================================================
@@ -1637,4 +1643,321 @@ router.get('/materiais/diario-obra', async (req, res) => {
     res.status(500).json({ error: 'Erro ao carregar materiais do diário.' });
   }
 });
+
+// 1. OBRAS PERMITIDAS PARA O GESTOR LOGADO
+router.get('/gestor-obras', async (req, res) => {
+  try {
+    const { usuario_id } = req.query;
+    if (!usuario_id) return res.json([]);
+
+    const sql = `
+      SELECT o.id, o.codigo_obra, o.nome_obra, o.status, o.tipo_obra
+      FROM obras o
+      INNER JOIN gestor_obras go ON go.id_obra = o.id
+      WHERE go.id_usuario = ? AND o.status = 'ATIVA'
+      ORDER BY o.nome_obra ASC
+    `;
+
+    const [rows] = await db.query(sql, [Number(usuario_id)]);
+    return res.json(rows);
+  } catch (error) {
+    console.error("Erro ao buscar obras do gestor:", error);
+    return res.status(500).json({ error: "Erro ao buscar obras." });
+  }
+});
+
+// 2. BUSCAR CATÁLOGO DE ATIVIDADES
+router.get('/cadastro-atividades', async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT id, categoria, descricao, unidade FROM cadastro_atividades ORDER BY categoria, descricao ASC");
+    return res.json(rows);
+  } catch (error) {
+    console.error("Erro ao buscar cadastro de atividades:", error);
+    return res.status(500).json({ error: "Erro ao buscar catálogo de atividades." });
+  }
+});
+
+// ========================================================
+// 1. BUSCAR PLANEJAMENTO X EXECUTADO POR OBRA (GET)
+// ========================================================
+router.get('/planejamento', async (req, res) => {
+  try {
+    const { obra_id } = req.query;
+
+    let sql = `
+      SELECT 
+        pa.id,
+        pa.id_obra,
+        pa.id_obra AS obra_id, /* Alias para manter compatibilidade com o React */
+        o.nome_obra,          /* Traz o nome da obra */
+        pa.id_gestor,
+        pa.id_atividade,
+        pa.frente_trabalho,
+        COALESCE(ca.descricao, pa.atividade, 'Sem Descrição') AS atividade,
+        pa.descricao,
+        pa.unidade_medida,
+        pa.quantidade_planejada,
+        pa.data_inicio,
+        pa.data_fim,
+        pa.created_at,
+        /* Soma das quantidades executadas na tabela diario_atividades */
+        COALESCE(SUM(da.quantidade), 0) AS quantidade_executada,
+        COALESCE(
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', pt.id,
+                'descricao', pt.descricao,
+                'concluido', CAST(pt.concluido AS UNSIGNED)
+              )
+            )
+            FROM planejamento_topicos pt
+            WHERE pt.id_planejamento = pa.id
+          ),
+          JSON_ARRAY()
+        ) AS topicos
+      FROM planejamento_atividades pa
+      LEFT JOIN obras o ON o.id = pa.id_obra
+      LEFT JOIN cadastro_atividades ca ON ca.id = pa.id_atividade
+      LEFT JOIN diario_atividades da 
+        ON da.id_obra = pa.id_obra
+       AND (
+         (pa.id_atividade IS NOT NULL AND da.id_atividade = pa.id_atividade)
+         OR UPPER(TRIM(da.tipo_servico)) = UPPER(TRIM(pa.atividade))
+       )
+       AND (pa.data_inicio IS NULL OR da.data_diario >= pa.data_inicio)
+       AND (pa.data_fim IS NULL OR da.data_diario <= pa.data_fim)
+    `;
+
+    const params = [];
+
+    if (obra_id) {
+      sql += ` WHERE pa.id_obra = ? `;
+      params.push(parseInt(obra_id));
+    }
+
+    sql += `
+      GROUP BY 
+        pa.id, 
+        pa.id_obra, 
+        o.nome_obra,
+        pa.id_gestor, 
+        pa.id_atividade, 
+        pa.frente_trabalho, 
+        pa.atividade,
+        ca.descricao, 
+        pa.descricao, 
+        pa.unidade_medida, 
+        pa.quantidade_planejada, 
+        pa.data_inicio, 
+        pa.data_fim, 
+        pa.created_at
+      ORDER BY pa.frente_trabalho ASC, COALESCE(ca.descricao, pa.atividade) ASC
+    `;
+
+    const [rows] = await db.execute(sql, params);
+
+    const resultado = rows.map(row => {
+      let topicosFormatados = [];
+      if (row.topicos) {
+        topicosFormatados = typeof row.topicos === 'string' ? JSON.parse(row.topicos) : row.topicos;
+      }
+      return {
+        ...row,
+        quantidade_planejada: parseFloat(row.quantidade_planejada) || 0,
+        quantidade_executada: parseFloat(row.quantidade_executada) || 0,
+        topicos: Array.isArray(topicosFormatados) ? topicosFormatados : []
+      };
+    });
+
+    return res.json(resultado);
+  } catch (error) {
+    console.error("Erro ao buscar planejamento:", error);
+    return res.status(500).json({ error: "Erro interno no servidor." });
+  }
+});
+
+// ========================================================
+// 2. SALVAR LOTE DE ATIVIDADES PLANEJADAS (POST)
+// ========================================================
+router.post('/planejamento/salvar-lote', async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const { obra_id, id_gestor, frente_trabalho, data_inicio, data_fim, atividades } = req.body;
+
+    if (!obra_id || !Array.isArray(atividades) || atividades.length === 0) {
+      return res.status(400).json({ error: "Dados inválidos." });
+    }
+
+    for (const item of atividades) {
+      let idAtividadeFinal = item.id_atividade || item.idAtividade || null;
+      let nomeAtividadeTexto = item.atividade ? String(item.atividade).trim() : '';
+
+      // Tenta recuperar o ID pelo texto caso não tenha vindo no payload
+      if (!idAtividadeFinal && nomeAtividadeTexto) {
+        const [cadRes] = await connection.execute(
+          'SELECT id FROM cadastro_atividades WHERE UPPER(TRIM(descricao)) = UPPER(TRIM(?)) LIMIT 1',
+          [nomeAtividadeTexto]
+        );
+        if (cadRes.length > 0) {
+          idAtividadeFinal = cadRes[0].id;
+        }
+      } 
+      // Tenta recuperar a descrição em texto caso tenha vindo apenas o ID
+      else if (idAtividadeFinal && !nomeAtividadeTexto) {
+        const [cadRes] = await connection.execute(
+          'SELECT descricao FROM cadastro_atividades WHERE id = ? LIMIT 1',
+          [parseInt(idAtividadeFinal)]
+        );
+        if (cadRes.length > 0) {
+          nomeAtividadeTexto = cadRes[0].descricao;
+        }
+      }
+
+      const sqlAtividade = `
+        INSERT INTO planejamento_atividades 
+          (id_obra, id_gestor, frente_trabalho, id_atividade, atividade, descricao, unidade_medida, quantidade_planejada, data_inicio, data_fim)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const [resultAtiv] = await connection.execute(sqlAtividade, [
+        parseInt(obra_id),
+        id_gestor ? parseInt(id_gestor) : null,
+        frente_trabalho || 'Geral',
+        idAtividadeFinal ? parseInt(idAtividadeFinal) : null,
+        nomeAtividadeTexto,
+        item.descricao ? item.descricao.trim() : null,
+        item.unidade_medida || 'UN',
+        parseFloat(item.quantidade_planejada) || 0,
+        data_inicio || null,
+        data_fim || null
+      ]);
+
+      const idPlanejamentoGerado = resultAtiv.insertId;
+
+      if (Array.isArray(item.topicos) && item.topicos.length > 0) {
+        const sqlTopico = `
+          INSERT INTO planejamento_topicos (id_planejamento, descricao, concluido)
+          VALUES (?, ?, ?)
+        `;
+        for (const topico of item.topicos) {
+          if (topico.descricao && topico.descricao.trim()) {
+            await connection.execute(sqlTopico, [
+              idPlanejamentoGerado,
+              topico.descricao.trim(),
+              topico.concluido ? 1 : 0
+            ]);
+          }
+        }
+      }
+    }
+
+    await connection.commit();
+    return res.json({ message: "Lote de planejamento salvo com sucesso!" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao cadastrar lote de planejamento:", error);
+    return res.status(500).json({ error: "Erro ao salvar o planejamento." });
+  } finally {
+    connection.release();
+  }
+});
+
+// ========================================================
+// 3. ATUALIZAR ITEM PLANEJADO (PUT)
+// ========================================================
+router.put('/planejamento/:id', async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+    const { obra_id, frente_trabalho, atividades, data_inicio, data_fim } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: "ID do planejamento não fornecido." });
+    }
+
+    const itemAtualizar = Array.isArray(atividades) && atividades.length > 0 ? atividades[0] : req.body;
+
+    // Obtém o id_obra do payload raiz ou do próprio item
+    const obraIdFinal = obra_id || itemAtualizar.obra_id || itemAtualizar.id_obra;
+
+    let idAtividadeFinal = itemAtualizar.id_atividade || itemAtualizar.idAtividade || null;
+    let nomeAtividadeTexto = itemAtualizar.atividade ? String(itemAtualizar.atividade).trim() : '';
+
+    if (!idAtividadeFinal && nomeAtividadeTexto) {
+      const [cadRes] = await connection.execute(
+        'SELECT id FROM cadastro_atividades WHERE UPPER(TRIM(descricao)) = UPPER(TRIM(?)) LIMIT 1',
+        [nomeAtividadeTexto]
+      );
+      if (cadRes.length > 0) {
+        idAtividadeFinal = cadRes[0].id;
+      }
+    } else if (idAtividadeFinal && !nomeAtividadeTexto) {
+      const [cadRes] = await connection.execute(
+        'SELECT descricao FROM cadastro_atividades WHERE id = ? LIMIT 1',
+        [parseInt(idAtividadeFinal)]
+      );
+      if (cadRes.length > 0) {
+        nomeAtividadeTexto = cadRes[0].descricao;
+      }
+    }
+
+    const sqlUpdate = `
+      UPDATE planejamento_atividades 
+      SET 
+        id_obra = COALESCE(?, id_obra),
+        frente_trabalho = ?, 
+        id_atividade = ?, 
+        atividade = ?, 
+        descricao = ?, 
+        unidade_medida = ?, 
+        quantidade_planejada = ?, 
+        data_inicio = ?, 
+        data_fim = ?
+      WHERE id = ?
+    `;
+
+    await connection.execute(sqlUpdate, [
+      obraIdFinal ? parseInt(obraIdFinal) : null,
+      frente_trabalho || 'Geral',
+      idAtividadeFinal ? parseInt(idAtividadeFinal) : null,
+      nomeAtividadeTexto,
+      itemAtualizar.descricao ? itemAtualizar.descricao.trim() : null,
+      itemAtualizar.unidade_medida || 'UN',
+      parseFloat(itemAtualizar.quantidade_planejada) || 0,
+      data_inicio || null,
+      data_fim || null,
+      parseInt(id)
+    ]);
+
+    if (Array.isArray(itemAtualizar.topicos)) {
+      await connection.execute(`DELETE FROM planejamento_topicos WHERE id_planejamento = ?`, [parseInt(id)]);
+
+      const sqlTopico = `INSERT INTO planejamento_topicos (id_planejamento, descricao, concluido) VALUES (?, ?, ?)`;
+      for (const topico of itemAtualizar.topicos) {
+        if (topico.descricao && topico.descricao.trim()) {
+          await connection.execute(sqlTopico, [
+            parseInt(id),
+            topico.descricao.trim(),
+            topico.concluido ? 1 : 0
+          ]);
+        }
+      }
+    }
+
+    await connection.commit();
+    return res.json({ message: "Planejamento atualizado com sucesso!" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Erro ao atualizar planejamento:", error);
+    return res.status(500).json({ error: "Erro ao atualizar item de planejamento." });
+  } finally {
+    connection.release();
+  }
+});
+
 export default router;

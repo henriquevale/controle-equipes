@@ -42,6 +42,7 @@ import MeuPerfil from './assets/MeuPerfil';
 import DashboardFinanceiro from './assets/DashboardFinanceiro';
 import ComparativoMateriais from './assets/ComparativoMateriais';
 import CadastroAtividades from './assets/CadastroAtividades';
+import PlanejamentoObra from './assets/PlanejamentoObra';
 
 const API_URL = 'http://localhost:3001/api';
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
@@ -104,7 +105,8 @@ export default function App() {
       titulo: 'Campo & Produção',
       icone: HardHat,
       itens: [
-        { id: 'DASHBOARD_OBRA', label: 'Dashboard da Obra', icon: BarChart3, cargos: ['MASTER'] },  
+        { id: 'DASHBOARD_OBRA', label: 'Dashboard da Obra', icon: BarChart3, cargos: ['MASTER'] },
+        { id: 'PLANEJAMENTO_OBRA', label: 'Planejamento de Obra', icon: FolderKanban, cargos: ['MASTER', 'ENGENHARIA', 'GESTOR'] },
         { id: 'EQUIPE', label: 'Agendamento de Obra', icon: CalendarX, cargos: ['MASTER', 'GESTOR'] },
         { id: 'DIARIO_TECNICO', label: 'Diário de Obra', icon: ClipboardList, cargos: ['MASTER', 'GESTOR'] },
         { id: 'HISTORICO_DIARIOS', label: 'Histórico de Produção', icon: BarChart3, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
@@ -750,6 +752,14 @@ export default function App() {
             )}  
             {abaAtiva == 'CADASTRO_ATIVIDADES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <CadastroAtividades 
+                API_URL={API_URL}
+                mostrarMensagem={mostrarMensagem}
+                usuarioLogado={usuarioLogado}
+              />
+            )}
+            
+            {abaAtiva == 'PLANEJAMENTO_OBRA' && ['MASTER', 'ENGENHARIA', 'GESTOR'].includes(usuarioLogado.cargo) && (
+              <PlanejamentoObra 
                 API_URL={API_URL}
                 mostrarMensagem={mostrarMensagem}
                 usuarioLogado={usuarioLogado}

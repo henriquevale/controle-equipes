@@ -22,6 +22,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [atividadesLancadas, setAtividadesLancadas] = useState([]); 
   const [materiaisLancados, setMateriaisLancados] = useState([]);
   const [equipeSelecionadaFiltro, setEquipeSelecionadaFiltro] = useState('GERAL');
+  
+  // NOVO: Estado para preservar TODAS as equipes encontradas na obra/data
+  const [listaEquipesTotal, setListaEquipesTotal] = useState([]);
+
   const [equipeConfirmada, setEquipeConfirmada] = useState(false);
   const [carregando, setLoading] = useState(false);
   const [erroPainel, setErroPainel] = useState('');
@@ -36,10 +40,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
   const ehEquipeFolguista = equipeSelecionadaFiltro === 'FOLGUISTAS';
   const rdoInterrompido = ['Choveu', 'Sem Material', 'Outros'].includes(statusDiario);
-
-  const listaDeEquipesDisponiveis = Array.from(
-    new Set(efetivoAgendado.map(f => String(f.equipe || 'GERAL').trim().toUpperCase()))
-  ).filter(Boolean);
 
   useEffect(() => {
     carregarObrasIniciais();
@@ -70,8 +70,9 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setAtividadesLancadas([]);
       setMateriaisLancados([]);
       setEquipeConfirmada(false);
+      setListaEquipesTotal([]);
     }
-  }, [idObraSelecionada, dataDiario, equipeSelecionadaFiltro]);
+  }, [idObraSelecionada, dataDiario]);
   
   useEffect(() => {
     if (rdoInterrompido) {
@@ -87,15 +88,16 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }
   }, [statusDiario, equipeConfirmada]);
 
+  // Atualização do seletor para respeitar a lista de equipes sem forçar a limpeza
   useEffect(() => {
-    if (listaDeEquipesDisponiveis.length > 0 && !equipeConfirmada) {
-      if (!listaDeEquipesDisponiveis.includes(equipeSelecionadaFiltro)) {
-        setEquipeSelecionadaFiltro(listaDeEquipesDisponiveis[0]);
+    if (listaEquipesTotal.length > 0 && !equipeConfirmada) {
+      if (!listaEquipesTotal.includes(equipeSelecionadaFiltro)) {
+        setEquipeSelecionadaFiltro(listaEquipesTotal[0]);
       }
-    } else if (listaDeEquipesDisponiveis.length === 0 && !equipeConfirmada) {
+    } else if (listaEquipesTotal.length === 0 && !equipeConfirmada) {
       setEquipeSelecionadaFiltro('GERAL');
     }
-  }, [efetivoAgendado]);
+  }, [listaEquipesTotal]);
 
   const carregarCadastroAtividades = async () => {
     try {
@@ -188,6 +190,15 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           }
         });
         colaboradoresCarregados = Array.isArray(resEfetivo.data) ? resEfetivo.data : [];
+        
+        // Mapeia e fixa todas as equipes disponíveis para não se perderem após o filtro
+        const equipesUnicas = Array.from(
+          new Set(colaboradoresCarregados.map(f => String(f.equipe || 'GERAL').trim().toUpperCase()))
+        ).filter(Boolean);
+
+        if (equipesUnicas.length > 0) {
+          setListaEquipesTotal(equipesUnicas);
+        }
       } catch (errEfetivo) {
         if (errEfetivo.response?.status !== 404) {
           console.warn("Rota de agendamento não encontrada ou sem dados prévios.");
@@ -208,7 +219,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         setStatusDiario(status || 'Normal');
         setObservacoesContratada(observacoes || '');
 
-        // Mapeia atividades garantindo 'id_atividade' e 'tipoServico' (que vai para tipo_servico no BD)
         setAtividadesLancadas(
           (atividades_tachas || []).map(a => ({
             id_atividade: a.id_atividade || a.id_material || '',
@@ -217,7 +227,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           }))
         );
 
-        // Mapeia materiais garantindo 'id_material' e 'material_nome'
         setMateriaisLancados(
           (materials_apontados || []).map(m => ({
             id_material: m.id_material || '',
@@ -399,7 +408,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
       setStatusEnvio({ texto: "Processando e salvando relatório unificado...", tipo: "processando" });
       
-      // Mapeia atividades para enviar id_atividade e tipo_servico
       const atividadesFiltradas = (ehEquipeFolguista || rdoInterrompido)
         ? []
         : atividadesLancadas
@@ -410,7 +418,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               quantidade: parseFloat(act.quantidade) || 0.00
             }));
 
-      // Mapeia materiais para enviar id_material e material_nome
       const materiaisFiltradas = (ehEquipeFolguista || obraDadosCompletos?.tipo_obra === 'ADMINISTRATIVA' || rdoInterrompido)
         ? []
         : materiaisLancados
@@ -700,6 +707,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 setSalvoComSucesso(false); 
                 setEquipeConfirmada(false);
                 setEquipeSelecionadaFiltro('GERAL');
+                setListaEquipesTotal([]);
                 setStatusDiario('Normal');
                 setLiberarEquipeAoSalvar(false);
               }} 
@@ -722,10 +730,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 onChange={e => setEquipeSelecionadaFiltro(e.target.value)}
                 style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: equipeConfirmada ? '#e2e8f0' : '#fff', fontWeight: 'bold', color: '#334155' }}
               >
-                {listaDeEquipesDisponiveis.length === 0 && (
+                {listaEquipesTotal.length === 0 && (
                   <option value="GERAL">-- NENHUMA EQUIPE ENCONTRADA NESTA DATA --</option>
                 )}
-                {listaDeEquipesDisponiveis.map(eq => (
+                {listaEquipesTotal.map(eq => (
                   <option key={eq} value={eq}>{eq}</option>
                 ))}
               </select>
@@ -734,9 +742,9 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             {!equipeConfirmada ? (
               <button
                 type="button"
-                disabled={listaDeEquipesDisponiveis.length === 0}
+                disabled={listaEquipesTotal.length === 0}
                 onClick={() => setEquipeConfirmada(true)}
-                style={{ height: '32px', padding: '0 16px', backgroundColor: listaDeEquipesDisponiveis.length === 0 ? '#cbd5e1' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: listaDeEquipesDisponiveis.length === 0 ? 'not-allowed' : 'pointer' }}
+                style={{ height: '32px', padding: '0 16px', backgroundColor: listaEquipesTotal.length === 0 ? '#cbd5e1' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: listaEquipesTotal.length === 0 ? 'not-allowed' : 'pointer' }}
               >
                 Confirmar Equipe
               </button>
@@ -945,7 +953,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             </div>
           </div>
 
-          {/* SEÇÃO 2: PRODUÇÃO (MAPEADO PARA diario_atividades COM id_atividade) */}
+          {/* SEÇÃO 2: PRODUÇÃO */}
           {!ehEquipeFolguista && (
             <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
               <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -984,7 +992,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             </div>
           )}
 
-          {/* SEÇÃO 3: MATERIAIS (MAPEADO PARA diario_materiais_apontados COM id_material E material_nome) */}
+          {/* SEÇÃO 3: MATERIAIS */}
           {!ehEquipeFolguista && obraDadosCompletos?.tipo_obra !== 'ADMINISTRATIVA' && (
             <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
               <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

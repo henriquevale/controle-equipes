@@ -618,4 +618,104 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
     res.status(500).json({ mensagem: "Erro ao consultar veículos." });
   }
 });
+
+// 8. GET: PLANEJADO VS EXECUTADO
+router.get('/relatorios/planejado-vs-executado', async (req, res) => {
+  try {
+    const { obra_id, data_inicio, data_fim } = req.query;
+
+    if (!obra_id) return res.json([]);
+
+    // 1. Busca os itens planejados para a obra no período
+    let sqlPlan = `
+      SELECT 
+        pa.id AS id_planejamento,
+        pa.id_atividade,
+        COALESCE(pa.frente_trabalho, 'GERAL') AS frente_trabalho,
+        TRIM(pa.atividade) AS atividade,
+        pa.unidade_medida,
+        SUM(pa.quantidade_planejada) AS quantidade_planejada
+      FROM planejamento_atividades pa
+      WHERE pa.id_obra = ?
+    `;
+    const paramsPlan = [Number(obra_id)];
+
+    if (data_inicio && data_fim) {
+      sqlPlan += ` AND (pa.data_inicio <= ? AND pa.data_fim >= ?) `;
+      paramsPlan.push(data_fim, data_inicio);
+    }
+
+    sqlPlan += ` GROUP BY pa.id_atividade, TRIM(pa.atividade), pa.unidade_medida, pa.frente_trabalho, pa.id `;
+
+    // 2. Busca o que foi executado na tabela diario_atividades no período
+    let sqlExec = `
+      SELECT 
+        da.id_atividade,
+        UPPER(TRIM(da.tipo_servico)) AS atividade_nome,
+        SUM(da.quantidade) AS quantidade_executada
+      FROM diario_atividades da
+      INNER JOIN diario_obra do ON da.id_diario = do.id
+      WHERE do.id_obra = ?
+    `;
+    const paramsExec = [Number(obra_id)];
+
+    if (data_inicio && data_fim) {
+      sqlExec += ` AND do.data_diario BETWEEN ? AND ? `;
+      paramsExec.push(data_inicio, data_fim);
+    }
+
+    sqlExec += ` GROUP BY da.id_atividade, UPPER(TRIM(da.tipo_servico)) `;
+
+    const [dadosPlan] = await db.query(sqlPlan, paramsPlan);
+    const [dadosExec] = await db.query(sqlExec, paramsExec);
+
+    // Declaração correta das variáveis locais
+    const mapaExecPorId = {};
+    const mapaExecPorNome = {};
+
+    dadosExec.forEach(e => {
+      if (e.id_atividade) {
+        mapaExecPorId[e.id_atividade] = (mapaExecPorId[e.id_atividade] || 0) + Number(e.quantidade_executada || 0);
+      }
+      if (e.atividade_nome) {
+        mapaExecPorNome[e.atividade_nome] = (mapaExecPorNome[e.atividade_nome] || 0) + Number(e.quantidade_executada || 0);
+      }
+    });
+
+    // 3. Consolidação final
+    const resultado = dadosPlan.map(p => {
+      const planQtd = Number(p.quantidade_planejada) || 0;
+      const nomeUpper = (p.atividade || '').trim().toUpperCase();
+
+      // Procura execução primeiro pelo ID da atividade, senão pelo Nome da atividade
+      let execQtd = 0;
+      if (p.id_atividade && mapaExecPorId[p.id_atividade] !== undefined) {
+        execQtd = mapaExecPorId[p.id_atividade];
+      } else if (mapaExecPorNome[nomeUpper] !== undefined) {
+        execQtd = mapaExecPorNome[nomeUpper];
+      }
+
+      const desvio = execQtd - planQtd;
+      const percentualAtingido = planQtd > 0 ? Number(((execQtd / planQtd) * 100).toFixed(1)) : 0;
+
+      return {
+        id_planejamento: p.id_planejamento,
+        id_atividade: p.id_atividade,
+        frente_trabalho: p.frente_trabalho,
+        atividade: p.atividade,
+        unidade_medida: p.unidade_medida || 'UN',
+        planejado: planQtd,
+        executado: execQtd,
+        desvio: Number(desvio.toFixed(2)),
+        percentualAtingido
+      };
+    });
+
+    return res.json(resultado);
+
+  } catch (error) {
+    console.error("Erro ao gerar relatório Planejado vs Executado:", error);
+    return res.status(500).json({ error: "Erro interno ao consultar planejamento." });
+  }
+});
 export default router;
