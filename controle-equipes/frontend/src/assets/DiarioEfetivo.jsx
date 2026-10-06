@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios'; 
 import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Search, Lock, MoveHorizontal } from 'lucide-react';
 
-export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
+export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) {
 
   const API_URL = 'http://localhost:3001/api';
   //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
@@ -172,7 +172,18 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           }
         });
 
-        return [...deOutrasObras, ...novasDaObraAtual];
+        const equipesLocaisCriadasManualmente = prev.filter(
+          e => String(e.id_obra) === String(obraFiltro)
+        );
+
+        const combinadas = [...novasDaObraAtual];
+        equipesLocaisCriadasManualmente.forEach(eqManual => {
+          if (!combinadas.some(c => c.nome.toUpperCase() === eqManual.nome.toUpperCase())) {
+            combinadas.push(eqManual);
+          }
+        });
+
+        return [...deOutrasObras, ...combinadas];
       });
 
     } catch (e) {
@@ -334,12 +345,9 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       return;
     }
 
-    if (equipesBloqueadas.includes(nomeEquipe.toUpperCase())) {
-      alert(`🔒 A equipe '${nomeEquipe}' já foi finalizada no RDO desta data e está bloqueada para alterações.`);
-      return;
-    }
-
-    const funcObj = todosFuncionarios.find(f => String(f.id_funcionario || f.id) === String(idFuncionario));
+    const funcObj = (todosFuncionarios.length > 0 ? todosFuncionarios : listaCompletaFuncionarios).find(
+      f => String(f.id_funcionario || f.id) === String(idFuncionario)
+    );
     if (!funcObj) return;
 
     const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
@@ -367,6 +375,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         equipe: 'FOLGUISTAS'
       });
     } else {
+      listaAtualizada = listaAtualizada.filter(a => String(a.id_funcionario) !== String(idFuncionario));
       listaAtualizada.push({
         ...baseFuncionario,
         status_presenca: 'ALOCADO',
@@ -403,11 +412,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     const membro = alocacoesDoDia.find(a => String(a.id_funcionario) === String(idFuncionario));
     if (!membro) return;
 
-    if (equipesBloqueadas.includes(membro.equipe.toUpperCase())) {
-      alert(`🔒 A equipe '${membro.equipe}' já teve o RDO finalizado e está bloqueada.`);
-      return;
-    }
-
     const listaAtualizada = alocacoesDoDia.filter(a => String(a.id_funcionario) !== String(idFuncionario));
     setAlocacoesDoDia(listaAtualizada);
 
@@ -436,11 +440,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   const handleAlterarVeiculoFuncionario = async (idFuncionario, idVeiculo) => {
     const membro = alocacoesDoDia.find(a => String(a.id_funcionario) === String(idFuncionario));
     if (!membro) return;
-
-    if (equipesBloqueadas.includes(membro.equipe.toUpperCase())) {
-      alert(`🔒 A equipe '${membro.equipe}' já foi finalizada no RDO desta data.`);
-      return;
-    }
 
     const idVeicTratado = idVeiculo ? Number(idVeiculo) : null;
 
@@ -473,15 +472,10 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     }
   };
 
-  // --- EXCLUSÃO DE EQUIPE ---
+  // --- EXCLUSÃO DE EQUIPE (PERMITIDA MESMO COM RDO FINALIZADO) ---
   const handleDeletarEquipe = async (nomeEquipeDeletar) => {
     if (!obraFiltro) {
       alert("⚠️ Selecione uma Obra ativa!");
-      return;
-    }
-
-    if (equipesBloqueadas.includes(nomeEquipeDeletar.toUpperCase())) {
-      alert(`🔒 A equipe '${nomeEquipeDeletar}' já teve seu RDO finalizado e não pode ser excluída.`);
       return;
     }
 
@@ -507,6 +501,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
       ));
 
+      await carregarAlocacoesDaObra();
       await carregarTodosOsAgendamentosDoDia();
       await carregarFuncionariosDoGestor();
 
@@ -536,11 +531,13 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     }
   };
 
+  // --- CONFIRMAÇÃO E SUBMISSÃO DA TRANSFERÊNCIA ---
   const handleConfirmarTransferencia = async (e) => {
     e.preventDefault();
-    const gestorDestinoObj = listaGestores.find(g => Number(g.id) === Number(remanejamentoDados.id_gestor_destino));
+    const idDestino = remanejamentoDados.id_gestor_destino;
+    const gestorDestinoObj = listaGestores.find(g => Number(g.id) === Number(idDestino));
 
-    if (!remanejamentoDados.id_gestor_destino || !gestorDestinoObj) {
+    if (!idDestino || !gestorDestinoObj) {
       alert("Por favor, selecione o Gestor Destino!");
       return;
     }
@@ -549,7 +546,8 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
 
       await axios.post(`${API_URL}/gestor/remanezar-funcionario-vincular`, {
-        id_usuario: Number(remanejamentoDados.id_gestor_destino),
+        id_usuario: Number(idDestino),
+        id_gestor_destino: Number(idDestino),
         id_funcionario: Number(remanejamentoDados.id_funcionario),
         id_obra: obraFiltro ? Number(obraFiltro) : null,
         data_inicio: dataSelecionada,
@@ -560,13 +558,14 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       alert(`📢 NOTIFICAÇÃO ENVIADA COM SUCESSO!\n\nColaborador ${remanejamentoDados.nome_funcionario} foi transferido para o Gestor ${gestorDestinoObj.nome}.`);
 
       setModalAberto(false);
-      
+      setRemanejamentoDados({ id_funcionario: null, nome_funcionario: '', id_gestor_destino: '' });
+
       await carregarAlocacoesDaObra();
       await carregarTodosOsAgendamentosDoDia();
       await carregarFuncionariosDoGestor();
     } catch (err) {
-      console.error(err);
-      alert("Erro ao realizar transferência do colaborador.");
+      console.error("Erro ao realizar transferência:", err);
+      alert(err.response?.data?.error || err.response?.data?.message || "Erro ao realizar transferência do colaborador.");
     }
   };
 
@@ -733,7 +732,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
             </span>
           </div>
 
-          {/* CAMPO DE BUSCA DOS DISPONÍVEIS */}
           <div style={{ position: 'relative', marginBottom: '10px' }}>
             <input
               type="text"
@@ -787,7 +785,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                         {equipesDaObraAtiva.map(eq => {
                           const bloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
                           return (
-                            <option key={`opt-${eq.nome}`} value={eq.nome} disabled={bloqueada}>
+                            <option key={`opt-${eq.nome}`} value={eq.nome}>
                               {eq.nome} {bloqueada ? '🔒 (RDO Finalizado)' : ''}
                             </option>
                           );
@@ -827,14 +825,12 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                   }}
                 >
                   
-                  {/* BARRA DE TRAVA DE RDO FINALIZADO */}
                   {estaBloqueada && (
                     <div style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '4px 8px', fontSize: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                      <Lock style={{ width: '12px', height: '12px' }} /> RDO FINALIZADO (ESCALA BLOQUEADA)
+                      <Lock style={{ width: '12px', height: '12px' }} /> RDO FINALIZADO
                     </div>
                   )}
 
-                  {/* Cabeçalho do Card da Equipe */}
                   <div style={{ backgroundColor: estaBloqueada ? '#334155' : '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{eq.nome}</div>
@@ -845,20 +841,18 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                         {integrantes.length} Colaboradores
                       </span>
 
-                      {!estaBloqueada && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeletarEquipe(eq.nome)}
-                          title="Excluir esta equipe"
-                          style={{ border: 'none', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                        >
-                          <Trash2 style={{ width: '13px', height: '13px' }} />
-                        </button>
-                      )}
+                      {/* BOTÃO DE DELETAR EQUIPE (AGORA VISÍVEL MESMO APÓS O RDO FINALIZAR) */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeletarEquipe(eq.nome)}
+                        title="Excluir esta equipe"
+                        style={{ border: 'none', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Trash2 style={{ width: '13px', height: '13px' }} />
+                      </button>
                     </div>
                   </div>
 
-                  {/* Integrantes da Equipe */}
                   <div style={{ padding: '8px', minHeight: '120px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#fafafa' }}>
                     {integrantes.length === 0 ? (
                       <div style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '16px' }}>
@@ -899,52 +893,46 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                                 <div style={{ fontSize: '8px', color: '#64748b' }}>{membro.cargo}</div>
                               </div>
 
-                              {!estaBloqueada && (
-                                <button 
-                                  type="button" 
-                                  onClick={() => handleRemoverDaEquipe(membro.id_funcionario)}
-                                  title="Remover da equipe (retorna para disponíveis)"
-                                  style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
-                                >
-                                  <X style={{ width: '14px', height: '14px' }} />
-                                </button>
-                              )}
+                              <button 
+                                type="button" 
+                                onClick={() => handleRemoverDaEquipe(membro.id_funcionario)}
+                                title="Remover da equipe (retorna para disponíveis)"
+                                style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                              >
+                                <X style={{ width: '14px', height: '14px' }} />
+                              </button>
                             </div>
 
-                            {/* VÍNCULO DE VEÍCULO COM CAMPO DE BUSCA */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {!estaBloqueada && (
-                                <div style={{ position: 'relative', width: '100%' }}>
-                                  <input
-                                    type="text"
-                                    placeholder="Pesquisar veículo por placa/modelo..."
-                                    value={buscaVeiculoFiltro[membro.id_funcionario] || ''}
-                                    onChange={(e) => setBuscaVeiculoFiltro({
-                                      ...buscaVeiculoFiltro,
-                                      [membro.id_funcionario]: e.target.value
-                                    })}
-                                    style={{
-                                      width: '100%',
-                                      height: '24px',
-                                      padding: '0 22px 0 6px',
-                                      fontSize: '9px',
-                                      border: '1px solid #cbd5e1',
-                                      borderRadius: '3px',
-                                      boxSizing: 'border-box',
-                                      outline: 'none'
-                                    }}
-                                  />
-                                  <Search style={{ width: '10px', height: '10px', color: '#94a3b8', position: 'absolute', right: '6px', top: '7px' }} />
-                                </div>
-                              )}
+                              <div style={{ position: 'relative', width: '100%' }}>
+                                <input
+                                  type="text"
+                                  placeholder="Pesquisar veículo por placa/modelo..."
+                                  value={buscaVeiculoFiltro[membro.id_funcionario] || ''}
+                                  onChange={(e) => setBuscaVeiculoFiltro({
+                                    ...buscaVeiculoFiltro,
+                                    [membro.id_funcionario]: e.target.value
+                                  })}
+                                  style={{
+                                    width: '100%',
+                                    height: '24px',
+                                    padding: '0 22px 0 6px',
+                                    fontSize: '9px',
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: '3px',
+                                    boxSizing: 'border-box',
+                                    outline: 'none'
+                                  }}
+                                />
+                                <Search style={{ width: '10px', height: '10px', color: '#94a3b8', position: 'absolute', right: '6px', top: '7px' }} />
+                              </div>
 
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 <Car style={{ width: '12px', height: '12px', color: '#2563eb' }} />
                                 <select
-                                  disabled={estaBloqueada}
                                   value={membro.id_veiculo || ''}
                                   onChange={(e) => handleAlterarVeiculoFuncionario(membro.id_funcionario, e.target.value)}
-                                  style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: estaBloqueada ? '#f1f5f9' : '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
+                                  style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
                                 >
                                   <option value="">-- Sem Veículo Atribuído --</option>
                                   {veiculosDisponiveisOuAtual.map(v => (
@@ -995,7 +983,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
               </div>
             )}
 
-            {/* BOTÃO DE VISIBILIDADE */}
             <button 
               type="button"
               onClick={() => setMostrarEfetivoEscalado(!mostrarEfetivoEscalado)}
@@ -1143,8 +1130,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
         {mostrarResumoVeiculos && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-            
-            {/* CAMPO DE PESQUISA DE VEÍCULO POR PLACA */}
             <div style={{ position: 'relative', width: '280px' }}>
               <input
                 type="text"

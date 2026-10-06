@@ -45,7 +45,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
 
   const ehEquipeFolguista = equipeSelecionadaFiltro === 'FOLGUISTAS';
-  const rdoInterrompido = ['Choveu', 'Sem Material', 'Outros'].includes(statusDiario);
+  const rdoInterrompido = ['Choveu', 'Sem Material', 'Sem Equipamento','Apoio','Sem Atividade', 'Outros'].includes(statusDiario);
 
   useEffect(() => {
     carregarObrasIniciais();

@@ -1447,7 +1447,7 @@ router.put('/gestor/veiculos/status/:id', async (req, res) => {
 });
 
 // ========================================================
-// 21. DELETE: EXCLUIR EQUIPE DO CONTROLE E DESVINCULAR INTEGRANTES
+// 21. DELETE: EXCLUIR EQUIPE DO CONTROLE E DESVINCULAR INTEGRANTES (PERMITE EXCLUIR MESMO APÓS RDO FINALIZADO)
 // ========================================================
 router.delete('/gestor/equipe', async (req, res) => {
   const { nome_equipe, id_obra, data_diario } = req.query;
@@ -1464,23 +1464,44 @@ router.delete('/gestor/equipe', async (req, res) => {
     const equipeTratada = String(nome_equipe).trim().toUpperCase();
     const idObraNum = parseInt(id_obra);
 
+    // 1. Localizar o ID do diário técnico (se existir)
+    const [mestre] = await connection.execute(
+      `SELECT id FROM diario_obra WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [data_diario, idObraNum, equipeTratada]
+    );
+
+    if (mestre.length > 0) {
+      const diarioId = mestre[0].id;
+
+      // 2. Apagar apontamentos vinculados ao ID do diário
+      await connection.execute(`DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_atividades WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_materiais_apontados WHERE id_diario = ?`, [diarioId]);
+    }
+
+    // 3. Apagar registros vinculados por obra, data e equipe
     await connection.execute(
-      "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
+      `DELETE FROM diarios_veiculos WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
       [data_diario, idObraNum, equipeTratada]
     );
 
     await connection.execute(
-      "DELETE FROM controle_diarios_equipe WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
+      `DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
       [data_diario, idObraNum, equipeTratada]
     );
 
     await connection.execute(
-      "DELETE FROM diario_obra WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
+      `DELETE FROM controle_diarios_equipe WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [data_diario, idObraNum, equipeTratada]
+    );
+
+    await connection.execute(
+      `DELETE FROM diario_obra WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
       [data_diario, idObraNum, equipeTratada]
     );
 
     await connection.commit();
-    res.status(200).json({ success: true, message: "Equipe e histórico de atividades excluídos com sucesso." });
+    res.status(200).json({ success: true, message: "Equipe e todos os apontamentos vinculados foram excluídos com sucesso." });
   } catch (err) {
     await connection.rollback();
     console.error("Erro ao deletar equipe:", err);
