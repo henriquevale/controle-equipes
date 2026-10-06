@@ -877,9 +877,12 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 style={{ width: '280px', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold', backgroundColor: rdoInterrompido ? '#fff5f5' : '#f0fdf4', color: rdoInterrompido ? '#991b1b' : '#166534' }}
               >
                 <option value="Normal">Obra Normal / Em Andamento</option>
-                <option value="Choveu">Obra Interrompida por Chuva</option>
-                <option value="Sem Material">Obra Interrompida Sem Material</option>
-                <option value="Outros">Obra Interrompida por Outros Motivos</option>
+                  <option value="Choveu">Obra Interrompida por Chuva</option>
+                  <option value="Sem Material">Obra Interrompida Sem Material</option>
+                  <option value="Sem Equipamento">Obra Interrompida Sem Equipamento</option>
+                  <option value="Apoio">Apoio</option>
+                  <option value="Sem Atividade">Sem Atividade</option>
+                  <option value="Outros">Obra Interrompida por Outros Motivos</option>
               </select>
             </div>
 
