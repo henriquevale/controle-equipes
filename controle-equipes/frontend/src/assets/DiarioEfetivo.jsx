@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios'; 
-import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Wrench, AlertTriangle, CheckCircle, MoveHorizontal, Search, Lock } from 'lucide-react';
+import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Search, Lock, MoveHorizontal } from 'lucide-react';
 
 export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
@@ -10,11 +10,12 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   // --- FILTROS PRIMÁRIOS DE CABEÇALHO ---
   const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
   const [obraFiltro, setObraFiltro] = useState('');
-  const [turnoAtivo, setTurnoAtivo] = useState('DIURNO');
   const [filtroEquipeTabela, setFiltroEquipeTabela] = useState('TODAS');
 
-  // --- CAMPO DE PESQUISA NOS DISPONÍVEIS ---
+  // --- CAMPO DE PESQUISA NOS DISPONÍVEIS, VEÍCULOS E BUSCA DE VEÍCULO NO VÍNCULO ---
   const [termoBuscaDisponiveis, setTermoBuscaDisponiveis] = useState('');
+  const [termoBuscaVeiculos, setTermoBuscaVeiculos] = useState('');
+  const [buscaVeiculoFiltro, setBuscaVeiculoFiltro] = useState({});
 
   // --- DADOS DO SISTEMA ---
   const [todosFuncionarios, setTodosFuncionarios] = useState([]);
@@ -24,16 +25,16 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   const [listaVeiculos, setListaVeiculos] = useState([]);
   const [equipesBloqueadas, setEquipesBloqueadas] = useState([]);
 
-  // --- CONTROLE DE EQUIPES LOCAIS (POR OBRA E TURNO) ---
+  // --- CONTROLE DE EQUIPES LOCAIS (POR OBRA) ---
   const [equipesLocais, setEquipesLocais] = useState([]); 
   const [nomeNovaEquipe, setNomeNovaEquipe] = useState('');
   
   // --- CONTROLE DE VISIBILIDADE DE PAINÉIS/TABELAS ---
-  const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
   const [mostrarResumoOcupacao, setMostrarResumoOcupacao] = useState(false);
   const [mostrarResumoVeiculos, setMostrarResumoVeiculos] = useState(false);
   const [mostrarRemanejamento, setMostrarRemanejamento] = useState(false);
   const [mostrarEfetivoEscalado, setMostrarEfetivoEscalado] = useState(false);
+
   // --- MODAL DE REMANEJAMENTO DE GESTOR ---
   const [modalAberto, setModalAberto] = useState(false);
   const [remanejamentoDados, setRemanejamentoDados] = useState({
@@ -58,7 +59,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     carregarTodosOsAgendamentosDoDia();
     carregarFuncionariosDoGestor();
     carregarVeiculosDoGestor(); 
-  }, [dataSelecionada, obraFiltro, turnoAtivo]);
+  }, [dataSelecionada, obraFiltro]);
 
   // --- BUSCAR EQUIPES FINALIZADAS (TRAVADAS) ---
   const carregarEquipesBloqueadas = async () => {
@@ -144,7 +145,9 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
-      const alocs = res.data || [];
+      const alocs = (res.data || []).map(colab => ({
+        ...colab
+      }));
       setAlocacoesDoDia(alocs);
 
       setEquipesLocais(prev => {
@@ -152,20 +155,17 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         const novasDaObraAtual = [];
 
         alocs.forEach(aloc => {
-          if (aloc.equipe && aloc.turno) {
+          if (aloc.equipe) {
             const eqNome = aloc.equipe.trim().toUpperCase();
-            const eqTurno = String(aloc.turno).trim().toUpperCase();
             
             const jaExiste = novasDaObraAtual.some(
               e => e.nome.toUpperCase() === eqNome && 
-                   e.turno.toUpperCase() === eqTurno && 
                    String(e.id_obra) === String(obraFiltro)
             );
 
             if (!jaExiste) {
               novasDaObraAtual.push({ 
                 nome: eqNome, 
-                turno: eqTurno, 
                 id_obra: String(obraFiltro) 
               });
             }
@@ -198,8 +198,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       const params = { 
         id: usuario?.id, 
         cargo: usuario?.cargo, 
-        data_diario: dataSelecionada,
-        turno: turnoAtivo
+        data_diario: dataSelecionada
       };
       const res = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { params });
       setTodosFuncionarios(res.data && res.data.funcionarios ? res.data.funcionarios : []);
@@ -238,36 +237,34 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     setEquipesLocais((prevEquipes) => {
       const jaExiste = prevEquipes.some(
         (eq) => eq.nome.toUpperCase() === nomeFolguista && 
-               eq.turno.toUpperCase() === turnoAtivo.toUpperCase() &&
                String(eq.id_obra) === String(obraFiltro)
       );
 
       if (jaExiste) {
-        alert("A equipe de Folguistas já foi criada para este turno e obra!");
+        alert("A equipe de Folguistas já foi criada para esta obra!");
         return prevEquipes;
       }
 
       return [
         ...prevEquipes,
-        { nome: nomeFolguista, turno: turnoAtivo, id_obra: String(obraFiltro) }
+        { nome: nomeFolguista, id_obra: String(obraFiltro) }
       ];
     });
   };
 
-  // --- EQUIPES FILTRADAS EXCLUSIVAMENTE PARA A OBRA E TURNO SELECIONADOS ---
-  const equipesDoTurnoAtivo = equipesLocais.filter(
-    eq => eq.turno.toUpperCase() === turnoAtivo.toUpperCase() && 
-          String(eq.id_obra) === String(obraFiltro)
+  // --- EQUIPES FILTRADAS EXCLUSIVAMENTE PARA A OBRA SELECIONADA ---
+  const equipesDaObraAtiva = equipesLocais.filter(
+    eq => String(eq.id_obra) === String(obraFiltro)
   );
 
-  // --- DISPONIBILIDADE EM TEMPO REAL POR TURNO (LÓGICA AJUSTADA) ---
-  const funcionariosDisponiveisNoTurno = useMemo(() => {
+  // --- DISPONIBILIDADE EM TEMPO REAL ---
+  const funcionariosDisponiveis = useMemo(() => {
     const baseFuncionarios = todosFuncionarios.length > 0 
       ? todosFuncionarios 
       : listaCompletaFuncionarios;
 
     return baseFuncionarios.filter(func => {
-      const idFunc = Number(func.id_funcionario || func.id);
+      const idFunc = func.id_funcionario || func.id;
 
       const termo = termoBuscaDisponiveis.toLowerCase().trim();
       const nomeMatch = (func.nome || func.name || '').toLowerCase().includes(termo);
@@ -279,17 +276,31 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       }
 
       const jaEstaAlocadoNaTela = alocacoesDoDia.some(a => {
-      const mesmoFunc = Number(a.id_funcionario) === idFunc;
-      const mesmoTurno = String(a.turno).toUpperCase() === turnoAtivo.toUpperCase();
-      const estaLiberado = Number(a.liberado) === 1 || String(a.status_presenca).toUpperCase() === 'LIBERADO';
-      
-        // Se está no mesmo turno E NÃO está liberado, considera ocupado/bloqueado
-        return mesmoFunc && mesmoTurno && !estaLiberado;
+        const mesmoFunc = String(a.id_funcionario) === String(idFunc);
+        const estaLiberado = Number(a.liberado) === 1 || String(a.status_presenca).toUpperCase() === 'LIBERADO';
+        
+        return mesmoFunc && !estaLiberado;
       });
 
       return !jaEstaAlocadoNaTela;
     });
-  }, [todosFuncionarios, listaCompletaFuncionarios, alocacoesDoDia, turnoAtivo, termoBuscaDisponiveis]);
+  }, [todosFuncionarios, listaCompletaFuncionarios, alocacoesDoDia, termoBuscaDisponiveis]);
+
+  // --- VEÍCULOS FILTRADOS POR BUSCA DE PLACA ---
+  const veiculosFiltrados = useMemo(() => {
+    return [...listaVeiculos]
+      .sort((a, b) => (a.placa || '').localeCompare(b.placa || ''))
+      .filter(veiculo => {
+        const termo = termoBuscaVeiculos.toLowerCase().trim();
+        if (!termo) return true;
+
+        const placaMatch = (veiculo.placa || '').toLowerCase().includes(termo);
+        const marcaMatch = (veiculo.marca || '').toLowerCase().includes(termo);
+        const modeloMatch = (veiculo.modelo || '').toLowerCase().includes(termo);
+
+        return placaMatch || marcaMatch || modeloMatch;
+      });
+  }, [listaVeiculos, termoBuscaVeiculos]);
 
   // --- CRIAÇÃO DE EQUIPE ---
   const handleCriarEquipe = (e) => {
@@ -302,18 +313,17 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     const nomeFormatado = nomeNovaEquipe.trim().toUpperCase();
     if (!nomeFormatado) return;
 
-    const jaExisteNoTurno = equipesLocais.some(
+    const jaExiste = equipesLocais.some(
       eq => eq.nome.toUpperCase() === nomeFormatado && 
-            eq.turno.toUpperCase() === turnoAtivo.toUpperCase() &&
             String(eq.id_obra) === String(obraFiltro)
     );
 
-    if (jaExisteNoTurno) {
-      alert(`⚠️ A equipe "${nomeFormatado}" já existe para esta obra no turno ${turnoAtivo}!`);
+    if (jaExiste) {
+      alert(`⚠️ A equipe "${nomeFormatado}" já existe para esta obra!`);
       return;
     }
 
-    setEquipesLocais([...equipesLocais, { nome: nomeFormatado, turno: turnoAtivo.toUpperCase(), id_obra: String(obraFiltro) }]);
+    setEquipesLocais([...equipesLocais, { nome: nomeFormatado, id_obra: String(obraFiltro) }]);
     setNomeNovaEquipe('');
   };
 
@@ -329,7 +339,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       return;
     }
 
-    const funcObj = todosFuncionarios.find(f => Number(f.id_funcionario || f.id) === Number(idFuncionario));
+    const funcObj = todosFuncionarios.find(f => String(f.id_funcionario || f.id) === String(idFuncionario));
     if (!funcObj) return;
 
     const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
@@ -337,39 +347,32 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
     let listaAtualizada = [...alocacoesDoDia];
 
-    if (ehFolguista) {
-      listaAtualizada = listaAtualizada.filter(a => Number(a.id_funcionario) !== Number(idFuncionario));
+    const baseFuncionario = {
+      id_funcionario: funcObj.id_funcionario || funcObj.id,
+      id_obra: Number(obraFiltro),
+      id_gestor: usuario?.id || null,
+      nome: funcObj.nome || funcObj.name,
+      cargo: funcObj.cargo || 'N/D',
+      matricula: funcObj.matricula || '',
+      id_veiculo: null
+    };
 
-      ['DIURNO', 'NOTURNO'].forEach(t => {
-        listaAtualizada.push({
-          id_funcionario: funcObj.id_funcionario || funcObj.id,
-          id_obra: Number(obraFiltro),
-          id_gestor: usuario?.id || null,
-          nome: funcObj.nome || funcObj.name,
-          cargo: funcObj.cargo || 'N/D',
-          matricula: funcObj.matricula || '',
-          turno: t,
-          status_presenca: 'Folga',
-          observacao: 'Folga Programada (Escala)',
-          equipe: 'FOLGUISTAS',
-          id_veiculo: null
-        });
+    if (ehFolguista) {
+      listaAtualizada = listaAtualizada.filter(a => String(a.id_funcionario) !== String(idFuncionario));
+
+      listaAtualizada.push({
+        ...baseFuncionario,
+        status_presenca: 'Folga',
+        observacao: 'Folga Programada (Escala)',
+        equipe: 'FOLGUISTAS'
       });
     } else {
-      const novaAloc = {
-        id_funcionario: funcObj.id_funcionario || funcObj.id,
-        id_obra: Number(obraFiltro),
-        id_gestor: usuario?.id || null,
-        nome: funcObj.nome || funcObj.name,
-        cargo: funcObj.cargo || 'N/D',
-        matricula: funcObj.matricula || '',
-        turno: turnoAtivo,
+      listaAtualizada.push({
+        ...baseFuncionario,
         status_presenca: 'ALOCADO',
         observacao: '',
-        equipe: nomeEquipe,
-        id_veiculo: null
-      };
-      listaAtualizada.push(novaAloc);
+        equipe: nomeEquipe
+      });
     }
 
     setAlocacoesDoDia(listaAtualizada);
@@ -397,7 +400,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   // --- REMOVER COLABORADOR DA EQUIPE ---
   const handleRemoverDaEquipe = async (idFuncionario) => {
-    const membro = alocacoesDoDia.find(a => Number(a.id_funcionario) === Number(idFuncionario));
+    const membro = alocacoesDoDia.find(a => String(a.id_funcionario) === String(idFuncionario));
     if (!membro) return;
 
     if (equipesBloqueadas.includes(membro.equipe.toUpperCase())) {
@@ -405,7 +408,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       return;
     }
 
-    const listaAtualizada = alocacoesDoDia.filter(a => Number(a.id_funcionario) !== Number(idFuncionario));
+    const listaAtualizada = alocacoesDoDia.filter(a => String(a.id_funcionario) !== String(idFuncionario));
     setAlocacoesDoDia(listaAtualizada);
 
     try {
@@ -431,7 +434,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
   // --- ALTERAR VEÍCULO ATRIBUÍDO AO COLABORADOR ---
   const handleAlterarVeiculoFuncionario = async (idFuncionario, idVeiculo) => {
-    const membro = alocacoesDoDia.find(a => Number(a.id_funcionario) === Number(idFuncionario));
+    const membro = alocacoesDoDia.find(a => String(a.id_funcionario) === String(idFuncionario));
     if (!membro) return;
 
     if (equipesBloqueadas.includes(membro.equipe.toUpperCase())) {
@@ -442,7 +445,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     const idVeicTratado = idVeiculo ? Number(idVeiculo) : null;
 
     const listaAtualizada = alocacoesDoDia.map(a => {
-      if (Number(a.id_funcionario) === Number(idFuncionario)) {
+      if (String(a.id_funcionario) === String(idFuncionario)) {
         return { ...a, id_veiculo: idVeicTratado };
       }
       return a;
@@ -490,19 +493,18 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       await axios.delete(`${API_URL}/gestor/equipe`, {
         params: {
           nome_equipe: nomeEquipeDeletar,
-          turno: turnoAtivo,
           id_obra: Number(obraFiltro),
           data_diario: dataSelecionada
         }
       });
 
       const listaAtualizada = alocacoesDoDia.filter(
-        a => !(a.equipe.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(a.turno).toUpperCase() === turnoAtivo.toUpperCase())
+        a => !(a.equipe.toUpperCase() === nomeEquipeDeletar.toUpperCase())
       );
 
       setAlocacoesDoDia(listaAtualizada);
       setEquipesLocais(prev => prev.filter(
-        eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && eq.turno.toUpperCase() === turnoAtivo.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
+        eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
       ));
 
       await carregarTodosOsAgendamentosDoDia();
@@ -559,7 +561,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
       setModalAberto(false);
       
-      // RE-FETCH SÍNCRONO PARA GARANTIR QUE O COLABORADOR REAPAREÇA OU SEJA REMOVIDO CORRETAMENTE DA INTERFACE
       await carregarAlocacoesDaObra();
       await carregarTodosOsAgendamentosDoDia();
       await carregarFuncionariosDoGestor();
@@ -570,9 +571,9 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
   };
 
   // --- UTILITÁRIOS DE STATUS DE TABELAS ---
-  const obterStatusPorTurno = (idFuncionario, turnoAlvo) => {
+  const obterStatusFuncionario = (idFuncionario) => {
     const ag = todosOsAgendamentosDoDia.find(
-      a => String(a.id_funcionario) === String(idFuncionario) && String(a.turno).toUpperCase() === turnoAlvo
+      a => String(a.id_funcionario) === String(idFuncionario)
     );
     
     if (ag) {
@@ -590,9 +591,9 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
     return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
   };
 
-  const obterStatusVeiculoPorTurno = (idVeiculo, turnoAlvo) => {
+  const obterStatusVeiculo = (idVeiculo) => {
     const aloc = todosOsAgendamentosDoDia.find(
-      a => Number(a.id_veiculo) === Number(idVeiculo) && String(a.turno).toUpperCase() === turnoAlvo
+      a => Number(a.id_veiculo) === Number(idVeiculo)
     );
 
     if (aloc) {
@@ -628,51 +629,11 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
       {/* 1. SELEÇÃO PRIMÁRIA DE FILTROS DA ESCALA */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '12px', color: '#0f172a', fontSize: '12px' }}>
-          1. Parâmetros da Escala (Defina o Turno Primário)
+          1. Parâmetros da Escala
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
           
-          {/* SELEÇÃO DE TURNO */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#2563eb' }}>Turno Ativo em Foco *</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                type="button"
-                onClick={() => setTurnoAtivo('DIURNO')}
-                style={{
-                  flex: 1,
-                  height: '36px',
-                  borderRadius: '4px',
-                  border: turnoAtivo === 'DIURNO' ? '2px solid #2563eb' : '1px solid #cbd5e1',
-                  backgroundColor: turnoAtivo === 'DIURNO' ? '#eff6ff' : '#f8fafc',
-                  color: turnoAtivo === 'DIURNO' ? '#1d4ed8' : '#64748b',
-                  fontWeight: 'bold',
-                  cursor: 'pointer'
-                }}
-              >
-                ☀️ DIURNO
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTurnoAtivo('NOTURNO')}
-                style={{
-                  flex: 1,
-                  height: '36px',
-                  borderRadius: '4px',
-                  border: turnoAtivo === 'NOTURNO' ? '2px solid #1e1b4b' : '1px solid #cbd5e1',
-                  backgroundColor: turnoAtivo === 'NOTURNO' ? '#312e81' : '#f8fafc',
-                  color: turnoAtivo === 'NOTURNO' ? '#fff' : '#64748b',
-                  fontWeight: 'bold',
-                  cursor: 'pointer'
-                }}
-              >
-                🌙 NOTURNO
-              </button>
-            </div>
-          </div>
-
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>Data do Diário</label>
             <input 
@@ -700,75 +661,75 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         </div>
       </div>
 
-{/* 2. BARRA DE CRIAR EQUIPES E FOLGUISTAS */}
-<div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px' }}>
-  
-  <form onSubmit={handleCriarEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flex: '1 1 300px' }}>
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
-      <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>
-        Nome da Equipe (Turno {turnoAtivo})
-      </label>
-      <input 
-        required
-        type="text" 
-        placeholder="Ex: EQUIPE HORIZONTAL, VERTICAL..." 
-        value={nomeNovaEquipe}
-        onChange={e => setNomeNovaEquipe(e.target.value)}
-        style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: '500', boxSizing: 'border-box' }}
-      />
-    </div>
+      {/* 2. BARRA DE CRIAR EQUIPES E FOLGUISTAS */}
+      <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px' }}>
+        
+        <form onSubmit={handleCriarEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flex: '1 1 300px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+            <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#334155' }}>
+              Nome da Equipe
+            </label>
+            <input 
+              required
+              type="text" 
+              placeholder="Ex: EQUIPE HORIZONTAL, VERTICAL..." 
+              value={nomeNovaEquipe}
+              onChange={e => setNomeNovaEquipe(e.target.value)}
+              style={{ height: '36px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: '500', boxSizing: 'border-box' }}
+            />
+          </div>
 
-    <button 
-      type="submit" 
-      style={{ height: '36px', padding: '0 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-    >
-      <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe ({turnoAtivo})
-    </button>
-  </form>
+          <button 
+            type="submit" 
+            style={{ height: '36px', padding: '0 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe
+          </button>
+        </form>
 
-  <div style={{ borderLeft: '1px solid #cbd5e1', paddingLeft: '12px' }}>
-    <button 
-      type="button" 
-      onClick={handleCriarEquipeFolguista}
-      style={{ height: '36px', padding: '0 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
-      title="Cria o painel de Folguistas para ambos os turnos (Diurno + Noturno)"
-    >
-      <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe de Folga (Ambos os Turnos)
-    </button>
-  </div>
-  
-  <button
-    type="button"
-    onClick={handleCopiarUltimoAgendamento}
-    style={{
-      height: '36px',
-      padding: '0 16px',
-      backgroundColor: '#0284c7',
-      color: '#fff',
-      border: 'none',
-      borderRadius: '4px',
-      fontWeight: 'bold',
-      fontSize: '11px',
-      cursor: 'pointer',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '6px',
-      whiteSpace: 'nowrap'
-    }}
-    title="Copia a formação de equipes e veículos do último dia em que houve agendamento para esta obra"
-  >
-    📋 Copiar Últimos Agendamentos
-  </button> 
-</div>
-       
+        <div style={{ borderLeft: '1px solid #cbd5e1', paddingLeft: '12px' }}>
+          <button 
+            type="button" 
+            onClick={handleCriarEquipeFolguista}
+            style={{ height: '36px', padding: '0 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+            title="Cria o painel de Folguistas"
+          >
+            <Plus style={{ width: '14px', height: '14px' }} /> Criar Equipe de Folga
+          </button>
+        </div>
+        
+        <button
+          type="button"
+          onClick={handleCopiarUltimoAgendamento}
+          style={{
+            height: '36px',
+            padding: '0 16px',
+            backgroundColor: '#0284c7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            fontWeight: 'bold',
+            fontSize: '11px',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            whiteSpace: 'nowrap'
+          }}
+          title="Copia a formação de equipes e veículos do último dia em que houve agendamento para esta obra"
+        >
+          📋 Copiar Últimos Agendamentos
+        </button> 
+      </div>
+             
       {/* 3. PAINEL DINÂMICO DE ALOCAÇÃO */}
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '16px', alignItems: 'start' }}>
         
-        {/* COLUNA ESQUERDA: DISPONÍVEIS NO TURNO */}
+        {/* COLUNA ESQUERDA: DISPONÍVEIS */}
         <div style={{ backgroundColor: '#fff', border: '2px solid #3b82f6', borderRadius: '6px', padding: '12px', minHeight: '380px' }}>
           <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#1e40af', textTransform: 'uppercase' }}>
-              Disponíveis ({turnoAtivo}): {funcionariosDisponiveisNoTurno.length}
+              Disponíveis: {funcionariosDisponiveis.length}
             </span>
           </div>
 
@@ -794,12 +755,12 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '460px', overflowY: 'auto' }}>
-            {funcionariosDisponiveisNoTurno.length === 0 ? (
+            {funcionariosDisponiveis.length === 0 ? (
               <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
-                {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : `Todos os colaboradores já foram alocados para o turno ${turnoAtivo}!`}
+                {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : 'Todos os colaboradores já foram alocados!'}
               </div>
             ) : (
-              funcionariosDisponiveisNoTurno.map(f => {
+              funcionariosDisponiveis.map(f => {
                 const idFunc = f.id_funcionario || f.id;
                 return (
                   <div 
@@ -811,7 +772,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                       <div style={{ fontSize: '9px', color: '#64748b' }}>{f.cargo} | MAT: {f.matricula || '—'}</div>
                     </div>
 
-                    {equipesDoTurnoAtivo.length > 0 && (
+                    {equipesDaObraAtiva.length > 0 && (
                       <select
                         defaultValue=""
                         onChange={(e) => {
@@ -822,8 +783,8 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                         }}
                         style={{ fontSize: '10px', padding: '3px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
                       >
-                        <option value="" disabled>+ Mover para Equipe ({turnoAtivo})...</option>
-                        {equipesDoTurnoAtivo.map(eq => {
+                        <option value="" disabled>+ Mover para Equipe...</option>
+                        {equipesDaObraAtiva.map(eq => {
                           const bloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
                           return (
                             <option key={`opt-${eq.nome}`} value={eq.nome} disabled={bloqueada}>
@@ -840,23 +801,22 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
           </div>
         </div>
 
-        {/* COLUNA DIREITA: CARDS DE EQUIPES EXCLUSIVAS DO TURNO E OBRA */}
+        {/* COLUNA DIREITA: CARDS DE EQUIPES EXCLUSIVAS DA OBRA */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
-          {equipesDoTurnoAtivo.length === 0 ? (
+          {equipesDaObraAtiva.length === 0 ? (
             <div style={{ backgroundColor: '#fff', border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px', gridColumn: '1/-1' }}>
-              Nenhuma equipe cadastrada para esta obra no turno <strong>{turnoAtivo}</strong>. Crie uma equipe para esta obra acima!
+              Nenhuma equipe cadastrada para esta obra. Crie uma equipe para esta obra acima!
             </div>
           ) : (
-            equipesDoTurnoAtivo.map((eq) => {
+            equipesDaObraAtiva.map((eq) => {
               const estaBloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
               const integrantes = alocacoesDoDia.filter(
-                a => a.equipe.toUpperCase() === eq.nome.toUpperCase() && 
-                     String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
+                a => a.equipe.toUpperCase() === eq.nome.toUpperCase()
               );
 
               return (
                 <div 
-                  key={`card-eq-${eq.nome}-${eq.turno}`} 
+                  key={`card-eq-${eq.nome}`} 
                   style={{ 
                     backgroundColor: '#fff', 
                     border: estaBloqueada ? '2px solid #f59e0b' : '1px solid #cbd5e1', 
@@ -878,7 +838,6 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                   <div style={{ backgroundColor: estaBloqueada ? '#334155' : '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{eq.nome}</div>
-                      <div style={{ fontSize: '9px', color: '#94a3b8' }}>TURNO: {eq.turno}</div>
                     </div>
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -906,23 +865,32 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                         Selecione colaboradores na caixa ao lado para alocar nesta equipe.
                       </div>
                     ) : (
-                      integrantes.map((membro) => {
+                      integrantes.map((membro, index) => {
                         const veiculosOrdenados = [...listaVeiculos].sort((a, b) => 
                           (a.placa || '').localeCompare(b.placa || '')
                         );
 
+                        const termoFiltroVeiculo = (buscaVeiculoFiltro[membro.id_funcionario] || '').toLowerCase().trim();
+
                         const veiculosDisponiveisOuAtual = veiculosOrdenados.filter(v => {
                           const ocupante = todosOsAgendamentosDoDia.find(
-                            a => Number(a.id_veiculo) === Number(v.id) &&
-                                 String(a.turno).toUpperCase() === turnoAtivo.toUpperCase()
+                            a => Number(a.id_veiculo) === Number(v.id)
                           );
                           const ehOVeiculoAtual = Number(membro.id_veiculo) === Number(v.id);
-                          return !ocupante || ehOVeiculoAtual;
+                          const disponivelOuAtual = !ocupante || ehOVeiculoAtual;
+
+                          if (!termoFiltroVeiculo) return disponivelOuAtual;
+
+                          const placaMatch = (v.placa || '').toLowerCase().includes(termoFiltroVeiculo);
+                          const marcaMatch = (v.marca || '').toLowerCase().includes(termoFiltroVeiculo);
+                          const modeloMatch = (v.modelo || '').toLowerCase().includes(termoFiltroVeiculo);
+
+                          return disponivelOuAtual && (placaMatch || marcaMatch || modeloMatch);
                         });
 
                         return (
                           <div 
-                            key={`membro-${membro.id_funcionario}`} 
+                            key={`${membro.id_funcionario}-${index}`} 
                             style={{ padding: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -943,21 +911,49 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                               )}
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <Car style={{ width: '12px', height: '12px', color: '#2563eb' }} />
-                              <select
-                                disabled={estaBloqueada}
-                                value={membro.id_veiculo || ''}
-                                onChange={(e) => handleAlterarVeiculoFuncionario(membro.id_funcionario, e.target.value)}
-                                style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: estaBloqueada ? '#f1f5f9' : '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
-                              >
-                                <option value="">-- Sem Veículo Atribuído --</option>
-                                {veiculosDisponiveisOuAtual.map(v => (
-                                  <option key={v.id} value={v.id}>
-                                    [{v.placa}] {v.marca} {v.modelo}
-                                  </option>
-                                ))}
-                              </select>
+                            {/* VÍNCULO DE VEÍCULO COM CAMPO DE BUSCA */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {!estaBloqueada && (
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    placeholder="Pesquisar veículo por placa/modelo..."
+                                    value={buscaVeiculoFiltro[membro.id_funcionario] || ''}
+                                    onChange={(e) => setBuscaVeiculoFiltro({
+                                      ...buscaVeiculoFiltro,
+                                      [membro.id_funcionario]: e.target.value
+                                    })}
+                                    style={{
+                                      width: '100%',
+                                      height: '24px',
+                                      padding: '0 22px 0 6px',
+                                      fontSize: '9px',
+                                      border: '1px solid #cbd5e1',
+                                      borderRadius: '3px',
+                                      boxSizing: 'border-box',
+                                      outline: 'none'
+                                    }}
+                                  />
+                                  <Search style={{ width: '10px', height: '10px', color: '#94a3b8', position: 'absolute', right: '6px', top: '7px' }} />
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <Car style={{ width: '12px', height: '12px', color: '#2563eb' }} />
+                                <select
+                                  disabled={estaBloqueada}
+                                  value={membro.id_veiculo || ''}
+                                  onChange={(e) => handleAlterarVeiculoFuncionario(membro.id_funcionario, e.target.value)}
+                                  style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: estaBloqueada ? '#f1f5f9' : '#f8fafc', color: membro.id_veiculo ? '#15803d' : '#64748b', fontWeight: 'bold' }}
+                                >
+                                  <option value="">-- Sem Veículo Atribuído --</option>
+                                  {veiculosDisponiveisOuAtual.map(v => (
+                                    <option key={v.id} value={v.id}>
+                                      [{v.placa}] {v.marca} {v.modelo}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
 
                           </div>
@@ -974,122 +970,116 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
 
       </div>
 
-{/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
-<div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
-  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: mostrarEfetivoEscalado ? '16px' : '0', borderBottom: mostrarEfetivoEscalado ? '1px solid #e2e8f0' : 'none', paddingBottom: mostrarEfetivoEscalado ? '12px' : '0' }}>
-    <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-      <Users style={{ width: '16px', height: '16px', color: '#475569' }} />
-      Efetivo Escalado na Obra ({alocacoesDoDia.length} Registro(s))
-    </div>
+      {/* 6. TABELA GERAL DE EFETIVO ALOCADO NO DIA */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: mostrarEfetivoEscalado ? '16px' : '0', borderBottom: mostrarEfetivoEscalado ? '1px solid #e2e8f0' : 'none', paddingBottom: mostrarEfetivoEscalado ? '12px' : '0' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e293b', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Users style={{ width: '16px', height: '16px', color: '#475569' }} />
+            Efetivo Escalado na Obra ({alocacoesDoDia.length} Registro(s))
+          </div>
 
-    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-      {mostrarEfetivoEscalado && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase' }}>Filtrar Equipe:</label>
-          <select
-            value={filtroEquipeTabela}
-            onChange={(e) => setFiltroEquipeTabela(e.target.value)}
-            style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', fontWeight: '500', color: '#334155' }}
-          >
-            <option value="TODAS">⚠️ TODAS AS EQUIPES</option>
-            {[...new Set(alocacoesDoDia.map(a => a.equipe).filter(Boolean))].map(eq => (
-              <option key={eq} value={eq}>{eq.toUpperCase()}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* BOTÃO DE VISIBILIDADE */}
-      <button 
-        type="button"
-        onClick={() => setMostrarEfetivoEscalado(!mostrarEfetivoEscalado)}
-        style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e293b' }}
-      >
-        {mostrarEfetivoEscalado ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
-        {mostrarEfetivoEscalado ? 'Ocultar Tabela' : 'Ver Tabela'}
-      </button>
-    </div>
-  </div>
-
-  {mostrarEfetivoEscalado && (
-    <div style={{ overflowX: 'auto', marginTop: '12px' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
-        <thead>
-          <tr style={{ backgroundColor: '#0f172a', color: '#fff', textTransform: 'uppercase' }}>
-            <th style={{ padding: '10px 12px' }}>Colaborador / Matrícula</th>
-            <th style={{ padding: '10px 12px' }}>Cargo</th>
-            <th style={{ padding: '10px 12px', textAlign: 'center' }}>Turno</th>
-            <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
-            <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
-            <th style={{ padding: '10px 12px' }}>Obs</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(() => {
-            const alocsFiltradas = alocacoesDoDia.filter(aloc => {
-              if (filtroEquipeTabela === 'TODAS') return true;
-              return String(aloc.equipe).toUpperCase().trim() === filtroEquipeTabela.toUpperCase().trim();
-            });
-
-            if (alocsFiltradas.length === 0) {
-              return (
-                <tr>
-                  <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                    Nenhum colaborador alocado para os critérios selecionados.
-                  </td>
-                </tr>
-              );
-            }
-
-            return alocsFiltradas.map((aloc, index) => {
-              const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
-                                  String(aloc.status_presenca).toUpperCase() === 'FOLGA';
-              const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
-
-              return (
-                <tr 
-                  key={`aloc-row-${aloc.id_funcionario}-${aloc.turno}-${index}`} 
-                  style={{ 
-                    borderBottom: '1px solid #e2e8f0', 
-                    backgroundColor: ehFolguista ? '#fef2f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') 
-                  }}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {mostrarEfetivoEscalado && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase' }}>Filtrar Equipe:</label>
+                <select
+                  value={filtroEquipeTabela}
+                  onChange={(e) => setFiltroEquipeTabela(e.target.value)}
+                  style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', fontWeight: '500', color: '#334155' }}
                 >
-                  <td style={{ padding: '10px 12px' }}>
-                    <div style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
-                      {aloc.nome}
-                    </div>
-                    <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#334155' }}>{aloc.cargo || '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                    <span style={{ backgroundColor: ehFolguista ? '#fee2e2' : '#e2e8f0', color: ehFolguista ? '#991b1b' : '#1e293b', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '9px' }}>
-                      {aloc.turno || '—'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : '#1e3a8a' }}>
-                    {aloc.equipe || 'Geral'}
-                  </td>
-                  <td style={{ padding: '10px 12px', fontWeight: '500', color: '#16a34a' }}>
-                    {veiculoUtilizado ? `🚗 ${veiculoUtilizado.placa} (${veiculoUtilizado.modelo})` : '—'}
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
-                    {aloc.observacao || '—'}
-                  </td>
+                  <option value="TODAS">⚠ TODAS AS EQUIPES</option>
+                  {[...new Set(alocacoesDoDia.map(a => a.equipe).filter(Boolean))].map(eq => (
+                    <option key={eq} value={eq}>{eq.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* BOTÃO DE VISIBILIDADE */}
+            <button 
+              type="button"
+              onClick={() => setMostrarEfetivoEscalado(!mostrarEfetivoEscalado)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e293b' }}
+            >
+              {mostrarEfetivoEscalado ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
+              {mostrarEfetivoEscalado ? 'Ocultar Tabela' : 'Ver Tabela'}
+            </button>
+          </div>
+        </div>
+
+        {mostrarEfetivoEscalado && (
+          <div style={{ overflowX: 'auto', marginTop: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#0f172a', color: '#fff', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 12px' }}>Colaborador / Matrícula</th>
+                  <th style={{ padding: '10px 12px' }}>Cargo</th>
+                  <th style={{ padding: '10px 12px' }}>Equipe Vinculada</th>
+                  <th style={{ padding: '10px 12px' }}>Veículo Utilizado</th>
+                  <th style={{ padding: '10px 12px' }}>Obs</th>
                 </tr>
-              );
-            });
-          })()}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
+              </thead>
+              <tbody>
+                {(() => {
+                  const alocsFiltradas = alocacoesDoDia.filter(aloc => {
+                    if (filtroEquipeTabela === 'TODAS') return true;
+                    return String(aloc.equipe).toUpperCase().trim() === filtroEquipeTabela.toUpperCase().trim();
+                  });
+
+                  if (alocsFiltradas.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                          Nenhum colaborador alocado para os critérios selecionados.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return alocsFiltradas.map((aloc, index) => {
+                    const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
+                                        String(aloc.status_presenca).toUpperCase() === 'FOLGA';
+                    const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
+
+                    return (
+                      <tr 
+                        key={`aloc-row-${aloc.id_funcionario}-${index}`} 
+                        style={{ 
+                          borderBottom: '1px solid #e2e8f0', 
+                          backgroundColor: ehFolguista ? '#fef2f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') 
+                        }}
+                      >
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ fontWeight: 'bold', color: ehFolguista ? '#dc2626' : '#0f172a' }}>
+                            {aloc.nome}
+                          </div>
+                          <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#334155' }}>{aloc.cargo || '—'}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : '#1e3a8a' }}>
+                          {aloc.equipe || 'Geral'}
+                        </td>
+                        <td style={{ padding: '10px 12px', fontWeight: '500', color: '#16a34a' }}>
+                          {veiculoUtilizado ? `🚗 ${veiculoUtilizado.placa} (${veiculoUtilizado.modelo})` : '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#475569', fontStyle: 'italic' }}>
+                          {aloc.observacao || '—'}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* 7. RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoOcupacao ? '12px' : '0' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '12px' }}>
-            Resumo Geral da Ocupação dos Funcionários no Dia (Por Turno)
+            Resumo Geral da Ocupação dos Funcionários no Dia
           </div>
           <button 
             type="button"
@@ -1107,15 +1097,13 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
               <thead>
                 <tr style={{ backgroundColor: '#475569', color: '#fff', textTransform: 'uppercase', position: 'sticky', top: 0, zIndex: 10 }}>
                   <th style={{ padding: '10px 12px' }}>Funcionário / Cadastro</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40%' }}>Status Turno DIURNO</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40%' }}>Status Turno NOTURNO</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center' }}>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {baseFuncionariosResumo.map((func, index) => {
                   const idFunc = func.id_funcionario || func.id;
-                  const statusDiurno = obterStatusPorTurno(idFunc, 'DIURNO');
-                  const statusNoturno = obterStatusPorTurno(idFunc, 'NOTURNO');
+                  const status = obterStatusFuncionario(idFunc);
                   return (
                     <tr key={`resumo-${idFunc}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                       <td style={{ padding: '10px 12px' }}>
@@ -1123,13 +1111,8 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                         <div style={{ fontSize: '9px', color: '#64748b' }}>{func.cargo} | MAT: {func.matricula || '—'}</div>
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span style={{ backgroundColor: statusDiurno.corBg, color: statusDiurno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                          {statusDiurno.texto}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span style={{ backgroundColor: statusNoturno.corBg, color: statusNoturno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                          {statusNoturno.texto}
+                        <span style={{ backgroundColor: status.corBg, color: status.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                          {status.texto}
                         </span>
                       </td>
                     </tr>
@@ -1146,7 +1129,7 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoVeiculos ? '12px' : '0' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#1e3a8a', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Car style={{ width: '16px', height: '16px' }} />
-            Resumo Geral da Ocupação dos Veículos no Dia (Por Turno)
+            Resumo Geral da Ocupação dos Veículos no Dia
           </div>
           <button 
             type="button"
@@ -1159,28 +1142,47 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
         </div>
 
         {mostrarResumoVeiculos && (
-          <div style={{ overflowX: 'auto', maxHeight: '350px', marginTop: '8px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#1e3a8a', color: '#fff', textTransform: 'uppercase', position: 'sticky', top: 0, zIndex: 10 }}>
-                  <th style={{ padding: '10px 12px' }}>Veículo / Identificação</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40%' }}>Status Turno DIURNO</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', width: '40%' }}>Status Turno NOTURNO</th>
-                </tr>
-              </thead>
-              <tbody>
-                {listaVeiculos.length === 0 ? (
-                  <tr>
-                    <td colSpan="3" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
-                      Nenhum veículo cadastrado sob sua responsabilidade técnica.
-                    </td>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+            
+            {/* CAMPO DE PESQUISA DE VEÍCULO POR PLACA */}
+            <div style={{ position: 'relative', width: '280px' }}>
+              <input
+                type="text"
+                placeholder="Pesquisar veículo por placa, modelo..."
+                value={termoBuscaVeiculos}
+                onChange={(e) => setTermoBuscaVeiculos(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: '30px',
+                  padding: '0 28px 0 8px',
+                  fontSize: '11px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '4px',
+                  boxSizing: 'border-box',
+                  outline: 'none'
+                }}
+              />
+              <Search style={{ width: '13px', height: '13px', color: '#94a3b8', position: 'absolute', right: '8px', top: '8px' }} />
+            </div>
+
+            <div style={{ overflowX: 'auto', maxHeight: '350px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#1e3a8a', color: '#fff', textTransform: 'uppercase', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <th style={{ padding: '10px 12px' }}>Veículo / Identificação</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center' }}>Status</th>
                   </tr>
-                ) : (
-                  [...listaVeiculos]
-                    .sort((a, b) => (a.placa || '').localeCompare(b.placa || ''))
-                    .map((veiculo, index) => {
-                      const statusDiurno = obterStatusVeiculoPorTurno(veiculo.id, 'DIURNO');
-                      const statusNoturno = obterStatusVeiculoPorTurno(veiculo.id, 'NOTURNO');
+                </thead>
+                <tbody>
+                  {veiculosFiltrados.length === 0 ? (
+                    <tr>
+                      <td colSpan="2" style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
+                        {termoBuscaVeiculos ? 'Nenhum veículo encontrado com esta placa/modelo.' : 'Nenhum veículo cadastrado sob sua responsabilidade técnica.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    veiculosFiltrados.map((veiculo, index) => {
+                      const status = obterStatusVeiculo(veiculo.id);
 
                       return (
                         <tr key={`resumo-veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
@@ -1189,21 +1191,17 @@ export default function DiarioEfetivo({ obrasDisponiveis, usuarioLogado }) {
                             <div style={{ fontSize: '9px', color: '#64748b' }}>{veiculo.marca} {veiculo.modelo}</div>
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            <span style={{ backgroundColor: statusDiurno.corBg, color: statusDiurno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                              {statusDiurno.texto}
-                            </span>
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            <span style={{ backgroundColor: statusNoturno.corBg, color: statusNoturno.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                              {statusNoturno.texto}
+                            <span style={{ backgroundColor: status.corBg, color: status.corTxt, padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              {status.texto}
                             </span>
                           </td>
                         </tr>
                       );
                     })
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

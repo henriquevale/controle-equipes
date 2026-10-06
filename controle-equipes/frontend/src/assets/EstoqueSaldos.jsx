@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Search, RefreshCw, Eye, X, ArrowUpRight, ArrowDownLeft, Building2, HardHat, CheckSquare } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { 
+  Package, 
+  Search, 
+  RefreshCw, 
+  Eye, 
+  X, 
+  ArrowUpRight, 
+  ArrowDownLeft, 
+  Building2, 
+  HardHat, 
+  CheckSquare,
+  Download
+} from 'lucide-react';
 
 export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
   const [saldos, setSaldos] = useState([]);
@@ -126,7 +139,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     );
   };
 
-const abrirModalExtrato = async (material) => {
+  const abrirModalExtrato = async (material) => {
     setMaterialSelecionado(material);
     setCarregandoModal(true);
     try {
@@ -199,6 +212,72 @@ const abrirModalExtrato = async (material) => {
     return true;
   });
 
+  // Função para exportar os dados filtrados da tabela para um arquivo .xlsx
+  const exportarParaExcel = () => {
+    if (saldosFiltrados.length === 0) {
+      if (mostrarMensagem) mostrarMensagem('Não há dados para exportar.', 'erro');
+      return;
+    }
+
+    const dadosExcel = saldosFiltrados.map(item => {
+      const nomeMaterial = item.nome || item.material_nome || item.descricao || 'Sem descrição';
+      const tipoMaterial = item.tipo || item.material_tipo || '-';
+      const saldoAtual = Number(item.saldo_atual || item.saldo_total || 0);
+
+      const unEstoque = item.unidade_estoque || item.unidade_medida || 'UN';
+      const unConsumo = item.unidade_consumo || 'UN';
+      const unAplicada = item.unidade_aplicada || 'M2';
+
+      const fatorConsumo = Number(item.fator_conversao_consumo) || 1;
+      const consBase = Number(item.consumo_base) || 0;
+      const qtdAplicada = Number(item.quantidade_aplicada) || 0;
+
+      const temConversaoEmbalagem = Boolean(fatorConsumo > 1 || item.tem_conversao);
+      const temRendimentoArea = Boolean(consBase > 0 && qtdAplicada > 0 && item.tem_rendimento);
+
+      let saldoRDOTexto = '';
+      let capacidadeUsoTexto = '';
+
+      if (temRendimentoArea) {
+        saldoRDOTexto = `${saldoAtual.toLocaleString('pt-BR')} ${unEstoque}`;
+        const saldoEmUnidadeConsumo = temConversaoEmbalagem ? (saldoAtual * fatorConsumo) : saldoAtual;
+        const rendimentoCalculado = (saldoEmUnidadeConsumo / consBase) * qtdAplicada;
+        capacidadeUsoTexto = `${rendimentoCalculado.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${unAplicada}`;
+      } else if (temConversaoEmbalagem) {
+        const totalUnidades = saldoAtual * fatorConsumo;
+        saldoRDOTexto = `${totalUnidades.toLocaleString('pt-BR')} ${unConsumo}`;
+        capacidadeUsoTexto = `${totalUnidades.toLocaleString('pt-BR')} ${unConsumo}`;
+      } else {
+        saldoRDOTexto = `${saldoAtual.toLocaleString('pt-BR')} ${unConsumo}`;
+        capacidadeUsoTexto = `1 ${unEstoque} = 1 ${unConsumo}`;
+      }
+
+      return {
+        'Material': nomeMaterial,
+        'Categoria': tipoMaterial,
+        'Saldo Atual': `${saldoAtual.toLocaleString('pt-BR')} ${unEstoque}`,
+        'Saldo p/ RDO': saldoRDOTexto,
+        'Capacidade de Uso': capacidadeUsoTexto
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dadosExcel);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Saldos de Estoque");
+
+    // Formata largura das colunas
+    worksheet['!cols'] = [
+      { wch: 35 }, // Material
+      { wch: 20 }, // Categoria
+      { wch: 18 }, // Saldo Atual
+      { wch: 18 }, // Saldo p/ RDO
+      { wch: 22 }  // Capacidade de Uso
+    ];
+
+    const dataAtual = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `Estoque_Saldos_${dataAtual}.xlsx`);
+  };
+
   const saldoExtratoConcluido = historicoMaterial
     .filter(m => String(m.status).toUpperCase() === 'CONCLUIDO')
     .reduce((acc, m) => {
@@ -223,13 +302,23 @@ const abrirModalExtrato = async (material) => {
             Posição de Estoque dos Materiais
           </h3>
 
-          <button 
-            onClick={carregarEstoque}
-            style={{ height: '32px', padding: '0 12px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <RefreshCw style={{ width: '12px', height: '12px' }} />
-            Atualizar
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              onClick={exportarParaExcel}
+              style={{ height: '32px', padding: '0 12px', backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Download style={{ width: '12px', height: '12px' }} />
+              Exportar XLSX
+            </button>
+
+            <button 
+              onClick={carregarEstoque}
+              style={{ height: '32px', padding: '0 12px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <RefreshCw style={{ width: '12px', height: '12px' }} />
+              Atualizar
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>

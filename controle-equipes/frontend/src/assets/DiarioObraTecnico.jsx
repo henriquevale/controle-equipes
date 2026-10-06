@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff, LogOut } from 'lucide-react';
+import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff, LogOut, Clock } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -23,10 +23,16 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [materiaisLancados, setMateriaisLancados] = useState([]);
   const [equipeSelecionadaFiltro, setEquipeSelecionadaFiltro] = useState('GERAL');
   
-  // NOVO: Estado para preservar TODAS as equipes encontradas na obra/data
+  // Estado para preservar TODAS as equipes encontradas na obra/data
   const [listaEquipesTotal, setListaEquipesTotal] = useState([]);
 
   const [equipeConfirmada, setEquipeConfirmada] = useState(false);
+  const [turnoSelecionado, setTurnoSelecionado] = useState('DIURNO'); // 'DIURNO' ou 'NOTURNO'
+
+  // Estados para o Horário Geral Recomendado/Aplicado a todos da equipe
+  const [horarioGeralInicio, setHorarioGeralInicio] = useState('07:00');
+  const [horarioGeralFim, setHorarioGeralFim] = useState('17:00');
+
   const [carregando, setLoading] = useState(false);
   const [erroPainel, setErroPainel] = useState('');
   const [statusEnvio, setStatusEnvio] = useState({ texto: '', tipo: '' });
@@ -174,6 +180,55 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setMostrarGridExcelObra(true);
   };
   
+  const aplicarSugestaoHorarioTurno = (turno, listaFuncionarios) => {
+    const horaInicioPadrao = turno === 'NOTURNO' ? '19:00' : '07:00';
+    const horaFimPadrao = turno === 'NOTURNO' ? '05:00' : '17:00';
+
+    return listaFuncionarios.map(f => ({
+      ...f,
+      hora_inicio: f.hora_inicio || horaInicioPadrao,
+      hora_fim: f.hora_fim || horaFimPadrao
+    }));
+  };
+
+  // Mudar o turno atualiza o padrão e replica para a equipe selecionada
+  const handleMudarTurno = (novoTurno) => {
+    setTurnoSelecionado(novoTurno);
+    const horaInicioPadrao = novoTurno === 'NOTURNO' ? '19:00' : '07:00';
+    const horaFimPadrao = novoTurno === 'NOTURNO' ? '05:00' : '17:00';
+
+    setHorarioGeralInicio(horaInicioPadrao);
+    setHorarioGeralFim(horaFimPadrao);
+
+    setEfetivoAgendado(prev => prev.map(f => {
+      const pertenceAEquipeAtiva = String(f.equipe || 'Geral').toUpperCase() === String(equipeSelecionadaFiltro || '').toUpperCase();
+      if (pertenceAEquipeAtiva) {
+        return {
+          ...f,
+          hora_inicio: horaInicioPadrao,
+          hora_fim: horaFimPadrao
+        };
+      }
+      return f;
+    }));
+    setSalvoComSucesso(false);
+  };
+
+  // Aplica a alteração do Horário Geral no topo para TODOS os membros da equipe ativa
+  const handleMudarHorarioGeral = (campo, valor) => {
+    if (campo === 'hora_inicio') setHorarioGeralInicio(valor);
+    if (campo === 'hora_fim') setHorarioGeralFim(valor);
+
+    setEfetivoAgendado(prev => prev.map(f => {
+      const pertenceAEquipeAtiva = String(f.equipe || 'Geral').toUpperCase() === String(equipeSelecionadaFiltro || '').toUpperCase();
+      if (pertenceAEquipeAtiva) {
+        return { ...f, [campo]: valor };
+      }
+      return f;
+    }));
+    setSalvoComSucesso(false);
+  };
+
   const buscarEfetivoVindoDoAgendamento = async () => {
     try {
       if (!idObraSelecionada || !dataDiario) return;
@@ -214,10 +269,15 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       });
 
       if (resCompleto.data && resCompleto.data.existe) {
-        const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado } = resCompleto.data;
+        const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado, turno } = resCompleto.data;
 
         setStatusDiario(status || 'Normal');
         setObservacoesContratada(observacoes || '');
+        if (turno) {
+          setTurnoSelecionado(turno);
+          setHorarioGeralInicio(turno === 'NOTURNO' ? '19:00' : '07:00');
+          setHorarioGeralFim(turno === 'NOTURNO' ? '05:00' : '17:00');
+        }
 
         setAtividadesLancadas(
           (atividades_tachas || []).map(a => ({
@@ -239,14 +299,26 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           colaboradoresCarregados = efetivo_confirmado.map(colab => ({
             ...colab,
             nome: colab.nome || colab.nome,
-            statusPresenca: colab.status_presenca || colab.statusPresenca || 'Presente'
+            statusPresenca: colab.status_presenca || colab.statusPresenca || 'Presente',
+            hora_inicio: colab.hora_inicio || (colab.turno === 'NOTURNO' ? '19:00' : '07:00'),
+            hora_fim: colab.hora_fim || (colab.turno === 'NOTURNO' ? '05:00' : '17:00')
           }));
+
+          // Atualiza os inputs do topo de acordo com o primeiro colaborador da equipe ativa
+          const colabEquipe = colaboradoresCarregados.find(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase());
+          if (colabEquipe) {
+            setHorarioGeralInicio(colabEquipe.hora_inicio ? colabEquipe.hora_inicio.slice(0,5) : (turnoSelecionado === 'NOTURNO' ? '19:00' : '07:00'));
+            setHorarioGeralFim(colabEquipe.hora_fim ? colabEquipe.hora_fim.slice(0,5) : (turnoSelecionado === 'NOTURNO' ? '05:00' : '17:00'));
+          }
+        } else {
+          colaboradoresCarregados = aplicarSugestaoHorarioTurno(turnoSelecionado, colaboradoresCarregados);
         }
       } else {
         setAtividadesLancadas([]);
         setMateriaisLancados([]);
         setObservacoesContratada('');
         setStatusDiario('Normal');
+        colaboradoresCarregados = aplicarSugestaoHorarioTurno(turnoSelecionado, colaboradoresCarregados);
       }
 
       setEfetivoAgendado(colaboradoresCarregados);
@@ -283,6 +355,17 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     const listaNova = [...efetivoAgendado];
     listaNova[indexInEfetivo].statusCustomizado = valor;
     setEfetivoAgendado(listaNova);
+    setSalvoComSucesso(false);
+  };
+
+  // Permite alterar o horário individual de apenas UM colaborador no card dele
+  const handleMudarHorarioIndividual = (idxGlobal, campo, valor) => {
+    setEfetivoAgendado(prev => prev.map((f, i) => {
+      if (i === idxGlobal) {
+        return { ...f, [campo]: valor };
+      }
+      return f;
+    }));
     setSalvoComSucesso(false);
   };
 
@@ -428,6 +511,9 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               quantidade: parseFloat(mat.quantidade) || 0.00
             }));
 
+      const horaPadraoInicio = turnoSelecionado === 'NOTURNO' ? '19:00' : '07:00';
+      const horaPadraoFim = turnoSelecionado === 'NOTURNO' ? '05:00' : '17:00';
+
       const efetivoMapeado = [];
       efetivoFiltradoPorEquipe.forEach(f => {
         const statusFormatado = f.statusPresenca === 'Outros' 
@@ -446,6 +532,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           equipe: f.equipe || 'Geral',
           liberado: liberarEquipeAoSalvar ? 1 : (f.liberado ? 1 : 0),
           data_hora_liberacao: liberarEquipeAoSalvar ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
+          hora_inicio: f.hora_inicio || horaPadraoInicio,
+          hora_fim: f.hora_fim || horaPadraoFim,
           
           id_veiculo: veiculoDados ? veiculoDados.id : null,
           placa_veiculo: veiculoDados ? veiculoDados.placa : null,
@@ -456,12 +544,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           status_veiculo: veiculoDados ? veiculoDados.status : null
         };
 
-        if (f.turno === 'DIURNO e NOTURNO') {
-          efetivoMapeado.push({ ...baseFuncionario, turno: 'DIURNO' });
-          efetivoMapeado.push({ ...baseFuncionario, turno: 'NOTURNO' });
-        } else {
-          efetivoMapeado.push({ ...baseFuncionario, turno: f.turno || 'DIURNO' });
-        }
+        efetivoMapeado.push(baseFuncionario);
       });
 
       const payload = {
@@ -469,6 +552,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         id_obra: idObraSelecionada,
         id_gestor: usuarioLogado?.id,
         equipe: equipeSelecionadaFiltro, 
+        turno: turnoSelecionado,
         status: statusDiario, 
         liberar_equipe: liberarEquipeAoSalvar,
         efetivo_confirmado: efetivoMapeado,
@@ -533,15 +617,22 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       doc.setFont("helvetica", "normal");
       doc.text("IMPACTO SINALIZAÇÕES", 150, 31);
 
+      doc.setFont("helvetica", "bold"); doc.text("TURNO:", 120, 37);
+      doc.setFont("helvetica", "normal");
+      doc.text(turnoSelecionado === 'NOTURNO' ? "NOTURNO (19h - 05h)" : "DIURNO (07h - 17h)", 150, 37);
+
       let currentY = 54;
 
       doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-      doc.text(`1. Efetivo e Presença (Equipe: ${equipeSelecionadaFiltro})`, 10, currentY);
-      const colunasEfetivo = ["Colaborador / Nome", "Função", "Turno", "Status de Presença", "Veículo / Placa"];
+      doc.text(`1. Efetivo e Presença (Equipe: ${equipeSelecionadaFiltro} | Turno: ${turnoSelecionado})`, 10, currentY);
+      const colunasEfetivo = ["Colaborador / Nome", "Função", "Horário", "Status de Presença", "Veículo / Placa"];
       
       const funcionariosDaEquipeAtiva = (efetivoAgendado || []).filter(
         f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase()
       );
+
+      const horaPadraoPDFInicio = turnoSelecionado === 'NOTURNO' ? '19:00' : '07:00';
+      const horaPadraoPDFFim = turnoSelecionado === 'NOTURNO' ? '05:00' : '17:00';
 
       const linhasEfetivo = funcionariosDaEquipeAtiva.map(f => {
         const v = (listaVeiculos || []).find(ve => ve.id_funcionario && String(ve.id_funcionario) === String(f.id_funcionario));
@@ -552,10 +643,14 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           ? `${baseStatus} (🟡 LIBERADO)` 
           : baseStatus;
 
+        const hi = f?.hora_inicio || horaPadraoPDFInicio;
+        const hf = f?.hora_fim || horaPadraoPDFFim;
+        const horarioTexto = `${hi.slice(0, 5)} - ${hf.slice(0, 5)}`;
+
         return [
           String(f?.nome || '---'), 
           String(f?.cargo || '---'), 
-          String(f?.turno || 'DIURNO'), 
+          horarioTexto, 
           statusTexto,
           veiculoText
         ];
@@ -769,21 +864,73 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       {/* BLOCOS INFERIORES ATIVOS APÓS CONFIRMAÇÃO */}
       {idObraSelecionada && equipeConfirmada && (
         <>
-          {/* SEÇÃO STATUS OPERACIONAL */}
-          <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#334155', marginBottom: '6px', fontFamily: 'monospace' }}>
-              STATUS OPERACIONAL DO DIÁRIO (RDO)
-            </label>
-            <select
-              value={statusDiario}
-              onChange={e => setStatusDiario(e.target.value)}
-              style={{ width: '280px', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold', backgroundColor: rdoInterrompido ? '#fff5f5' : '#f0fdf4', color: rdoInterrompido ? '#991b1b' : '#166534' }}
-            >
-              <option value="Normal">Obra Normal / Em Andamento</option>
-              <option value="Choveu">Obra Interrompida por Chuva</option>
-              <option value="Sem Material">Obra Interrompida Sem Material</option>
-              <option value="Outros">Obra Interrompida por Outros Motivos</option>
-            </select>
+          {/* SEÇÃO STATUS OPERACIONAL E SELEÇÃO DE TURNO / HORÁRIO GERAL */}
+          <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px', display: 'flex', gap: '24px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#334155', marginBottom: '6px', fontFamily: 'monospace' }}>
+                STATUS OPERACIONAL DO DIÁRIO (RDO)
+              </label>
+              <select
+                value={statusDiario}
+                onChange={e => setStatusDiario(e.target.value)}
+                style={{ width: '280px', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold', backgroundColor: rdoInterrompido ? '#fff5f5' : '#f0fdf4', color: rdoInterrompido ? '#991b1b' : '#166534' }}
+              >
+                <option value="Normal">Obra Normal / Em Andamento</option>
+                <option value="Choveu">Obra Interrompida por Chuva</option>
+                <option value="Sem Material">Obra Interrompida Sem Material</option>
+                <option value="Outros">Obra Interrompida por Outros Motivos</option>
+              </select>
+            </div>
+
+            {/* SELEÇÃO DE TURNO E HORÁRIO GERAL APLICADO A TODOS */}
+            <div style={{ borderLeft: '1px solid #e2e8f0', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#334155', fontFamily: 'monospace' }}>
+                TURNO E HORÁRIO GERAL DA EQUIPE
+              </label>
+              
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center', height: '24px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold', color: '#1e293b' }}>
+                  <input
+                    type="checkbox"
+                    checked={turnoSelecionado === 'DIURNO'}
+                    onChange={() => handleMudarTurno('DIURNO')}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                  />
+                  <span>Diurno</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 'bold', color: '#1e293b' }}>
+                  <input
+                    type="checkbox"
+                    checked={turnoSelecionado === 'NOTURNO'}
+                    onChange={() => handleMudarTurno('NOTURNO')}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                  />
+                  <span>Noturno</span>
+                </label>
+              </div>
+
+              {/* INPUTS DE HORÁRIO GERAL REPLICADOS EM LOTE */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                <Clock size={14} color="#2563eb" />
+                <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#475569' }}>Aplicar p/ Todos:</span>
+                <input 
+                  type="time" 
+                  value={horarioGeralInicio} 
+                  onChange={e => handleMudarHorarioGeral('hora_inicio', e.target.value)} 
+                  style={{ fontSize: '11px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', fontWeight: 'bold' }} 
+                />
+                <span style={{ fontSize: '10px', color: '#64748b' }}>até</span>
+                <input 
+                  type="time" 
+                  value={horarioGeralFim} 
+                  onChange={e => handleMudarHorarioGeral('hora_fim', e.target.value)} 
+                  style={{ fontSize: '11px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', fontWeight: 'bold' }} 
+                />
+              </div>
+            </div>
+
           </div>
 
           {/* STATUS DE VEÍCULOS VINCULADOS À EQUIPE ATIVA */}
@@ -907,11 +1054,14 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                   {efetivoAgendado
                     .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase())
                     .map((func, index) => {
-                      const indexGlobal = efetivoAgendado.findIndex(original => original.id_funcionario === func.id_funcionario && original.turno === func.turno);
+                      // Busca o índice exato dentro do array global efetivoAgendado
+                      const indexGlobal = efetivoAgendado.findIndex(original => original.id_funcionario ? String(original.id_funcionario) === String(func.id_funcionario) : original.nome === func.nome);
                       const estaLiberado = func.liberado;
+                      const horaInicioCard = func.hora_inicio || horarioGeralInicio;
+                      const horaFimCard = func.hora_fim || horarioGeralFim;
 
                       return (
-                        <div key={`${func.id_funcionario}-${func.turno}-${index}`} style={{ border: estaLiberado ? '1px solid #fde047' : '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: estaLiberado ? '#fefce8' : '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div key={`${func.id_funcionario || indexGlobal}-${index}`} style={{ border: estaLiberado ? '1px solid #fde047' : '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: estaLiberado ? '#fefce8' : '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '2px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span>{func.nome}</span>
@@ -921,8 +1071,17 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                                 </span>
                               )}
                             </div>
-                            <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '6px' }}>{func.cargo} | <span style={{ fontWeight: 'bold' }}>{func.turno}</span></div>
+                            <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '6px' }}>{func.cargo}</div>
                             
+                            <div style={{ display: 'flex', gap: 4, marginTop: 4, marginBottom: 6, alignItems: 'center' }}>
+                              <Clock size={12} color="#64748b" />
+                              <input type="time" value={horaInicioCard.slice(0,5)}
+                                onChange={e => handleMudarHorarioIndividual(indexGlobal, 'hora_inicio', e.target.value)} style={{ fontSize: '10px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px' }} />
+                              <span style={{ fontSize: '10px', color: '#64748b' }}>até</span>
+                              <input type="time" value={horaFimCard.slice(0,5)}
+                                onChange={e => handleMudarHorarioIndividual(indexGlobal, 'hora_fim', e.target.value)} style={{ fontSize: '10px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px' }} />
+                            </div>
+
                             <select 
                               value={func.statusPresenca} 
                               onChange={e => handleMudarStatusPresenca(indexGlobal, e.target.value)}
