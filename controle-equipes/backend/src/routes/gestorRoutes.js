@@ -82,10 +82,10 @@ router.get('/gestor/obras-ativas', async (req, res) => {
 });
 
 // ========================================================
-// 3. GET: LISTAR FUNCIONÁRIOS DISPONÍVEIS
+// 3. GET: LISTAR FUNCIONÁRIOS (TODOS PARA O QUADRO E RESUMO)
 // ========================================================
 router.get('/gestor/funcionarios-disponiveis', async (req, res) => {
-  const { id, cargo, data_diario, hora_inicio, hora_fim } = req.query;
+  const { id, cargo, data_diario } = req.query;
 
   if (!id) {
     return res.status(400).json({ error: "ID do usuário não fornecido." });
@@ -93,55 +93,53 @@ router.get('/gestor/funcionarios-disponiveis', async (req, res) => {
 
   try {
     let params = [];
-    let filtroExclusaoAgendamento = "";
-
-    if (data_diario && data_diario.trim() !== '') {
-      let condicaoHorario = "";
-      
-      // Se informou horários específicos, valida sobreposição
-      if (hora_inicio && hora_fim) {
-        condicaoHorario = "AND (hora_inicio < ? AND hora_fim > ?)";
-      }
-
-      filtroExclusaoAgendamento = `
-        AND f.id NOT IN (
-          SELECT id_funcionario 
-          FROM diario_efetivo 
-          WHERE DATE(data_diario) = DATE(?) 
-            ${condicaoHorario}
-            AND (liberado IS NULL OR liberado = 0 OR liberado = false OR liberado = '0')
-            AND UPPER(TRIM(COALESCE(status_presenca, ''))) != 'LIBERADO'
-        )
-      `;
-      
-      params.push(data_diario);
-      if (hora_inicio && hora_fim) {
-        params.push(hora_fim, hora_inicio);
-      }
-    }
-
     const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
     let sql;
 
+    // Trazemos todos os funcionários cadastrados ativos/integração
+    // e fazemos LEFT JOIN com diario_efetivo para saber onde ele está no dia (se houver alocação)
     if (['MASTER', 'RH', 'ADMIN', 'ENGENHARIA'].includes(cargoUpper)) {
       sql = `
-        SELECT id, matricula, nome, cargo, ativo 
+        SELECT 
+          f.id, 
+          f.matricula, 
+          f.nome, 
+          f.cargo, 
+          f.ativo,
+          de.id_obra AS id_obra_atual,
+          de.equipe AS equipe_atual,
+          de.liberado,
+          de.status_presenca
         FROM funcionarios f
-        WHERE UPPER(TRIM(ativo)) IN ('ATIVO', 'INTEGRAÇÃO PENDENTE')
-        ${filtroExclusaoAgendamento}
-        ORDER BY nome ASC
-      `;
-    } else {
-      sql = `
-        SELECT DISTINCT f.id, f.matricula, f.nome, f.cargo, f.ativo 
-        FROM funcionarios f
-        INNER JOIN gestor_funcionarios gf ON gf.id_funcionario = f.id
-        WHERE gf.id_usuario = ? 
-          AND UPPER(TRIM(f.ativo)) IN ('ATIVO', 'INTEGRAÇÃO PENDENTE')
-          ${filtroExclusaoAgendamento}
+        LEFT JOIN diario_efetivo de 
+               ON de.id_funcionario = f.id 
+              AND DATE(de.data_diario) = DATE(?)
+        WHERE UPPER(TRIM(f.ativo)) IN ('ATIVO', 'INTEGRAÇÃO PENDENTE')
         ORDER BY f.nome ASC
       `;
-      params.unshift(parseInt(id));
+      params.push(data_diario || null);
+    } else {
+      sql = `
+        SELECT DISTINCT 
+          f.id, 
+          f.matricula, 
+          f.nome, 
+          f.cargo, 
+          f.ativo,
+          de.id_obra AS id_obra_atual,
+          de.equipe AS equipe_atual,
+          de.liberado,
+          de.status_presenca
+        FROM funcionarios f
+        INNER JOIN gestor_funcionarios gf ON gf.id_funcionario = f.id
+        LEFT JOIN diario_efetivo de 
+               ON de.id_funcionario = f.id 
+              AND DATE(de.data_diario) = DATE(?)
+        WHERE gf.id_usuario = ? 
+          AND UPPER(TRIM(f.ativo)) IN ('ATIVO', 'INTEGRAÇÃO PENDENTE')
+        ORDER BY f.nome ASC
+      `;
+      params.push(data_diario || null, parseInt(id));
     }
 
     const [funcionarios] = await db.execute(sql, params);
@@ -155,7 +153,6 @@ router.get('/gestor/funcionarios-disponiveis', async (req, res) => {
     res.status(500).json({ error: "Erro ao carregar colaboradores disponíveis." });
   }
 });
-
 // ========================================================
 // 4. GET: RECUPERAR HISTÓRICO DO DIÁRIO DE EFETIVO + CONFIRMADOS
 // ========================================================
@@ -258,32 +255,35 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 
     const [veiculosRemovidos] = await connection.execute(queryVeiculosAnteriores, paramsVeiculosAnteriores);
 
-    // Remoção das confirmações anteriores sem filtro por turno e com alias dc
+    // --- CORREÇÃO ANTI-DEADLOCK ---
+    // 1. Busca primeiro os IDs dos registros que serão substituídos
+    let selectSql = "SELECT id FROM diario_efetivo WHERE data_diario = ? AND id_obra = ?";
+    let selectParams = [data_diario, parseInt(id_obra)];
+
     if (equipeTratada) {
+      selectSql += " AND UPPER(TRIM(equipe)) = ?";
+      selectParams.push(equipeTratada);
+    }
+
+    const [registosAntigos] = await connection.execute(selectSql, selectParams);
+
+    if (registosAntigos.length > 0) {
+      const idsParaEliminar = registosAntigos.map(r => r.id);
+      const placeholders = idsParaEliminar.map(() => '?').join(',');
+
+      // 2. Remove da tabela filha (diario_efetivo_confirmado) utilizando IDs diretos
       await connection.execute(
-        `DELETE dc FROM diario_efetivo_confirmado dc
-         INNER JOIN diario_efetivo de ON dc.id_diario = de.id
-         WHERE de.data_diario = ? AND de.id_obra = ? AND UPPER(TRIM(de.equipe)) = ?`,
-        [data_diario, parseInt(id_obra), equipeTratada]
+        `DELETE FROM diario_efetivo_confirmado WHERE id_diario IN (${placeholders})`,
+        idsParaEliminar
       );
 
+      // 3. Remove da tabela pai (diario_efetivo) utilizando IDs diretos
       await connection.execute(
-        "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?",
-        [data_diario, parseInt(id_obra), equipeTratada]
-      );
-    } else {
-      await connection.execute(
-        `DELETE dc FROM diario_efetivo_confirmado dc
-         INNER JOIN diario_efetivo de ON dc.id_diario = de.id
-         WHERE de.data_diario = ? AND de.id_obra = ?`,
-        [data_diario, parseInt(id_obra)]
-      );
-
-      await connection.execute(
-        "DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ?",
-        [data_diario, parseInt(id_obra)]
+        `DELETE FROM diario_efetivo WHERE id IN (${placeholders})`,
+        idsParaEliminar
       );
     }
+    // ------------------------------
     
     const veiculosAlocadosAtualmente = new Set();
 

@@ -30,9 +30,16 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
         ]);
         
         setObrasDisponiveis(resObras.data || []);
-        setFuncionariosDisponiveis(resFuncs.data || []);
+
+        // Trata a resposta garantindo que seja um Array
+        const listaFuncs = Array.isArray(resFuncs.data) 
+          ? resFuncs.data 
+          : (resFuncs.data?.funcionarios || []);
+        setFuncionariosDisponiveis(listaFuncs);
+
       } catch (error) {
         console.error("Erro ao carregar listas filtradas:", error);
+        setFuncionariosDisponiveis([]);
       }
     };
     
@@ -133,7 +140,11 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
         axios.get(`${API_URL}/master/funcionarios-disponiveis`)
       ]);
       setObrasDisponiveis(resObras.data || []);
-      setFuncionariosDisponiveis(resFuncs.data || []);
+      
+      const listaFuncs = Array.isArray(resFuncs.data) 
+        ? resFuncs.data 
+        : (resFuncs.data?.funcionarios || []);
+      setFuncionariosDisponiveis(listaFuncs);
       
     } catch (err) {
       console.error(err);
@@ -209,13 +220,13 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
                   : 'Selecione as Obras Permitidas para o Gestor:'}
               </div>
               <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', height: '220px', overflowY: 'auto', padding: '8px', backgroundColor: '#f8fafc', boxSizing: 'border-box' }}>
-                {obrasDisponiveis.map(obra => (
+                {Array.isArray(obrasDisponiveis) && obrasDisponiveis.map(obra => (
                   <label key={obra.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer', borderBottom: '1px solid #e2e8f0', fontSize: '12px', color: '#334155' }}>
                     <input type="checkbox" style={{ width: '16px', height: '16px', cursor: 'pointer' }} checked={formData.ids_obras.includes(obra.id)} onChange={() => handleCheckboxObra(obra.id)} />
                     <span style={{ wordBreak: 'break-word' }}>[{obra.codigo_obra}] {obra.nome_obra}</span>
                   </label>
                 ))}
-                {obrasDisponiveis.length === 0 && (
+                {(!obrasDisponiveis || obrasDisponiveis.length === 0) && (
                   <div style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '30px' }}>Nenhuma obra disponível para vínculo.</div>
                 )}
               </div>
@@ -225,13 +236,13 @@ export default function ControleMaster({ recarregarUsuariosGlobal, usuarioParaEd
               <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '6px', color: '#1e293b' }}>Selecione a Equipe do Gestor:</div>
                 <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', height: '220px', overflowY: 'auto', padding: '8px', backgroundColor: '#f8fafc', boxSizing: 'border-box' }}>
-                  {funcionariosDisponiveis.map(func => (
+                  {Array.isArray(funcionariosDisponiveis) && funcionariosDisponiveis.map(func => (
                     <label key={func.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer', borderBottom: '1px solid #e2e8f0', fontSize: '12px', color: '#334155' }}>
                       <input type="checkbox" style={{ width: '16px', height: '16px', cursor: 'pointer' }} checked={formData.ids_funcionarios.includes(func.id)} onChange={() => handleCheckboxFuncionario(func.id)} />
                       <span style={{ wordBreak: 'break-word' }}>{func.nome} ({func.cargo})</span>
                     </label>
                   ))}
-                  {funcionariosDisponiveis.length === 0 && (
+                  {(!funcionariosDisponiveis || funcionariosDisponiveis.length === 0) && (
                     <div style={{ fontSize: '11px', color: '#94a3b8', textAlign: 'center', marginTop: '30px' }}>Nenhum funcionário disponível para vínculo.</div>
                   )}
                 </div>

@@ -342,29 +342,45 @@ router.get(['/master/funcionarios-todos', '/funcionarios'], async (req, res) => 
 });
 
 // ========================================================
-// 12-B. GET: LISTAR APENAS FUNCIONÁRIOS DISPONÍVEIS
+// 12-B. GET: LISTAR FUNCIONÁRIOS COM STATUS DO DIA (MASTER)
 // ========================================================
 router.get('/master/funcionarios-disponiveis', async (req, res) => {
-  const { id_usuario_editando } = req.query;
+  const { data_diario } = req.query;
 
   try {
-    const paramIdUsuario = id_usuario_editando ? parseInt(id_usuario_editando) : -1;
-    
+    const params = [data_diario || null];
+
+    // Traz todos os funcionários ativos/integração pendente
+    // e faz LEFT JOIN com o diario_efetivo na data especificada para mapear onde estão alocados
     const sql = `
-      SELECT id, matricula, nome, cargo, ativo, observacoes
-      FROM funcionarios 
-      WHERE id NOT IN (
-        SELECT id_funcionario 
-        FROM gestor_funcionarios 
-        WHERE id_usuario != ?
-      )
-      ORDER BY nome ASC
+      SELECT 
+        f.id, 
+        f.matricula, 
+        f.nome, 
+        f.cargo, 
+        f.ativo, 
+        f.observacoes,
+        de.id_obra AS id_obra_atual,
+        de.equipe AS equipe_atual,
+        de.liberado,
+        de.status_presenca
+      FROM funcionarios f
+      LEFT JOIN diario_efetivo de 
+             ON de.id_funcionario = f.id 
+            AND DATE(de.data_diario) = DATE(?)
+      WHERE UPPER(TRIM(f.ativo)) IN ('ATIVO', 'INTEGRAÇÃO PENDENTE')
+      ORDER BY f.nome ASC
     `;
     
-    const [rows] = await db.execute(sql, [paramIdUsuario]);
-    res.json(rows);
+    const [rows] = await db.execute(sql, params);
+
+    // Retorna no formato esperado pelo frontend React { funcionarios: [...] } ou array simples
+    res.json({
+      funcionarios: rows
+    });
+
   } catch (err) {
-    console.error("Erro ao buscar funcionários disponíveis:", err);
+    console.error("Erro ao buscar funcionários disponíveis (Master):", err);
     res.status(500).json({ error: "Erro ao carregar funcionários disponíveis." });
   }
 });
@@ -1364,27 +1380,16 @@ router.delete('/bases/:id', async (req, res) => {
 });
 
 // ========================================================
-// ROTA DE GESTORES (Ajustada para incluir MASTER e tratar vazios)
+// ROTA DE GESTORES (Filtro Estrito por cargo = 'GESTOR')
 // ========================================================
 router.get('/gestores', async (req, res) => {
   try {
     const [gestores] = await db.query(`
-      SELECT id, nome, usuario, cargo 
+      SELECT id, nome 
       FROM usuarios_sistema 
-      WHERE cargo IS NOT NULL 
-        AND (
-          LOWER(cargo) LIKE '%gestor%' 
-          OR LOWER(cargo) LIKE '%gerente%'
-          OR LOWER(cargo) LIKE '%admin%'
-          OR LOWER(cargo) LIKE '%master%'
-        )
+      WHERE UPPER(TRIM(cargo)) = 'GESTOR'
       ORDER BY nome ASC
     `);
-
-    if (gestores.length === 0) {
-      const [todosUsuarios] = await db.query(`SELECT id, nome, usuario, cargo FROM usuarios_sistema ORDER BY nome ASC`);
-      return res.json(todosUsuarios);
-    }
 
     res.json(gestores);
   } catch (error) {
@@ -1606,7 +1611,113 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
     connection.release();
   }
 });
+// ========================================================
+// GET: Relatório Avançado de Movimentações (Filtrado por Gestor)
+// ========================================================
+router.get('/master/relatorios/movimentacoes', async (req, res) => {
+  const { 
+    data_inicio, 
+    data_fim, 
+    tipo_movimentacao, 
+    material_id, 
+    origem_tipo, 
+    origem_id,
+    destino_tipo, 
+    destino_id,
+    gestor_id,
+    enviado_por
+  } = req.query;
 
+  try {
+    let query = `
+      SELECT 
+        e.id,
+        e.tipo_movimentacao,
+        e.origem_tipo,
+        e.origem_id,
+        e.destino_tipo,
+        e.destino_id,
+        e.quantidade,
+        e.status,
+        e.data_movimentacao,
+        e.observacao,
+        m.descricao AS material_nome,
+        m.unidade_estoque AS unidade_medida,
+        u_pede.nome AS gestor_nome,
+        u_envia.nome AS enviado_por_nome,
+        CASE 
+          WHEN e.origem_tipo = 'BASE' THEN b_origem.nome
+          WHEN e.origem_tipo = 'OBRA' THEN o_origem.nome_obra
+          WHEN e.origem_tipo = 'FORNECEDOR' THEN COALESCE(f_origem.nome_fantasia, f_origem.razao_social, 'Fornecedor')
+        END AS origem_nome,
+        CASE 
+          WHEN e.destino_tipo = 'BASE' THEN b_destino.nome
+          WHEN e.destino_tipo = 'OBRA' THEN o_destino.nome_obra
+        END AS destino_nome
+      FROM estoque_movimentacoes e
+      INNER JOIN materiais m ON m.id = e.material_id
+      LEFT JOIN bases b_origem ON e.origem_tipo = 'BASE' AND b_origem.id = e.origem_id
+      LEFT JOIN obras o_origem ON e.origem_tipo = 'OBRA' AND o_origem.id = e.origem_id
+      LEFT JOIN fornecedores f_origem ON e.origem_tipo = 'FORNECEDOR' AND f_origem.id = e.origem_id
+      LEFT JOIN bases b_destino ON e.destino_tipo = 'BASE' AND b_destino.id = e.destino_id
+      LEFT JOIN obras o_destino ON e.destino_tipo = 'OBRA' AND o_destino.id = e.destino_id
+      LEFT JOIN usuarios_sistema u_pede ON e.quem_pede_id = u_pede.id
+      LEFT JOIN usuarios_sistema u_envia ON e.quem_envia_id = u_envia.id
+      WHERE 1=1
+    `;
+
+    const params = [];
+
+    if (data_inicio) {
+      query += ` AND e.data_movimentacao >= ?`;
+      params.push(`${data_inicio} 00:00:00`);
+    }
+    if (data_fim) {
+      query += ` AND e.data_movimentacao <= ?`;
+      params.push(`${data_fim} 23:59:59`);
+    }
+    if (tipo_movimentacao) {
+      query += ` AND e.tipo_movimentacao = ?`;
+      params.push(tipo_movimentacao);
+    }
+    if (material_id) {
+      query += ` AND e.material_id = ?`;
+      params.push(material_id);
+    }
+    if (origem_tipo) {
+      query += ` AND e.origem_tipo = ?`;
+      params.push(origem_tipo);
+    }
+    if (origem_id) {
+      query += ` AND e.origem_id = ?`;
+      params.push(origem_id);
+    }
+    if (destino_tipo) {
+      query += ` AND e.destino_tipo = ?`;
+      params.push(destino_tipo);
+    }
+    if (destino_id) {
+      query += ` AND e.destino_id = ?`;
+      params.push(destino_id);
+    }
+    if (gestor_id) {
+      query += ` AND e.quem_pede_id = ?`;
+      params.push(gestor_id);
+    }
+    if (enviado_por) {
+      query += ` AND e.quem_envia_id = ?`;
+      params.push(enviado_por);
+    }
+
+    query += ` ORDER BY e.data_movimentacao DESC, e.id DESC`;
+
+    const [movimentacoes] = await db.query(query, params);
+    res.json(movimentacoes);
+  } catch (error) {
+    console.error("Erro ao gerar relatório de movimentações:", error);
+    res.status(500).json({ error: "Erro ao carregar relatório." });
+  }
+});
 // GET: Locais (Bases e Obras)
 router.get('/master/locais', async (req, res) => {
   try {
@@ -1711,80 +1822,6 @@ router.get('/master/estoque/saldos', async (req, res) => {
   } catch (error) {
     console.error("Erro na rota /master/estoque/saldos:", error);
     res.status(500).json({ error: "Erro interno do servidor", details: error.message });
-  }
-});
-
-// GET: Relatório Avançado de Movimentações
-router.get('/master/relatorios/movimentacoes', async (req, res) => {
-  const { data_inicio, data_fim, tipo_movimentacao, material_id, origem_tipo, destino_tipo } = req.query;
-
-  try {
-    let query = `
-      SELECT 
-        e.id,
-        e.tipo_movimentacao,
-        e.origem_tipo,
-        e.origem_id,
-        e.destino_tipo,
-        e.destino_id,
-        e.quantidade,
-        e.status,
-        e.data_movimentacao,
-        e.observacao,
-        m.descricao AS material_nome,
-        m.unidade_estoque AS unidade_medida,
-        CASE 
-          WHEN e.origem_tipo = 'BASE' THEN b_origem.nome
-          WHEN e.origem_tipo = 'OBRA' THEN o_origem.nome_obra
-          WHEN e.origem_tipo = 'FORNECEDOR' THEN 'Fornecedor'
-        END AS origem_nome,
-        CASE 
-          WHEN e.destino_tipo = 'BASE' THEN b_destino.nome
-          WHEN e.destino_tipo = 'OBRA' THEN o_destino.nome_obra
-        END AS destino_nome
-      FROM estoque_movimentacoes e
-      INNER JOIN materiais m ON m.id = e.material_id
-      LEFT JOIN bases b_origem ON e.origem_tipo = 'BASE' AND b_origem.id = e.origem_id
-      LEFT JOIN obras o_origem ON e.origem_tipo = 'OBRA' AND o_origem.id = e.origem_id
-      LEFT JOIN bases b_destino ON e.destino_tipo = 'BASE' AND b_destino.id = e.destino_id
-      LEFT JOIN obras o_destino ON e.destino_tipo = 'OBRA' AND o_destino.id = e.destino_id
-      WHERE 1=1
-    `;
-
-    const params = [];
-
-    if (data_inicio) {
-      query += ` AND e.data_movimentacao >= ?`;
-      params.push(`${data_inicio} 00:00:00`);
-    }
-    if (data_fim) {
-      query += ` AND e.data_movimentacao <= ?`;
-      params.push(`${data_fim} 23:59:59`);
-    }
-    if (tipo_movimentacao) {
-      query += ` AND e.tipo_movimentacao = ?`;
-      params.push(tipo_movimentacao);
-    }
-    if (material_id) {
-      query += ` AND e.material_id = ?`;
-      params.push(material_id);
-    }
-    if (origem_tipo) {
-      query += ` AND e.origem_tipo = ?`;
-      params.push(origem_tipo);
-    }
-    if (destino_tipo) {
-      query += ` AND e.destino_tipo = ?`;
-      params.push(destino_tipo);
-    }
-
-    query += ` ORDER BY e.data_movimentacao DESC, e.id DESC`;
-
-    const [movimentacoes] = await db.query(query, params);
-    res.json(movimentacoes);
-  } catch (error) {
-    console.error("Erro ao gerar relatório de movimentações:", error);
-    res.status(500).json({ error: "Erro ao carregar relatório." });
   }
 });
 

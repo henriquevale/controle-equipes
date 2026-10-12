@@ -5,6 +5,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+
 
 export default function DiarioObraTecnico({ usuarioLogado }) {
   const [dataDiario, setDataDiario] = useState(new Date().toISOString().split('T')[0]);
@@ -45,7 +47,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
 
   const ehEquipeFolguista = equipeSelecionadaFiltro === 'FOLGUISTAS';
-  const rdoInterrompido = ['Choveu', 'Sem Material', 'Sem Equipamento','Apoio','Sem Atividade', 'Outros'].includes(statusDiario);
+  const rdoInterrompido = ['Choveu', 'Sem Material', 'Sem Equipamento','Apoio','Sem Atividade','Folga/FDS', 'Outros'].includes(statusDiario);
 
   useEffect(() => {
     carregarObrasIniciais();
@@ -882,6 +884,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                   <option value="Sem Equipamento">Obra Interrompida Sem Equipamento</option>
                   <option value="Apoio">Apoio</option>
                   <option value="Sem Atividade">Sem Atividade</option>
+                  <option value="Folga/FDS">Folga / Fim de Semana</option>
                   <option value="Outros">Obra Interrompida por Outros Motivos</option>
               </select>
             </div>

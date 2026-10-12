@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios'; 
-import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Search, Lock, MoveHorizontal } from 'lucide-react';
+import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Search, Lock, MoveHorizontal, Download } from 'lucide-react';
 
 export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) {
 
@@ -268,7 +268,28 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
     eq => String(eq.id_obra) === String(obraFiltro)
   );
 
-  // --- DISPONIBILIDADE EM TEMPO REAL ---
+  // --- UTILITÁRIOS DE STATUS DE TABELAS ---
+  const obterStatusFuncionario = (idFuncionario) => {
+    const ag = todosOsAgendamentosDoDia.find(
+      a => String(a.id_funcionario) === String(idFuncionario)
+    );
+    
+    if (ag) {
+      const statusUpper = String(ag.status_presenca || '').toUpperCase();
+      if (statusUpper === 'FOLGA' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS') {
+        return { texto: 'FOLGA', corBg: '#fef2f2', corTxt: '#991b1b', id_obra: ag.id_obra };
+      }
+      if (ag.liberado === 1) {
+        return { texto: 'LIBERADO', corBg: '#fef9c3', corTxt: '#854d0e', id_obra: ag.id_obra };
+      }
+      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(ag.id_obra));
+      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${ag.id_obra}`;
+      return { texto: `${nomeObra} [${ag.equipe}]`, corBg: '#e0f2fe', corTxt: '#0369a1', id_obra: ag.id_obra, emOutraObra: true };
+    }
+    return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d', emOutraObra: false };
+  };
+
+  // --- LISTA DE TODOS OS FUNCIONÁRIOS EXIBIDOS NO PAINEL DE DISPONÍVEIS ---
   const funcionariosDisponiveis = useMemo(() => {
     const baseFuncionarios = todosFuncionarios.length > 0 
       ? todosFuncionarios 
@@ -286,16 +307,48 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         return false;
       }
 
-      const jaEstaAlocadoNaTela = alocacoesDoDia.some(a => {
+      // Oculta da lista APENAS se o colaborador já estiver alocado NA OBRA SELECIONADA ATUALMENTE
+      const jaEstaAlocadoNaObraAtual = alocacoesDoDia.some(a => {
         const mesmoFunc = String(a.id_funcionario) === String(idFunc);
         const estaLiberado = Number(a.liberado) === 1 || String(a.status_presenca).toUpperCase() === 'LIBERADO';
         
         return mesmoFunc && !estaLiberado;
       });
 
-      return !jaEstaAlocadoNaTela;
+      return !jaEstaAlocadoNaObraAtual;
     });
   }, [todosFuncionarios, listaCompletaFuncionarios, alocacoesDoDia, termoBuscaDisponiveis]);
+
+  // --- EXPORTAÇÃO DO RESUMO DE OCUPAÇÃO PARA O RH (CSV) ---
+  const handleDownloadResumoRH = () => {
+    const base = listaCompletaFuncionarios.length > 0 ? listaCompletaFuncionarios : todosFuncionarios;
+    if (!base || base.length === 0) {
+      alert("Não há dados de funcionários para exportar.");
+      return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // \uFEFF força o UTF-8 correto no MS Excel
+    csvContent += "Nome;Matricula;Cargo;Data;Status / Ocupacao\n";
+
+    base.forEach(func => {
+      const idFunc = func.id_funcionario || func.id;
+      const status = obterStatusFuncionario(idFunc);
+      const nome = (func.nome || func.name || '').replace(/;/g, ',');
+      const matricula = (func.matricula || '—').replace(/;/g, ',');
+      const cargo = (func.cargo || '—').replace(/;/g, ',');
+      const statusTexto = status.texto.replace(/;/g, ',');
+
+      csvContent += `"${nome}";"${matricula}";"${cargo}";"${dataSelecionada}";"${statusTexto}"\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Resumo_Ocupacao_RH_${dataSelecionada}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // --- VEÍCULOS FILTRADOS POR BUSCA DE PLACA ---
   const veiculosFiltrados = useMemo(() => {
@@ -569,27 +622,6 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
     }
   };
 
-  // --- UTILITÁRIOS DE STATUS DE TABELAS ---
-  const obterStatusFuncionario = (idFuncionario) => {
-    const ag = todosOsAgendamentosDoDia.find(
-      a => String(a.id_funcionario) === String(idFuncionario)
-    );
-    
-    if (ag) {
-      const statusUpper = String(ag.status_presenca || '').toUpperCase();
-      if (statusUpper === 'FOLGA' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS') {
-        return { texto: 'FOLGA', corBg: '#fef2f2', corTxt: '#991b1b' };
-      }
-      if (ag.liberado === 1) {
-        return { texto: 'LIBERADO', corBg: '#fef9c3', corTxt: '#854d0e' };
-      }
-      const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(ag.id_obra));
-      const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${ag.id_obra}`;
-      return { texto: `${nomeObra} [${ag.equipe}]`, corBg: '#e0f2fe', corTxt: '#0369a1' };
-    }
-    return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d' };
-  };
-
   const obterStatusVeiculo = (idVeiculo) => {
     const aloc = todosOsAgendamentosDoDia.find(
       a => Number(a.id_veiculo) === Number(idVeiculo)
@@ -724,11 +756,11 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
       {/* 3. PAINEL DINÂMICO DE ALOCAÇÃO */}
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '16px', alignItems: 'start' }}>
         
-        {/* COLUNA ESQUERDA: DISPONÍVEIS */}
+        {/* COLUNA ESQUERDA: DISPONÍVEIS E ALOCADOS EM OUTRAS OBRAS */}
         <div style={{ backgroundColor: '#fff', border: '2px solid #3b82f6', borderRadius: '6px', padding: '12px', minHeight: '380px' }}>
           <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#1e40af', textTransform: 'uppercase' }}>
-              Disponíveis: {funcionariosDisponiveis.length}
+              Quadro de Funcionários: {funcionariosDisponiveis.length}
             </span>
           </div>
 
@@ -755,19 +787,44 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '460px', overflowY: 'auto' }}>
             {funcionariosDisponiveis.length === 0 ? (
               <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
-                {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : 'Todos os colaboradores já foram alocados!'}
+                {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : 'Nenhum colaborador disponível.'}
               </div>
             ) : (
               funcionariosDisponiveis.map(f => {
                 const idFunc = f.id_funcionario || f.id;
+                const statusGlobal = obterStatusFuncionario(idFunc);
+
                 return (
                   <div 
                     key={`disp-${idFunc}`} 
-                    style={{ padding: '8px', border: '1px solid #e2e8f0', borderRadius: '4px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                    style={{ 
+                      padding: '8px', 
+                      border: '1px solid #e2e8f0', 
+                      borderRadius: '4px', 
+                      backgroundColor: statusGlobal.emOutraObra ? '#f0f9ff' : '#f8fafc', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '6px' 
+                    }}
                   >
                     <div>
                       <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{f.nome || f.name}</div>
                       <div style={{ fontSize: '9px', color: '#64748b' }}>{f.cargo} | MAT: {f.matricula || '—'}</div>
+                      
+                      {/* INDICADOR SE O COLABORADOR JÁ ESTÁ EM OUTRA OBRA OU FOLGA */}
+                      <div style={{ marginTop: '4px' }}>
+                        <span style={{ 
+                          fontSize: '9px', 
+                          fontWeight: 'bold', 
+                          padding: '2px 6px', 
+                          borderRadius: '3px', 
+                          backgroundColor: statusGlobal.corBg, 
+                          color: statusGlobal.corTxt,
+                          display: 'inline-block' 
+                        }}>
+                          {statusGlobal.texto}
+                        </span>
+                      </div>
                     </div>
 
                     {equipesDaObraAtiva.length > 0 && (
@@ -841,7 +898,6 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                         {integrantes.length} Colaboradores
                       </span>
 
-                      {/* BOTÃO DE DELETAR EQUIPE (AGORA VISÍVEL MESMO APÓS O RDO FINALIZAR) */}
                       <button
                         type="button"
                         onClick={() => handleDeletarEquipe(eq.nome)}
@@ -1062,20 +1118,45 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         )}
       </div>
 
-      {/* 7. RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS */}
+      {/* 7. RESUMO DE OCUPAÇÃO DE FUNCIONÁRIOS (COM BOTÃO DE EXPORTAÇÃO PARA O RH) */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: mostrarResumoOcupacao ? '12px' : '0' }}>
           <div style={{ fontWeight: 'bold', textTransform: 'uppercase', color: '#334155', fontSize: '12px' }}>
             Resumo Geral da Ocupação dos Funcionários no Dia
           </div>
-          <button 
-            type="button"
-            onClick={() => setMostrarResumoOcupacao(!mostrarResumoOcupacao)}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e293b' }}
-          >
-            {mostrarResumoOcupacao ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
-            {mostrarResumoOcupacao ? 'Ocultar Tabela' : 'Ver Tabela'}
-          </button>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={handleDownloadResumoRH}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: '#16a34a',
+                color: '#fff',
+                border: 'none',
+                padding: '4px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: 'bold'
+              }}
+              title="Baixar planilha formatada para envio ao RH"
+            >
+              <Download style={{ width: '14px', height: '14px' }} />
+              Exportar Resumo (CSV p/ RH)
+            </button>
+
+            <button 
+              type="button"
+              onClick={() => setMostrarResumoOcupacao(!mostrarResumoOcupacao)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', color: '#1e293b' }}
+            >
+              {mostrarResumoOcupacao ? <EyeOff style={{ width: '14px', height: '14px' }} /> : <Eye style={{ width: '14px', height: '14px' }} />}
+              {mostrarResumoOcupacao ? 'Ocultar Tabela' : 'Ver Tabela'}
+            </button>
+          </div>
         </div>
 
         {mostrarResumoOcupacao && (
