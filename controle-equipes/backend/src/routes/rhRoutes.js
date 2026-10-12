@@ -593,6 +593,159 @@ router.get('/obras', async (req, res) => {
   }
 });
 
+// ========================================================
+// 1. GET: HISTÓRICO DE PRESENÇA CONSOLIDADO (TOTAIS E MATRIZ)
+// ========================================================
+router.get('/rh/historico-presenca', async (req, res) => {
+  const { id, cargo, id_obra, data_inicio, data_fim } = req.query;
 
+  if (!id || !cargo) {
+    return res.status(400).json({ error: "ID e Cargo do usuário são obrigatórios." });
+  }
+
+  try {
+    let filtroCondicional = "";
+    let params = [];
+
+    if (cargo !== 'MASTER' && cargo !== 'RH') {
+      filtroCondicional += ` AND (
+        de.id_gestor = ? OR 
+        de.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?)
+      ) `;
+      params.push(parseInt(id), parseInt(id));
+    }
+
+    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
+      filtroCondicional += ` AND de.id_obra = ? `;
+      params.push(parseInt(id_obra));
+    }
+    if (data_inicio && data_inicio !== '') {
+      filtroCondicional += ` AND de.data_diario >= ? `;
+      params.push(data_inicio);
+    }
+    if (data_fim && data_fim !== '') {
+      filtroCondicional += ` AND de.data_diario <= ? `;
+      params.push(data_fim);
+    }
+
+    const sql = `
+      SELECT 
+        resumo_diario.id_funcionario,
+        resumo_diario.nome_funcionario,
+        resumo_diario.matricula,
+        resumo_diario.cargo,
+        SUM(CASE WHEN resumo_diario.status_final = 'ALOCADO' THEN 1 ELSE 0 END) AS total_alocado, 
+        SUM(CASE WHEN resumo_diario.status_final = 'PRESENTE' THEN 1 ELSE 0 END) AS total_presente,
+        SUM(CASE WHEN resumo_diario.status_final = 'FALTOU' THEN 1 ELSE 0 END) AS total_faltou,
+        SUM(CASE WHEN resumo_diario.status_final = 'INTEGRAÇÃO' THEN 1 ELSE 0 END) AS total_integracao,
+        SUM(CASE WHEN resumo_diario.status_final = 'FÉRIAS' THEN 1 ELSE 0 END) AS total_ferias,
+        SUM(CASE WHEN resumo_diario.status_final = 'FOLGA' THEN 1 ELSE 0 END) AS total_folga,
+        SUM(CASE WHEN resumo_diario.status_final NOT IN ('PRESENTE', 'FALTOU', 'INTEGRAÇÃO', 'FÉRIAS', 'FOLGA', 'ALOCADO') THEN 1 ELSE 0 END) AS total_outro 
+      FROM (
+        SELECT 
+          de.id_funcionario,
+          de.nome AS nome_funcionario,
+          de.matricula,
+          de.cargo,
+          de.data_diario,
+          MAX(de.status_presenca) AS status_final
+        FROM diario_efetivo de
+        WHERE 1=1 ${filtroCondicional}
+        GROUP BY de.id_funcionario, de.nome, de.matricula, de.cargo, de.data_diario
+      ) AS resumo_diario
+      GROUP BY 
+        resumo_diario.id_funcionario, 
+        resumo_diario.nome_funcionario, 
+        resumo_diario.matricula, 
+        resumo_diario.cargo
+      ORDER BY nome_funcionario ASC
+    `;
+
+    const [resultados] = await db.execute(sql, params);
+    res.status(200).json(resultados);
+  } catch (err) {
+    console.error("Erro ao buscar histórico consolidado:", err);
+    res.status(500).json({ error: "Erro interno ao buscar histórico de presença." });
+  }
+});
+
+// ========================================================
+// 2. GET: RASTREABILIDADE DETALHADA E TIMELINE DE JORNADA
+// (Cruza diario_efetivo com obras e controle_diarios_equipe)
+// ========================================================
+router.get('/rh/historico-presenca-detalhado', async (req, res) => {
+  const { id, cargo, id_obra, data_inicio, data_fim, id_funcionario } = req.query;
+
+  if (!id || !cargo) {
+    return res.status(400).json({ error: "ID e Cargo do usuário são obrigatórios." });
+  }
+
+  try {
+    let filtroCondicional = "";
+    let params = [];
+
+    if (cargo !== 'MASTER' && cargo !== 'RH') {
+      filtroCondicional += ` AND (
+        de.id_gestor = ? OR 
+        de.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?)
+      ) `;
+      params.push(parseInt(id), parseInt(id));
+    }
+
+    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
+      filtroCondicional += ` AND de.id_obra = ? `;
+      params.push(parseInt(id_obra));
+    }
+    if (data_inicio && data_inicio !== '') {
+      filtroCondicional += ` AND de.data_diario >= ? `;
+      params.push(data_inicio);
+    }
+    if (data_fim && data_fim !== '') {
+      filtroCondicional += ` AND de.data_diario <= ? `;
+      params.push(data_fim);
+    }
+    if (id_funcionario) {
+      filtroCondicional += ` AND de.id_funcionario = ? `;
+      params.push(parseInt(id_funcionario));
+    }
+
+    const sql = `
+      SELECT 
+        de.id,
+        de.data_diario,
+        de.id_obra,
+        de.id_funcionario,
+        de.nome AS nome_funcionario,
+        de.matricula,
+        de.cargo,
+        de.turno,
+        de.status_presenca,
+        de.observacao,
+        de.equipe,
+        de.hora_inicio,
+        de.hora_fim,
+        de.liberado,
+        de.data_hora_liberacao,
+        o.nome_obra,
+        o.codigo_obra,
+        cde.status_operacional,
+        cde.status_rdo
+      FROM diario_efetivo de
+      LEFT JOIN obras o ON o.id = de.id_obra
+      LEFT JOIN controle_diarios_equipe cde 
+             ON cde.data_diario = de.data_diario 
+            AND cde.id_obra = de.id_obra 
+            AND UPPER(TRIM(cde.equipe)) = UPPER(TRIM(de.equipe))
+      WHERE 1=1 ${filtroCondicional}
+      ORDER BY de.data_diario DESC, de.hora_inicio ASC
+    `;
+
+    const [resultados] = await db.execute(sql, params);
+    res.status(200).json(resultados);
+  } catch (err) {
+    console.error("Erro ao buscar detalhamento da linha do tempo:", err);
+    res.status(500).json({ error: "Erro interno ao buscar detalhamento da presença." });
+  }
+});
 
 export default router;

@@ -1068,6 +1068,7 @@ router.get('/gestor/historico-presenca', async (req, res) => {
     let filtroCondicional = "";
     let params = [];
 
+    // Filtro por permissão de acesso
     if (cargo !== 'MASTER' && cargo !== 'RH') {
       filtroCondicional += ` AND (
         de.id_gestor = ? OR 
@@ -1076,6 +1077,7 @@ router.get('/gestor/historico-presenca', async (req, res) => {
       params.push(parseInt(id), parseInt(id));
     }
 
+    // Filtros dinâmicos da tela
     if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
       filtroCondicional += ` AND de.id_obra = ? `;
       params.push(parseInt(id_obra));
@@ -1091,44 +1093,36 @@ router.get('/gestor/historico-presenca', async (req, res) => {
 
     const sql = `
       SELECT 
-        resumo_diario.id_funcionario,
-        resumo_diario.nome_funcionario,
-        resumo_diario.matricula,
-        resumo_diario.cargo,
-        SUM(CASE WHEN resumo_diario.status_final = 'ALOCADO' THEN 1 ELSE 0 END) AS total_alocado, 
-        SUM(CASE WHEN resumo_diario.status_final = 'PRESENTE' THEN 1 ELSE 0 END) AS total_presente,
-        SUM(CASE WHEN resumo_diario.status_final = 'FALTOU' THEN 1 ELSE 0 END) AS total_faltou,
-        SUM(CASE WHEN resumo_diario.status_final = 'INTEGRAÇÃO' THEN 1 ELSE 0 END) AS total_integracao,
-        SUM(CASE WHEN resumo_diario.status_final = 'FÉRIAS' THEN 1 ELSE 0 END) AS total_ferias,
-        SUM(CASE WHEN resumo_diario.status_final = 'FOLGA' THEN 1 ELSE 0 END) AS total_folga,
-        SUM(CASE WHEN resumo_diario.status_final NOT IN ('PRESENTE', 'FALTOU', 'INTEGRAÇÃO', 'FÉRIAS', 'FOLGA', 'ALOCADO') THEN 1 ELSE 0 END) AS total_outro 
-      FROM (
-        SELECT 
-          de.id_funcionario,
-          de.nome AS nome_funcionario,
-          de.matricula,
-          de.cargo,
-          de.data_diario,
-          MAX(de.status_presenca) AS status_final
-        FROM diario_efetivo de
-        WHERE 1=1 ${filtroCondicional}
-        GROUP BY de.id_funcionario, de.nome, de.matricula, de.cargo, de.data_diario
-      ) AS resumo_diario
-      GROUP BY 
-        resumo_diario.id_funcionario, 
-        resumo_diario.nome_funcionario, 
-        resumo_diario.matricula, 
-        resumo_diario.cargo
-      ORDER BY nome_funcionario ASC
+        de.id,
+        de.id_funcionario,
+        de.nome AS nome_funcionario,
+        de.matricula,
+        de.cargo,
+        de.data_diario,
+        de.hora_inicio,
+        de.hora_fim,
+        de.turno,
+        de.status_presenca,
+        de.equipe,
+        de.observacao,
+        de.id_obra,
+        o.nome_obra,
+        o.codigo_obra
+      FROM diario_efetivo de
+      LEFT JOIN obras o ON o.id = de.id_obra
+      WHERE 1=1 ${filtroCondicional}
+      ORDER BY de.data_diario DESC, de.hora_inicio ASC, de.nome ASC
     `;
 
     const [resultados] = await db.execute(sql, params);
     res.status(200).json(resultados);
+
   } catch (err) {
-    console.error("Erro ao buscar histórico consolidado:", err);
+    console.error("Erro ao buscar histórico de presença detalhado:", err);
     res.status(500).json({ error: "Erro interno ao buscar histórico de presença." });
   }
 });
+
 
 // ========================================================
 // 19. GET: ROTA DE AUDITORIA ATUALIZADA
