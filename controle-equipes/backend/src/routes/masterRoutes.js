@@ -70,7 +70,18 @@ router.put('/master/obras/:id', async (req, res) => {
 // ========================================================
 router.get('/master/obras-geral', async (req, res) => {
   try {
-    const sql = "SELECT id, nome_obra, codigo_obra, status, tipo_obra FROM obras ORDER BY status ASC, nome_obra ASC";
+    // Garante que traz TODAS as obras (sem filtro WHERE)
+    // Ordena ATIVA primeiro (1) e INATIVA depois (2), e depois por NOME
+    const sql = `
+      SELECT id, nome_obra, codigo_obra, status, tipo_obra 
+      FROM obras 
+      ORDER BY 
+        CASE 
+          WHEN UPPER(status) = 'ATIVA' THEN 1 
+          ELSE 2 
+        END ASC, 
+        nome_obra ASC
+    `;
     const [rows] = await db.execute(sql);
     res.json(rows);
   } catch (err) {

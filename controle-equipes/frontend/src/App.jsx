@@ -217,20 +217,28 @@ export default function App() {
     }
   };
 
-  const carregarObrasBanco = async () => {
-    const uid = usuarioLogado?.id || usuarioLogado?.id_usuario;
-    if (!uid) return;
-    try {
-      const res = await axios.get(`${API_URL}/gestor/obras-ativas`, {
-        params: { id: uid, cargo: usuarioLogado.cargo }
-      });
-      setListaObrasBanco(res.data || []);
-    } catch (e) { 
-      setListaObrasBanco([]);
-      mostrarMensagem('Erro ao carregar obras.', 'erro');
-    }
-  };
+const carregarObrasBanco = async () => {
+  const uid = usuarioLogado?.id || usuarioLogado?.id_usuario;
+  if (!uid) return;
+  try {
+    const cargoNormalizado = usuarioLogado?.cargo?.toString().trim().toUpperCase();
 
+    // Se for MASTER na tela de cadastro ou consulta geral, busca TODAS as obras (ativas + inativas)
+    // Caso contrário, busca apenas as obras ativas para o uso do gestor/diários
+    const url = (cargoNormalizado === 'MASTER') 
+      ? `${API_URL}/master/obras-geral` 
+      : `${API_URL}/gestor/obras-ativas`;
+
+    const res = await axios.get(url, {
+      params: { id: uid, cargo: usuarioLogado.cargo }
+    });
+
+    setListaObrasBanco(res.data || []);
+  } catch (e) { 
+    setListaObrasBanco([]);
+    mostrarMensagem('Erro ao carregar obras.', 'erro');
+  }
+};
   const carregarFuncionariosGeral = async () => {
     try {
       const res = await axios.get(`${API_URL}/funcionarios`); 
