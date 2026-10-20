@@ -118,8 +118,8 @@ export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
 
     const dadosExcel = movimentacoes.map(item => {
       const ehEntrada = ['ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA', 'AJUSTE'].includes(item.tipo_movimentacao);
-      const dataFormatada = item.data_movimentacao ? new Date(item.data_movimentacao).toLocaleDateString('pt-BR') : '-';
-      
+      const dataFormatada = item.data_solicitada ? new Date(item.data_solicitada).toLocaleDateString('pt-BR') : '-';
+
       return {
         'Data': dataFormatada,
         'Tipo': item.tipo_movimentacao || '-',
@@ -467,7 +467,7 @@ export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
                 return (
                   <tr key={`rel-mov-${item.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '10px 12px', color: '#334155', fontWeight: 'bold' }}>
-                      {item.data_movimentacao ? new Date(item.data_movimentacao).toLocaleDateString('pt-BR') : '-'}
+                      {item.data_solicitada ? new Date(item.data_solicitada).toLocaleDateString('pt-BR') : '-'}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{ fontWeight: 'bold', color: ehEntrada ? '#16a34a' : '#dc2626' }}>

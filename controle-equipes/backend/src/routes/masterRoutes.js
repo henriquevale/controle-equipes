@@ -1650,7 +1650,7 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
         e.destino_id,
         e.quantidade,
         e.status,
-        e.data_movimentacao,
+        e.data_solicitada,
         e.observacao,
         m.descricao AS material_nome,
         m.unidade_estoque AS unidade_medida,
@@ -1680,12 +1680,12 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
     const params = [];
 
     if (data_inicio) {
-      query += ` AND e.data_movimentacao >= ?`;
-      params.push(`${data_inicio} 00:00:00`);
+      query += ` AND e.data_solicitada >= ?`;
+      params.push(data_inicio);
     }
     if (data_fim) {
-      query += ` AND e.data_movimentacao <= ?`;
-      params.push(`${data_fim} 23:59:59`);
+      query += ` AND e.data_solicitada <= ?`;
+      params.push(data_fim);
     }
     if (tipo_movimentacao) {
       query += ` AND e.tipo_movimentacao = ?`;
@@ -1720,7 +1720,7 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
       params.push(enviado_por);
     }
 
-    query += ` ORDER BY e.data_movimentacao DESC, e.id DESC`;
+    query += ` ORDER BY e.data_solicitada DESC, e.id DESC`;
 
     const [movimentacoes] = await db.query(query, params);
     res.json(movimentacoes);
