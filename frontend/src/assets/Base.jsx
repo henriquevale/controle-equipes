@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, Plus, Edit2, Trash2, Search, MapPin, CheckSquare, Square } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, Search, MapPin, CheckSquare, Square, Users } from 'lucide-react';
 
 export default function Bases({ API_URL, mostrarMensagem }) {
   const [bases, setBases] = useState([]);
   const [obras, setObras] = useState([]);
+  const [gestores, setGestores] = useState([]);
+  const [vinculosBasesGestores, setVinculosBasesGestores] = useState([]); // Mapeia os vínculos id_base -> id_gestor
   const [termoBusca, setTermoBusca] = useState('');
   const [editandoId, setEditandoId] = useState(null);
 
   const [form, setForm] = useState({
     nome: '',
     endereco: '',
-    obras_ids: []
+    obras_ids: [],
+    gestores_ids: []
   });
 
   useEffect(() => {
@@ -20,15 +23,40 @@ export default function Bases({ API_URL, mostrarMensagem }) {
 
   const carregarDados = async () => {
     try {
-      const [resBases, resObras] = await Promise.all([
+      const [resBases, resObras, resUsuarios] = await Promise.all([
         axios.get(`${API_URL}/bases`).catch(() => ({ data: [] })),
-        axios.get(`${API_URL}/obras`).catch(() => axios.get(`${API_URL}/master/obras-geral`)).catch(() => ({ data: [] }))
+        axios.get(`${API_URL}/obras`).catch(() => axios.get(`${API_URL}/master/obras-geral`)).catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/usuarios`).catch(() => ({ data: [] }))
       ]);
 
-      setBases(resBases.data || []);
+      const listaBases = resBases.data || [];
+      setBases(listaBases);
       setObras(resObras.data || []);
+
+      const listaGestores = (resUsuarios.data || []).filter(u =>
+        String(u.cargo || '').toUpperCase().includes('GESTOR')
+      );
+      setGestores(listaGestores);
+
+      // Busca os vínculos de todas as bases para exibir na tabela
+      carregarVinculosGestores(listaBases);
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
+    }
+  };
+
+  const carregarVinculosGestores = async (listaBases) => {
+    try {
+      // Busca os gestores vinculados a cada base cadastrada
+      const promessas = listaBases.map(b => 
+        axios.get(`${API_URL}/master/gestores-bases-por-base/${b.id}`)
+          .then(res => ({ base_id: b.id, gestores: res.data || [] }))
+          .catch(() => ({ base_id: b.id, gestores: [] }))
+      );
+      const resultados = await Promise.all(promessas);
+      setVinculosBasesGestores(resultados);
+    } catch (e) {
+      console.error("Erro ao carregar vínculos de gestores:", e);
     }
   };
 
@@ -44,17 +72,50 @@ export default function Bases({ API_URL, mostrarMensagem }) {
     });
   };
 
+  const handleToggleGestor = (gestorId) => {
+    setForm(prev => {
+      const jaExiste = prev.gestores_ids.includes(gestorId);
+      return {
+        ...prev,
+        gestores_ids: jaExiste
+          ? prev.gestores_ids.filter(id => id !== gestorId)
+          : [...prev.gestores_ids, gestorId]
+      };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.nome.trim()) return mostrarMensagem('Informe o nome da Base.', 'erro');
 
     try {
+      let baseId = editandoId;
+
       if (editandoId) {
         await axios.put(`${API_URL}/bases/${editandoId}`, form);
         mostrarMensagem('Base atualizada com sucesso!', 'sucesso');
       } else {
-        await axios.post(`${API_URL}/bases`, form);
+        const res = await axios.post(`${API_URL}/bases`, form);
+        baseId = res.data?.id;
         mostrarMensagem('Base criada com sucesso!', 'sucesso');
+      }
+
+      // Sincroniza via rota PUT em lote dos gestores da base
+      if (baseId) {
+        await axios.put(`${API_URL}/master/gestores-bases/base/${baseId}`, {
+          gestores_ids: form.gestores_ids
+        }).catch(async () => {
+          // Fallback individual caso o PUT não esteja disponível
+          if (editandoId) {
+            const resAntigos = await axios.get(`${API_URL}/master/gestores-bases-por-base/${baseId}`).catch(() => ({ data: [] }));
+            for (const v of (resAntigos.data || [])) {
+              await axios.delete(`${API_URL}/master/gestores-bases/${v.id}`).catch(() => {});
+            }
+          }
+          for (const idGestor of form.gestores_ids) {
+            await axios.post(`${API_URL}/master/gestores-bases`, { id_gestor: idGestor, id_base: baseId }).catch(() => {});
+          }
+        });
       }
 
       limparForm();
@@ -65,12 +126,22 @@ export default function Bases({ API_URL, mostrarMensagem }) {
     }
   };
 
-  const handleEditar = (base) => {
+  const handleEditar = async (base) => {
     setEditandoId(base.id);
+
+    let gestoresAtrelados = [];
+    try {
+      const resGestoresBase = await axios.get(`${API_URL}/master/gestores-bases-por-base/${base.id}`);
+      gestoresAtrelados = (resGestoresBase.data || []).map(g => g.id_gestor);
+    } catch (e) {
+      gestoresAtrelados = base.gestores_ids || [];
+    }
+
     setForm({
       nome: base.nome || '',
       endereco: base.endereco || '',
-      obras_ids: base.obras_ids || []
+      obras_ids: base.obras_ids || [],
+      gestores_ids: gestoresAtrelados
     });
   };
 
@@ -88,13 +159,25 @@ export default function Bases({ API_URL, mostrarMensagem }) {
 
   const limparForm = () => {
     setEditandoId(null);
-    setForm({ nome: '', endereco: '', obras_ids: [] });
+    setForm({ nome: '', endereco: '', obras_ids: [], gestores_ids: [] });
   };
 
   const basesFiltradas = bases.filter(b => 
     String(b.nome || '').toLowerCase().includes(termoBusca.toLowerCase()) ||
     String(b.endereco || '').toLowerCase().includes(termoBusca.toLowerCase())
   );
+
+  // Auxiliar para obter a lista de nomes dos gestores de uma base específica
+  const getGestoresDaBase = (baseId, b) => {
+    if (b.gestores_nomes && Array.isArray(b.gestores_nomes) && b.gestores_nomes.length > 0) {
+      return b.gestores_nomes;
+    }
+    const registro = vinculosBasesGestores.find(v => Number(v.base_id) === Number(baseId));
+    if (registro && registro.gestores.length > 0) {
+      return registro.gestores.map(g => g.gestor_nome || g.nome);
+    }
+    return [];
+  };
 
   const inputStyle = {
     width: '100%',
@@ -151,50 +234,96 @@ export default function Bases({ API_URL, mostrarMensagem }) {
             </div>
           </div>
 
-          {/* SELEÇÃO DE OBRAS ASSOCIADAS */}
-          <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <label style={{ ...labelStyle, color: '#2563eb', marginBottom: '8px' }}>
-              Obras Atendidas / Associadas a esta Base ({form.obras_ids.length} selecionadas)
-            </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', maxHeight: '150px', overflowY: 'auto', padding: '4px' }}>
-              {obras.length === 0 ? (
-                <div style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhuma obra encontrada.</div>
-              ) : (
-                obras.map(obra => {
-                  const estaMarcada = form.obras_ids.includes(obra.id);
-                  const nomeObraExibir = obra.nome_obra || obra.nome || `Obra #${obra.id}`;
+            {/* SELEÇÃO DE GESTORES RESPONSÁVEIS */}
+            <div style={{ backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <label style={{ ...labelStyle, color: '#16a34a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Users style={{ width: '12px', height: '12px' }} /> Gestores Responsáveis ({form.gestores_ids.length} selecionados)
+              </label>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', maxHeight: '150px', overflowY: 'auto', padding: '4px' }}>
+                {gestores.length === 0 ? (
+                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhum gestor encontrado.</div>
+                ) : (
+                  gestores.map(g => {
+                    const estaMarcado = form.gestores_ids.includes(g.id);
 
-                  return (
-                    <div 
-                      key={obra.id} 
-                      onClick={() => handleToggleObra(obra.id)}
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '8px', 
-                        padding: '6px 10px', 
-                        backgroundColor: estaMarcada ? '#eff6ff' : '#fff',
-                        border: `1px solid ${estaMarcada ? '#93c5fd' : '#cbd5e1'}`,
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        userSelect: 'none'
-                      }}
-                    >
-                      {estaMarcada ? (
-                        <CheckSquare style={{ width: '14px', height: '14px', color: '#2563eb' }} />
-                      ) : (
-                        <Square style={{ width: '14px', height: '14px', color: '#94a3b8' }} />
-                      )}
-                      <span style={{ fontWeight: estaMarcada ? 'bold' : 'normal', color: estaMarcada ? '#1e40af' : '#334155' }}>
-                        {nomeObraExibir}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
+                    return (
+                      <div 
+                        key={`gestor-${g.id}`} 
+                        onClick={() => handleToggleGestor(g.id)}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px', 
+                          padding: '6px 10px', 
+                          backgroundColor: estaMarcado ? '#f0fdf4' : '#fff',
+                          border: `1px solid ${estaMarcado ? '#86efac' : '#cbd5e1'}`,
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          userSelect: 'none'
+                        }}
+                      >
+                        {estaMarcado ? (
+                          <CheckSquare style={{ width: '14px', height: '14px', color: '#16a34a' }} />
+                        ) : (
+                          <Square style={{ width: '14px', height: '14px', color: '#94a3b8' }} />
+                        )}
+                        <span style={{ fontWeight: estaMarcado ? 'bold' : 'normal', color: estaMarcado ? '#15803d' : '#334155' }}>
+                          {g.nome}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
+
+{/* ONDE MUDAR NO SEU TRECHO DE CÓDIGO: */}
+<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', maxHeight: '150px', overflowY: 'auto', padding: '4px' }}>
+  {obras.length === 0 ? (
+    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Nenhuma obra encontrada.</div>
+  ) : (
+    // NOVO: Remove objetos de obras com mesmo ID antes de renderizar
+    obras
+      .filter((obra, index, self) => index === self.findIndex(o => Number(o.id) === Number(obra.id)))
+      .map(obra => {
+        const estaMarcada = form.obras_ids.includes(obra.id);
+        const nomeObraExibir = obra.nome_obra || obra.nome || `Obra #${obra.id}`;
+
+        return (
+          <div 
+            key={obra.id} 
+            onClick={() => handleToggleObra(obra.id)}
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              padding: '6px 10px', 
+              backgroundColor: estaMarcada ? '#eff6ff' : '#fff',
+              border: `1px solid ${estaMarcada ? '#93c5fd' : '#cbd5e1'}`,
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              userSelect: 'none'
+            }}
+          >
+            {estaMarcada ? (
+              <CheckSquare style={{ width: '14px', height: '14px', color: '#2563eb' }} />
+            ) : (
+              <Square style={{ width: '14px', height: '14px', color: '#94a3b8' }} />
+            )}
+            <span style={{ fontWeight: estaMarcada ? 'bold' : 'normal', color: estaMarcada ? '#1e40af' : '#334155' }}>
+              {nomeObraExibir}
+            </span>
+          </div>
+        );
+      })
+  )}
+</div>
+
           </div>
 
           {/* BOTÕES */}
@@ -237,6 +366,7 @@ export default function Bases({ API_URL, mostrarMensagem }) {
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                 <th style={{ padding: '10px 12px' }}>Nome da Base</th>
                 <th style={{ padding: '10px 12px' }}>Endereço</th>
+                <th style={{ padding: '10px 12px' }}>Gestores Responsáveis</th>
                 <th style={{ padding: '10px 12px' }}>Obras Atendidas</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right' }}>Ações</th>
               </tr>
@@ -244,47 +374,64 @@ export default function Bases({ API_URL, mostrarMensagem }) {
             <tbody>
               {basesFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                  <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
                     Nenhuma base encontrada.
                   </td>
                 </tr>
               ) : (
-                basesFiltradas.map((b) => (
-                  <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>
-                      <Building2 style={{ width: '14px', height: '14px', color: '#0284c7', display: 'inline', marginRight: '6px' }} />
-                      {b.nome}
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#475569' }}>
-                      {b.endereco ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <MapPin style={{ width: '12px', height: '12px', color: '#64748b' }} /> {b.endereco}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      {b.obras_nomes && b.obras_nomes.length > 0 ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                          {b.obras_nomes.map((nomeObra, idx) => (
-                            <span key={idx} style={{ padding: '2px 6px', backgroundColor: '#e0f2fe', color: '#0369a1', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>
-                              {nomeObra}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Nenhuma obra vinculada</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                      <button onClick={() => handleEditar(b)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', marginRight: '8px' }} title="Editar">
-                        <Edit2 style={{ width: '14px', height: '14px' }} />
-                      </button>
-                      <button onClick={() => handleExcluir(b.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }} title="Excluir">
-                        <Trash2 style={{ width: '14px', height: '14px' }} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                basesFiltradas.map((b) => {
+                  const nomesGestores = getGestoresDaBase(b.id, b);
+
+                  return (
+                    <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>
+                        <Building2 style={{ width: '14px', height: '14px', color: '#0284c7', display: 'inline', marginRight: '6px' }} />
+                        {b.nome}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#475569' }}>
+                        {b.endereco ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <MapPin style={{ width: '12px', height: '12px', color: '#64748b' }} /> {b.endereco}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {nomesGestores.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {nomesGestores.map((nomeGestor, idx) => (
+                              <span key={`g-tag-${idx}`} style={{ padding: '2px 6px', backgroundColor: '#dcfce7', color: '#15803d', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>
+                                {nomeGestor}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Nenhum gestor vinculado</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {b.obras_nomes && b.obras_nomes.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {b.obras_nomes.map((nomeObra, idx) => (
+                              <span key={idx} style={{ padding: '2px 6px', backgroundColor: '#e0f2fe', color: '#0369a1', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>
+                                {nomeObra}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Nenhuma obra vinculada</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <button onClick={() => handleEditar(b)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', marginRight: '8px' }} title="Editar">
+                          <Edit2 style={{ width: '14px', height: '14px' }} />
+                        </button>
+                        <button onClick={() => handleExcluir(b.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }} title="Excluir">
+                          <Trash2 style={{ width: '14px', height: '14px' }} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

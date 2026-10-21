@@ -124,10 +124,10 @@ export default function App() {
         { id: 'CADASTRO_MATERIAIS', label: 'Cadastrar Materiais', icon: Package, cargos: ['ENGENHARIA', 'MASTER'] },
         { id: 'CADASTRO_FORNECEDORES', label: 'Cadastrar Fornecedores', icon: Truck, cargos: ['ENGENHARIA', 'MASTER'] },
         { id: 'BASE', label: 'Gerenciar Bases', icon: Building2, cargos: ['MASTER'] },
-        { id: 'ESTOQUE', label: 'Estoque Saldos', icon: Boxes, cargos: ['MASTER'] },
+        { id: 'ESTOQUE', label: 'Estoque Saldos', icon: Boxes, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'ESTOQUE_MOVIMENTACOES', label: 'Movimentações Estoque', icon: TrendingUp, cargos: ['MASTER'] },
         { id: 'RELATORIO_COMPRAS', label: 'Relatório de Compras', icon: BarChart3, cargos: ['MASTER', 'FINANCEIRO'] },
-        { id: 'RELATORIO_MOVIMENTACAO', label: 'Relatório Movimentação', icon: TrendingUp, cargos: ['MASTER'] },
+        { id: 'RELATORIO_MOVIMENTACAO', label: 'Relatório Movimentação', icon: TrendingUp, cargos: ['ENGENHARIA', 'MASTER', 'GESTOR'] },
         { id: 'COMPARATIVO_MATERIAIS', label: 'Comparativo de Materiais', icon: CheckCircle2, cargos: ['MASTER', 'FINANCEIRO'] }
       ]
     },
@@ -217,28 +217,27 @@ export default function App() {
     }
   };
 
-const carregarObrasBanco = async () => {
-  const uid = usuarioLogado?.id || usuarioLogado?.id_usuario;
-  if (!uid) return;
-  try {
-    const cargoNormalizado = usuarioLogado?.cargo?.toString().trim().toUpperCase();
+  const carregarObrasBanco = async () => {
+    const uid = usuarioLogado?.id || usuarioLogado?.id_usuario;
+    if (!uid) return;
+    try {
+      const cargoNormalizado = usuarioLogado?.cargo?.toString().trim().toUpperCase();
 
-    // Se for MASTER na tela de cadastro ou consulta geral, busca TODAS as obras (ativas + inativas)
-    // Caso contrário, busca apenas as obras ativas para o uso do gestor/diários
-    const url = (cargoNormalizado === 'MASTER') 
-      ? `${API_URL}/master/obras-geral` 
-      : `${API_URL}/gestor/obras-ativas`;
+      const url = (cargoNormalizado === 'MASTER') 
+        ? `${API_URL}/master/obras-geral` 
+        : `${API_URL}/gestor/obras-ativas`;
 
-    const res = await axios.get(url, {
-      params: { id: uid, cargo: usuarioLogado.cargo }
-    });
+      const res = await axios.get(url, {
+        params: { id: uid, cargo: usuarioLogado.cargo }
+      });
 
-    setListaObrasBanco(res.data || []);
-  } catch (e) { 
-    setListaObrasBanco([]);
-    mostrarMensagem('Erro ao carregar obras.', 'erro');
-  }
-};
+      setListaObrasBanco(res.data || []);
+    } catch (e) { 
+      setListaObrasBanco([]);
+      mostrarMensagem('Erro ao carregar obras.', 'erro');
+    }
+  };
+
   const carregarFuncionariosGeral = async () => {
     try {
       const res = await axios.get(`${API_URL}/funcionarios`); 
@@ -278,7 +277,6 @@ const carregarObrasBanco = async () => {
     }
   };
 
-  // --- FUNÇÕES DO FLUXO ESQUECI A SENHA (MODO SIMPLIFICADO LOCAL) ---
   const solicitarCodigoReset = (e) => {
     e.preventDefault();
     setMensagemReset({ texto: '', tipo: '' });
@@ -342,13 +340,11 @@ const carregarObrasBanco = async () => {
     setAbaAtiva('RH');
   };
 
-  // --- TELA DE LOGIN / ESQUECI A SENHA ---
   if (!usuarioLogado) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a', fontFamily: 'sans-serif', padding: '16px', boxSizing: 'border-box' }}>
         
         {!modoEsqueciSenha ? (
-          /* FORMULÁRIO DE LOGIN */
           <form onSubmit={handleLogin} style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '8px', width: '100%', maxWidth: '360px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', justifyContent: 'center' }}>
               <HardHat style={{ color: '#2563eb', width: '28px', height: '28px' }} />
@@ -364,12 +360,9 @@ const carregarObrasBanco = async () => {
               <button type="submit" style={{ height: '40px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', textTransform: 'uppercase', cursor: 'pointer', fontSize: '12px', marginTop: '4px' }}>
                 Entrar no Painel
               </button>
-
-
             </div>
           </form>
         ) : (
-          /* FORMULÁRIO DE RECUPERAÇÃO DE SENHA */
           <div style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '8px', width: '100%', maxWidth: '360px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', justifyContent: 'center' }}>
               <KeyRound style={{ color: '#d97706', width: '26px', height: '26px' }} />
@@ -383,7 +376,6 @@ const carregarObrasBanco = async () => {
             )}
 
             {passoEsqueciSenha === 1 ? (
-              /* PASSO 1: Solicitar Código */
               <form onSubmit={solicitarCodigoReset} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 6px 0', textAlign: 'center' }}>
                   Digite o seu e-mail ou nome de utilizador para receber o código de verificação.
@@ -404,7 +396,6 @@ const carregarObrasBanco = async () => {
                 </button>
               </form>
             ) : (
-              /* PASSO 2: Validar Código e Alterar Senha */
               <form onSubmit={redefinirSenhaFinal} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 4px 0', textAlign: 'center' }}>
                   Introduza o código de 6 dígitos e defina a sua nova senha.
@@ -682,8 +673,14 @@ const carregarObrasBanco = async () => {
               <Base API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
             )}
 
-            {abaAtiva === 'ESTOQUE' && ['MASTER'].includes(usuarioLogado.cargo) && (
-              <EstoqueSaldos API_URL={API_URL} mostrarMensagem={mostrarMensagem} obrasDisponiveis={listaObrasBanco} usuarioLogado={usuarioLogado} />
+            {/* ✅ AJUSTADO: PERMITE CARREGAR PÁGINA PARA GESTOR, ENGENHARIA E MASTER */}
+            {abaAtiva === 'ESTOQUE' && ['MASTER', 'ENGENHARIA', 'GESTOR'].includes(usuarioLogado.cargo) && (
+              <EstoqueSaldos 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+                obrasDisponiveis={listaObrasBanco} 
+                usuarioLogado={usuarioLogado} 
+              />
             )}
 
             {abaAtiva === 'ESTOQUE_MOVIMENTACOES' && ['MASTER'].includes(usuarioLogado.cargo) && (
@@ -692,9 +689,16 @@ const carregarObrasBanco = async () => {
             {abaAtiva === 'RELATORIO_COMPRAS' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <RelatorioCompras API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
             )}
-            {abaAtiva === 'RELATORIO_MOVIMENTACAO' && usuarioLogado.cargo === 'MASTER' && (
-              <RelatorioMovimentacao API_URL={API_URL} mostrarMensagem={mostrarMensagem} />
+
+            {/* ✅ AJUSTADO: PERMITE CARREGAR PÁGINA PARA GESTOR, ENGENHARIA E MASTER */}
+            {abaAtiva === 'RELATORIO_MOVIMENTACAO' && ['MASTER', 'ENGENHARIA', 'GESTOR'].includes(usuarioLogado.cargo) && (
+              <RelatorioMovimentacao 
+                API_URL={API_URL} 
+                mostrarMensagem={mostrarMensagem} 
+                usuarioLogado={usuarioLogado} 
+              />
             )}
+
             {abaAtiva === 'RELATORIO_VEICULOS' && (
               <RelatorioVeiculoUsados usuarioLogado={usuarioLogado} />
             )}
@@ -720,7 +724,7 @@ const carregarObrasBanco = async () => {
                 mostrarMensagem={mostrarMensagem} 
               />
             )}
-           {abaAtiva === 'RELATORIO_PF' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'RELATORIO_PF' && ['MASTER', 'FINANCEIRO'].includes(usuarioLogado.cargo) && (
               <RelatorioPF 
                 API_URL={API_URL} 
                 mostrarMensagem={mostrarMensagem} 
@@ -758,7 +762,7 @@ const carregarObrasBanco = async () => {
                 usuarioLogado={usuarioLogado}
               />
             )}  
-            {abaAtiva == 'CADASTRO_ATIVIDADES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'CADASTRO_ATIVIDADES' && ['MASTER', 'ENGENHARIA'].includes(usuarioLogado.cargo) && (
               <CadastroAtividades 
                 API_URL={API_URL}
                 mostrarMensagem={mostrarMensagem}
@@ -766,7 +770,7 @@ const carregarObrasBanco = async () => {
               />
             )}
             
-            {abaAtiva == 'PLANEJAMENTO_OBRA' && ['MASTER', 'ENGENHARIA', 'GESTOR'].includes(usuarioLogado.cargo) && (
+            {abaAtiva === 'PLANEJAMENTO_OBRA' && ['MASTER', 'ENGENHARIA', 'GESTOR'].includes(usuarioLogado.cargo) && (
               <PlanejamentoObra 
                 API_URL={API_URL}
                 mostrarMensagem={mostrarMensagem}

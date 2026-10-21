@@ -3,7 +3,7 @@ const router = express.Router();
 
 // Caminho para a estrutura real do banco
 import db from '../../db.js';
-
+const temAcessoGlobal = (cargo) => ['MASTER', 'ENGENHARIA'].includes(String(cargo || '').toUpperCase());
 // ========================================================
 // 7. POST: CADASTRAR NOVA OBRA (MASTER)
 // ========================================================
@@ -1389,7 +1389,129 @@ router.delete('/bases/:id', async (req, res) => {
     res.status(500).json({ error: "Erro ao excluir base" });
   }
 });
+// POST: Adicionar um gestor a uma base (ou múltiplos vínculos)
+router.post('/master/gestores-bases', async (req, res) => {
+  try {
+    const { id_gestor, id_base } = req.body;
 
+    if (!id_gestor || !id_base) {
+      return res.status(400).json({ error: "Parâmetros id_gestor e id_base são obrigatórios." });
+    }
+
+    const query = `
+      INSERT INTO gestor_bases (id_gestor, id_base)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE id_gestor = VALUES(id_gestor);
+    `;
+
+    const [result] = await db.query(query, [Number(id_gestor), Number(id_base)]);
+
+    res.status(201).json({
+      message: "Gestor vinculado à base com sucesso.",
+      id: result.insertId
+    });
+  } catch (error) {
+    console.error("Erro ao vincular gestor à base:", error);
+    res.status(500).json({ error: "Erro ao vincular gestor à base.", details: error.message });
+  }
+});
+
+// GET: Listar todas as bases vinculadas a um gestor específico
+router.get('/master/gestores-bases/:id_gestor', async (req, res) => {
+  try {
+    const { id_gestor } = req.params;
+
+    const query = `
+      SELECT 
+        gb.id AS vinculo_id,
+        gb.id_gestor,
+        gb.id_base,
+        b.nome AS base_nome,
+        gb.created_at
+      FROM gestor_bases gb
+      INNER JOIN bases b ON gb.id_base = b.id
+      WHERE gb.id_gestor = ?
+      ORDER BY b.nome ASC
+    `;
+
+    const [rows] = await db.query(query, [Number(id_gestor)]);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro ao listar bases do gestor:", error);
+    res.status(500).json({ error: "Erro ao buscar bases do gestor." });
+  }
+});
+
+// DELETE: Remover o vínculo de um gestor com uma base
+router.delete('/master/gestores-bases/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [result] = await db.query(`DELETE FROM gestor_bases WHERE id = ?`, [Number(id)]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Vínculo não encontrado." });
+    }
+
+    res.json({ message: "Vínculo removido com sucesso." });
+  } catch (error) {
+    console.error("Erro ao remover vínculo de gestor com base:", error);
+    res.status(500).json({ error: "Erro ao remover vínculo." });
+  }
+});
+
+// PUT: Atualizar/Sincronizar em lote todos os gestores vinculados a uma base
+router.put('/master/gestores-bases/base/:id_base', async (req, res) => {
+  try {
+    const { id_base } = req.params;
+    const { gestores_ids } = req.body; // Expects an array: [1, 2, 5]
+
+    if (!Array.isArray(gestores_ids)) {
+      return res.status(400).json({ error: "O parâmetro gestores_ids deve ser um array." });
+    }
+
+    // 1. Remove os vínculos antigos dessa base
+    await db.query(`DELETE FROM gestor_bases WHERE id_base = ?`, [Number(id_base)]);
+
+    // 2. Insere os novos vínculos enviados
+    if (gestores_ids.length > 0) {
+      const values = gestores_ids.map(id_gestor => [Number(id_gestor), Number(id_base)]);
+      const insertQuery = `INSERT INTO gestor_bases (id_gestor, id_base) VALUES ?`;
+      await db.query(insertQuery, [values]);
+    }
+
+    res.json({ message: "Vínculos da base atualizados com sucesso." });
+  } catch (error) {
+    console.error("Erro ao atualizar vínculos da base:", error);
+    res.status(500).json({ error: "Erro ao atualizar vínculos da base.", details: error.message });
+  }
+});
+
+// GET: Listar todos os gestores vinculados a uma base específica (usado no componente Base.jsx)
+router.get('/master/gestores-bases-por-base/:id_base', async (req, res) => {
+  try {
+    const { id_base } = req.params;
+
+    const query = `
+      SELECT 
+        gb.id,
+        gb.id_gestor,
+        gb.id_base,
+        u.nome AS gestor_nome,
+        gb.created_at
+      FROM gestor_bases gb
+      INNER JOIN usuarios_sistema u ON gb.id_gestor = u.id
+      WHERE gb.id_base = ?
+      ORDER BY u.nome ASC
+    `;
+
+    const [rows] = await db.query(query, [Number(id_base)]);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro ao buscar gestores da base:", error);
+    res.status(500).json({ error: "Erro ao buscar gestores vinculados à base." });
+  }
+});
 // ========================================================
 // ROTA DE GESTORES (Filtro Estrito por cargo = 'GESTOR')
 // ========================================================
@@ -1623,8 +1745,7 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
   }
 });
 // ========================================================
-// GET: Relatório Avançado de Movimentações (Filtrado por Gestor)
-// ========================================================
+// GET: RELATÓRIO DE MOVIMENTAÇÕES
 router.get('/master/relatorios/movimentacoes', async (req, res) => {
   const cargo = req.user?.cargo || req.query.cargo;
   const usuario_id = req.user?.id || req.query.usuario_id;
@@ -1723,8 +1844,8 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
       params.push(enviado_por);
     }
 
-    // Restrição para gestores (não MASTER/RH)
-    if (!isMasterOuRH(cargo)) {
+    // Restrição por perfil: Quem NÃO tem acesso global só vê o que pediu ou enviou
+    if (!temAcessoGlobal(cargo)) {
       if (!usuario_id) return res.json([]);
       query += ` AND (e.quem_pede_id = ? OR e.quem_envia_id = ?)`;
       params.push(Number(usuario_id), Number(usuario_id));
@@ -1737,6 +1858,140 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
   } catch (error) {
     console.error("Erro ao gerar relatório de movimentações:", error);
     res.status(500).json({ error: "Erro ao carregar relatório." });
+  }
+});
+
+// GET: SALDO DE ESTOQUE CONSOLIDADO
+router.get('/master/estoque/saldos', async (req, res) => {
+  try {
+    const cargo = req.user?.cargo || req.query.cargo;
+    const usuario_id = req.user?.id || req.query.usuario_id;
+    const { tipo_local, id_local } = req.query;
+
+    if (!temAcessoGlobal(cargo) && !usuario_id) {
+      return res.json([]);
+    }
+
+    let locaisAutorizados = [];
+
+    // 1. Busca quais bases e obras pertencem ao gestor logado
+    if (!temAcessoGlobal(cargo)) {
+      const [obras] = await db.query(
+        `SELECT id_obra AS id FROM gestor_obras WHERE id_usuario = ?`,
+        [Number(usuario_id)]
+      );
+
+      const [bases] = await db.query(
+        `SELECT id_base AS id FROM gestor_bases WHERE id_gestor = ?`,
+        [Number(usuario_id)]
+      );
+
+      const obrasIds = obras.map(o => o.id);
+      const basesIds = bases.map(b => b.id);
+
+      if (obrasIds.length === 0 && basesIds.length === 0) {
+        return res.json([]);
+      }
+
+      locaisAutorizados = [
+        ...obrasIds.map(id => ({ tipo: 'OBRA', id })),
+        ...basesIds.map(id => ({ tipo: 'BASE', id }))
+      ];
+    }
+
+    let sqlWhereRestricao = '';
+    const paramsRestricao = [];
+
+    // 2. APLICAR FILTROS
+    // A) Quando o usuário seleciona um local específico no dropdown:
+    if (tipo_local && id_local) {
+      const tipoUpper = tipo_local.toUpperCase();
+      const idNum = Number(id_local);
+
+      if (!temAcessoGlobal(cargo)) {
+        const autorizado = locaisAutorizados.some(l => l.tipo === tipoUpper && l.id === idNum);
+        if (!autorizado) return res.json([]);
+      }
+
+      sqlWhereRestricao = ` AND ((mov.destino_tipo = ? AND mov.destino_id = ?) OR (mov.origem_tipo = ? AND mov.origem_id = ?))`;
+      paramsRestricao.push(tipoUpper, idNum, tipoUpper, idNum);
+    } 
+    // B) Visão do Gestor sem local selecionado (restringe apenas aos seus locais)
+    else if (!temAcessoGlobal(cargo)) {
+      const condicoesLocais = [];
+      locaisAutorizados.forEach(loc => {
+        condicoesLocais.push(`(mov.destino_tipo = ? AND mov.destino_id = ?)`);
+        paramsRestricao.push(loc.tipo, loc.id);
+        condicoesLocais.push(`(mov.origem_tipo = ? AND mov.origem_id = ?)`);
+        paramsRestricao.push(loc.tipo, loc.id);
+      });
+      sqlWhereRestricao = ` AND (${condicoesLocais.join(' OR ')})`;
+    }
+
+    const query = `
+      SELECT 
+        m.id AS material_id,
+        m.codigo,
+        m.descricao AS nome,
+        m.unidade_estoque,
+        m.unidade_estoque AS unidade_medida,
+        m.unidade_consumo,
+        m.fator_conversao_consumo,
+        m.tem_rendimento,
+        m.consumo_base,
+        m.quantidade_aplicada,
+        m.unidade_aplicada,
+        m.tipo,
+        COALESCE(SUM(
+          CASE 
+            /* SE FILTROU UM LOCAL ESPECÍFICO */
+            WHEN ? IS NOT NULL AND ? IS NOT NULL THEN
+              CASE 
+                WHEN mov.destino_tipo = ? AND mov.destino_id = ? THEN mov.quantidade
+                WHEN mov.origem_tipo = ? AND mov.origem_id = ? THEN -mov.quantidade
+                ELSE 0 
+              END
+            /* VISÃO CONSOLIDADA (SEJA MASTER OU GESTOR SEM FILTRO) */
+            ELSE 
+              CASE 
+                WHEN mov.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'AJUSTE') THEN mov.quantidade
+                WHEN mov.tipo_movimentacao IN ('CONSUMO_RDO') THEN -mov.quantidade
+                /* Se for transferência, só altera saldo se veio/foi para fora dos locais do gestor */
+                WHEN mov.destino_tipo IS NOT NULL AND mov.origem_tipo IS NULL THEN mov.quantidade
+                WHEN mov.origem_tipo IS NOT NULL AND mov.destino_tipo IS NULL THEN -mov.quantidade
+                ELSE 0 
+              END
+          END
+        ), 0) AS saldo_atual
+      FROM materiais m
+      LEFT JOIN estoque_movimentacoes mov 
+        ON m.id = mov.material_id 
+       AND UPPER(mov.status) = 'CONCLUIDO'
+       ${sqlWhereRestricao}
+      GROUP BY 
+        m.id, 
+        m.codigo, 
+        m.descricao, 
+        m.unidade_estoque, 
+        m.unidade_consumo, 
+        m.fator_conversao_consumo,
+        m.tem_rendimento,
+        m.consumo_base,
+        m.quantidade_aplicada,
+        m.unidade_aplicada,
+        m.tipo
+      ORDER BY m.descricao ASC
+    `;
+
+    const tipoVal = tipo_local ? tipo_local.toUpperCase() : null;
+    const idVal = id_local ? Number(id_local) : null;
+    const fullParams = [tipoVal, idVal, tipoVal, idVal, tipoVal, idVal, ...paramsRestricao];
+
+    const [rows] = await db.query(query, fullParams);
+    res.json(rows);
+  } catch (error) {
+    console.error("Erro na rota /master/estoque/saldos:", error);
+    res.status(500).json({ error: "Erro interno do servidor", details: error.message });
   }
 });
 // GET: Locais (Bases e Obras)
@@ -1761,18 +2016,70 @@ router.get('/master/locais', async (req, res) => {
 // GET: Saldo de Estoque Consolidado por Local (Apenas Movimentações CONCLUÍDAS)
 router.get('/master/estoque/saldos', async (req, res) => {
   try {
+    const cargo = req.user?.cargo || req.query.cargo;
+    const usuario_id = req.user?.id || req.query.usuario_id;
     const { data_inicio, data_fim, tipo_local, id_local } = req.query;
 
-    const queryParams = [
-      tipo_local || null, id_local || null,
-      tipo_local || null, id_local || null,
-      tipo_local || null,
-      data_inicio || null, data_inicio || null,
-      data_fim || null, data_fim || null,
-      tipo_local || null, id_local || null,
-      tipo_local || null, id_local || null,
-      tipo_local || null
-    ];
+    // Se não for MASTER/RH e não informar o id do usuário, bloqueia a listagem
+    if (!isMasterOuRH(cargo) && !usuario_id) {
+      return res.json([]);
+    }
+
+    let locaisAutorizados = []; // Armazena { tipo: 'OBRA'|'BASE', id: Number }
+
+    // Se o usuário for GESTOR (não MASTER nem RH), busca os vínculos autorizados
+    if (!isMasterOuRH(cargo)) {
+      const [obras] = await db.query(
+        `SELECT id_obra AS id FROM gestor_obras WHERE id_usuario = ?`,
+        [Number(usuario_id)]
+      );
+
+      // Busca na tabela gestor_bases usando id_gestor
+      const [bases] = await db.query(
+        `SELECT id_base AS id FROM gestor_bases WHERE id_gestor = ?`,
+        [Number(usuario_id)]
+      );
+
+      const obrasIds = obras.map(o => o.id);
+      const basesIds = bases.map(b => b.id);
+
+      // Se o gestor não possuir nenhuma obra ou base vinculada, retorna array vazio
+      if (obrasIds.length === 0 && basesIds.length === 0) {
+        return res.json([]);
+      }
+
+      locaisAutorizados = [
+        ...obrasIds.map(id => ({ tipo: 'OBRA', id })),
+        ...basesIds.map(id => ({ tipo: 'BASE', id }))
+      ];
+    }
+
+    let sqlWhereRestricao = '';
+    const paramsRestricao = [];
+
+    // 1. Filtro específico de local enviado via URL/query (tipo_local e id_local)
+    if (tipo_local && id_local) {
+      // Valida se o gestor tem permissão para o local especificado no filtro
+      if (!isMasterOuRH(cargo)) {
+        const autorizado = locaisAutorizados.some(
+          l => l.tipo === tipo_local.toUpperCase() && l.id === Number(id_local)
+        );
+        if (!autorizado) return res.json([]);
+      }
+      sqlWhereRestricao = ` AND ((mov.destino_tipo = ? AND mov.destino_id = ?) OR (mov.origem_tipo = ? AND mov.origem_id = ?))`;
+      paramsRestricao.push(tipo_local, Number(id_local), tipo_local, Number(id_local));
+    } 
+    // 2. Sem filtro específico na query, limita a consulta apenas aos locais vinculados do gestor
+    else if (!isMasterOuRH(cargo)) {
+      const condicoesLocais = [];
+      locaisAutorizados.forEach(loc => {
+        condicoesLocais.push(`(mov.destino_tipo = ? AND mov.destino_id = ?)`);
+        paramsRestricao.push(loc.tipo, loc.id);
+        condicoesLocais.push(`(mov.origem_tipo = ? AND mov.origem_id = ?)`);
+        paramsRestricao.push(loc.tipo, loc.id);
+      });
+      sqlWhereRestricao = ` AND (${condicoesLocais.join(' OR ')})`;
+    }
 
     const query = `
       SELECT 
@@ -1790,39 +2097,16 @@ router.get('/master/estoque/saldos', async (req, res) => {
         m.tipo,
         COALESCE(SUM(
           CASE 
-            WHEN mov.destino_tipo = ? AND mov.destino_id = ? THEN mov.quantidade
-            WHEN mov.origem_tipo = ? AND mov.origem_id = ? THEN -mov.quantidade
-            WHEN ? IS NULL THEN 
-              CASE 
-                WHEN mov.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA') THEN mov.quantidade 
-                WHEN mov.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -mov.quantidade 
-                ELSE 0 
-              END
+            WHEN mov.destino_tipo IS NOT NULL THEN mov.quantidade
+            WHEN mov.origem_tipo IS NOT NULL THEN -mov.quantidade
             ELSE 0 
           END
-        ), 0) AS saldo_atual,
-        COALESCE(SUM(
-          CASE 
-            WHEN (? IS NULL OR mov.data_movimentacao >= ?) 
-             AND (? IS NULL OR mov.data_movimentacao <= ?) THEN
-              CASE 
-                WHEN mov.destino_tipo = ? AND mov.destino_id = ? THEN mov.quantidade
-                WHEN mov.origem_tipo = ? AND mov.origem_id = ? THEN -mov.quantidade
-                WHEN ? IS NULL THEN 
-                  CASE 
-                    WHEN mov.tipo_movimentacao IN ('ENTRADA_FORNECEDOR', 'TRANSFERENCIA_ENTRADA') THEN mov.quantidade 
-                    WHEN mov.tipo_movimentacao IN ('TRANSFERENCIA_SAIDA', 'CONSUMO_RDO') THEN -mov.quantidade 
-                    ELSE 0 
-                  END
-                ELSE 0 
-              END
-            ELSE 0 
-          END
-        ), 0) AS total_movimentado
+        ), 0) AS saldo_atual
       FROM materiais m
       LEFT JOIN estoque_movimentacoes mov 
         ON m.id = mov.material_id 
        AND UPPER(mov.status) = 'CONCLUIDO'
+       ${sqlWhereRestricao}
       GROUP BY 
         m.id, 
         m.codigo, 
@@ -1838,7 +2122,7 @@ router.get('/master/estoque/saldos', async (req, res) => {
       ORDER BY m.descricao ASC
     `;
 
-    const [rows] = await db.query(query, queryParams);
+    const [rows] = await db.query(query, paramsRestricao);
     res.json(rows);
   } catch (error) {
     console.error("Erro na rota /master/estoque/saldos:", error);

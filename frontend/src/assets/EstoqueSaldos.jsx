@@ -10,60 +10,89 @@ import {
   ArrowUpRight, 
   ArrowDownLeft, 
   Building2, 
-  HardHat, 
   CheckSquare,
   Download
 } from 'lucide-react';
 
-export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
+export default function EstoqueSaldos({ API_URL, mostrarMensagem, usuarioLogado, obrasDisponiveis = [] }) {
   const [saldos, setSaldos] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [termoBusca, setTermoBusca] = useState('');
   
-  // Armazena um Array de categorias selecionadas
+  // Categorias selecionadas
   const [categoriasSelecionadas, setCategoriasSelecionadas] = useState([]);
   const [mostrarDropdownCategorias, setMostrarDropdownCategorias] = useState(false);
 
-  // Estados dos filtros de Base, Obra e Fornecedores
-  const [bases, setBases] = useState([]);
-  const [obras, setObras] = useState([]);
+  // Estados dos Filtros Unificados
+  const [locaisDisponiveis, setLocaisDisponiveis] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
-  const [baseObras, setBaseObras] = useState([]);
-  const [baseSelecionada, setBaseSelecionada] = useState('');
-  const [obraSelecionada, setObraSelecionada] = useState('');
-  const [obrasFiltradas, setObrasFiltradas] = useState([]);
+  const [localChaveSelecionado, setLocalChaveSelecionado] = useState('');
 
   // Estados do Modal de Extrato
   const [materialSelecionado, setMaterialSelecionado] = useState(null);
   const [historicoMaterial, setHistoricoMaterial] = useState([]);
   const [carregandoModal, setCarregandoModal] = useState(false);
 
+  // Identificação do Usuário e Permissões Globais
+  const usuarioId = usuarioLogado?.id || usuarioLogado?.id_usuario || localStorage.getItem('usuario_id');
+  const cargoUsuario = String(usuarioLogado?.cargo || localStorage.getItem('usuario_cargo') || '').toUpperCase();
+  const ehAcessoGlobal = ['MASTER', 'RH', 'ENGENHARIA'].includes(cargoUsuario);
+
   useEffect(() => {
     carregarLocais();
-  }, []);
+  }, [usuarioId, cargoUsuario]);
 
-  // Recarrega o estoque sempre que alterar a Base ou a Obra
+  // Recarrega o estoque sempre que alterar o local selecionado
   useEffect(() => {
     carregarEstoque();
-  }, [baseSelecionada, obraSelecionada]);
+  }, [localChaveSelecionado]);
 
-  // Carrega Bases, Obras, Fornecedores e o vínculo (base_obras)
+  // Carrega os Locais (Bases e Obras) conforme a permissão do usuário
   const carregarLocais = async () => {
     try {
-      const [resLocais, resForn] = await Promise.all([
-        axios.get(`${API_URL}/master/locais`).catch(() => ({ data: {} })),
-        axios.get(`${API_URL}/fornecedores`).catch(() => ({ data: [] }))
-      ]);
+      let listaBases = [];
+      let listaObras = [];
 
-      const basesDados = resLocais.data.bases || [];
-      const obrasDados = resLocais.data.obras || [];
-      const vinculosDados = resLocais.data.baseObras || [];
+      if (ehAcessoGlobal) {
+        // MASTER / RH / ENGENHARIA: Busca todas as Bases e Obras
+        const [resBases, resObras] = await Promise.all([
+          axios.get(`${API_URL}/bases`).catch(() => ({ data: [] })),
+          axios.get(`${API_URL}/master/obras-todas`).catch(() => axios.get(`${API_URL}/master/obras-geral`)).catch(() => ({ data: [] }))
+        ]);
+        listaBases = resBases.data || [];
+        listaObras = resObras.data || [];
+      } else if (usuarioId) {
+        // GESTOR: Busca apenas bases vinculadas do backend e usa as obrasDisponiveis
+        const resBases = await axios.get(`${API_URL}/master/gestores-bases/${usuarioId}`).catch(() => ({ data: [] }));
+        listaBases = resBases.data || [];
+        listaObras = obrasDisponiveis.length > 0 ? obrasDisponiveis : [];
+      }
 
-      setBases(basesDados);
-      setObras(obrasDados);
-      setBaseObras(vinculosDados);
-      setObrasFiltradas(obrasDados);
+      const resForn = await axios.get(`${API_URL}/fornecedores`).catch(() => ({ data: [] }));
+
+      // Monta a lista formatada de locais
+      const locaisFormatados = [
+        ...listaBases.map(b => ({
+          chave: `BASE-${b.id_base || b.id}`,
+          tipo: 'BASE',
+          id: b.id_base || b.id,
+          nome: `[Base] ${b.base_nome || b.nome || 'Matriz'}`
+        })),
+        ...listaObras.map(o => ({
+          chave: `OBRA-${o.id_obra || o.id}`,
+          tipo: 'OBRA',
+          id: o.id_obra || o.id,
+          nome: `[Obra] ${o.obra_nome || o.nome_obra || o.nome}`
+        }))
+      ];
+
+      setLocaisDisponiveis(locaisFormatados);
       setFornecedores(resForn.data || []);
+
+      // ✅ SE FOR GESTOR: Seleciona automaticamente o primeiro local disponível se nenhum estiver selecionado
+      if (!ehAcessoGlobal && locaisFormatados.length > 0 && !localChaveSelecionado) {
+        setLocalChaveSelecionado(locaisFormatados[0].chave);
+      }
     } catch (e) {
       console.error("Erro ao carregar locais:", e);
     }
@@ -79,46 +108,26 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
       const f = fornecedores.find(x => Number(x.id) === idNum);
       return f ? `${f.nome_fantasia || f.razao_social}` : `Fornecedor #${id}`;
     }
-    if (tipoUpper === 'BASE') {
-      const b = bases.find(x => Number(x.id) === idNum);
-      return b ? `Base: ${b.nome}` : `Base #${id}`;
-    }
-    if (tipoUpper === 'OBRA') {
-      const o = obras.find(x => Number(x.id) === idNum);
-      return o ? `Obra: ${o.nome_obra || o.nome}` : `Obra #${id}`;
-    }
-    return '-';
-  };
 
-  const handleBaseChange = (e) => {
-    const baseId = e.target.value;
-    setBaseSelecionada(baseId);
-    setObraSelecionada('');
+    const localEncontrado = locaisDisponiveis.find(l => l.tipo === tipoUpper && Number(l.id) === idNum);
+    if (localEncontrado) return localEncontrado.nome;
 
-    if (!baseId) {
-      setObrasFiltradas(obras);
-      return;
-    }
-
-    const idsObrasDaBase = baseObras
-      .filter(bo => String(bo.base_id) === String(baseId))
-      .map(bo => Number(bo.obra_id));
-
-    const obrasDaBase = obras.filter(o => idsObrasDaBase.includes(Number(o.id)));
-    setObrasFiltradas(obrasDaBase);
+    return `${tipoUpper} #${id}`;
   };
 
   const carregarEstoque = async () => {
     setCarregando(true);
     try {
       const params = {};
-      if (obraSelecionada) {
-        params.tipo_local = 'OBRA';
-        params.id_local = obraSelecionada;
-      } else if (baseSelecionada) {
-        params.tipo_local = 'BASE';
-        params.id_local = baseSelecionada;
+
+      if (localChaveSelecionado) {
+        const [tipo, id] = localChaveSelecionado.split('-');
+        params.tipo_local = tipo;
+        params.id_local = id;
       }
+
+      if (usuarioId) params.usuario_id = usuarioId;
+      if (cargoUsuario) params.cargo = cargoUsuario;
 
       const res = await axios.get(`${API_URL}/master/estoque/saldos`, { params });
       setSaldos(res.data || []);
@@ -130,7 +139,6 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     }
   };
 
-  // Lógica de alternar checkboxes de categorias
   const toggleCategoria = (categoria) => {
     setCategoriasSelecionadas(prev => 
       prev.includes(categoria) 
@@ -147,32 +155,25 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
         material_id: material.material_id 
       };
       
-      // Passa a Obra ou a Base selecionada no topo
-      if (obraSelecionada) {
-        params.tipo_local = 'OBRA';
-        params.id_local = obraSelecionada;
-      } else if (baseSelecionada) {
-        params.tipo_local = 'BASE';
-        params.id_local = baseSelecionada;
+      if (localChaveSelecionado) {
+        const [tipo, id] = localChaveSelecionado.split('-');
+        params.tipo_local = tipo;
+        params.id_local = id;
       }
 
-      // Faz a requisição enviando os filtros de local e material
+      if (usuarioId) params.usuario_id = usuarioId;
+      if (cargoUsuario) params.cargo = cargoUsuario;
+
       const res = await axios.get(`${API_URL}/master/movimentacoes`, { params });
       let movs = res.data || [];
 
-      // Filtro no client side para garantir apenas o material correto
       movs = movs.filter(m => Number(m.material_id) === Number(material.material_id));
 
-      // Se houver filtro de Base/Obra, filtra apenas as movimentações onde o local seja Origem OU Destino
-      if (obraSelecionada) {
+      if (localChaveSelecionado) {
+        const [tipo, id] = localChaveSelecionado.split('-');
         movs = movs.filter(m => 
-          (m.destino_tipo === 'OBRA' && Number(m.destino_id) === Number(obraSelecionada)) ||
-          (m.origem_tipo === 'OBRA' && Number(m.origem_id) === Number(obraSelecionada))
-        );
-      } else if (baseSelecionada) {
-        movs = movs.filter(m => 
-          (m.destino_tipo === 'BASE' && Number(m.destino_id) === Number(baseSelecionada)) ||
-          (m.origem_tipo === 'BASE' && Number(m.origem_id) === Number(baseSelecionada))
+          (m.destino_tipo === tipo && Number(m.destino_id) === Number(id)) ||
+          (m.origem_tipo === tipo && Number(m.origem_id) === Number(id))
         );
       }
 
@@ -212,7 +213,6 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     return true;
   });
 
-  // Função para exportar os dados filtrados da tabela para um arquivo .xlsx
   const exportarParaExcel = () => {
     if (saldosFiltrados.length === 0) {
       if (mostrarMensagem) mostrarMensagem('Não há dados para exportar.', 'erro');
@@ -265,13 +265,12 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Saldos de Estoque");
 
-    // Formata largura das colunas
     worksheet['!cols'] = [
-      { wch: 35 }, // Material
-      { wch: 20 }, // Categoria
-      { wch: 18 }, // Saldo Atual
-      { wch: 18 }, // Saldo p/ RDO
-      { wch: 22 }  // Capacidade de Uso
+      { wch: 35 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 22 }
     ];
 
     const dataAtual = new Date().toISOString().split('T')[0];
@@ -321,52 +320,26 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
           
-          {/* FILTRO 1: BASE */}
+          {/* FILTRO UNIFICADO: BASE / OBRA */}
           <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Building2 style={{ width: '12px', height: '12px' }} /> BASE
-            </label>
-            <select value={baseSelecionada} onChange={handleBaseChange} style={inputStyle}>
-              <option value="">Todas as Bases</option>
-              {bases.map(b => (
-                <option key={`base-${b.id}`} value={b.id}>{b.nome}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* FILTRO 2: OBRA */}
-          <div>
-            <label style={{ fontSize: '10px', fontWeight: 'bold', color: baseSelecionada ? '#64748b' : '#cbd5e1', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <HardHat style={{ width: '12px', height: '12px' }} /> OBRA
+              <Building2 style={{ width: '12px', height: '12px' }} /> LOCAL DA CONSULTA
             </label>
             <select 
-              value={obraSelecionada} 
-              onChange={e => setObraSelecionada(e.target.value)} 
-              disabled={!baseSelecionada}
-              style={{
-                ...inputStyle,
-                backgroundColor: baseSelecionada ? '#fff' : '#f8fafc',
-                cursor: baseSelecionada ? 'pointer' : 'not-allowed'
-              }}
+              value={localChaveSelecionado} 
+              onChange={e => setLocalChaveSelecionado(e.target.value)} 
+              style={inputStyle}
             >
-              <option value="">
-                {!baseSelecionada 
-                  ? 'Selecione uma base primeiro' 
-                  : obrasFiltradas.length === 0 
-                    ? 'Nenhuma obra nesta base' 
-                    : 'Todas as Obras da Base'}
-              </option>
-              {obrasFiltradas.map(o => (
-                <option key={`obra-${o.id}`} value={o.id}>
-                  {o.codigo_obra ? `[${o.codigo_obra}] ` : ''}{o.nome_obra || o.nome}
-                </option>
+              <option value="">{ehAcessoGlobal ? 'Todos os Locais (Consolidado)' : 'Selecione um Local...'}</option>
+              {locaisDisponiveis.map(loc => (
+                <option key={`loc-sal-${loc.chave}`} value={loc.chave}>{loc.nome}</option>
               ))}
             </select>
           </div>
 
-          {/* FILTRO 3: BUSCAR MATERIAL */}
+          {/* BUSCAR MATERIAL */}
           <div>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }}>BUSCAR MATERIAL</label>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -381,7 +354,7 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
             </div>
           </div>
 
-          {/* FILTRO 4: CATEGORIAS */}
+          {/* CATEGORIAS */}
           <div style={{ position: 'relative' }}>
             <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <CheckSquare style={{ width: '12px', height: '12px' }} /> CATEGORIAS
@@ -507,49 +480,31 @@ export default function EstoqueSaldos({ API_URL, mostrarMensagem }) {
                 const tipoMaterial = item.tipo || item.material_tipo || '-';
                 const saldoAtual = Number(item.saldo_atual || item.saldo_total || 0);
 
-                // Unidades
                 const unEstoque = item.unidade_estoque || item.unidade_medida || 'UN';
                 const unConsumo = item.unidade_consumo || 'UN';
                 const unAplicada = item.unidade_aplicada || 'M2';
 
-                // Parâmetros de Cálculo
                 const fatorConsumo = Number(item.fator_conversao_consumo) || 1;
                 const consBase = Number(item.consumo_base) || 0;
                 const qtdAplicada = Number(item.quantidade_aplicada) || 0;
 
-                // Flags de validação
                 const temConversaoEmbalagem = Boolean(fatorConsumo > 1 || item.tem_conversao);
                 const temRendimentoArea = Boolean(consBase > 0 && qtdAplicada > 0 && item.tem_rendimento);
 
                 let saldoRDOTexto = '';
                 let capacidadeUsoTexto = '';
 
-                // REGRAS DE EXIBIÇÃO DA TABELA
                 if (temRendimentoArea) {
-                  // CASO TINTA:
-                  // Saldo p/ RDO: mantém em baldes (ex: 2 BD)
                   saldoRDOTexto = `${saldoAtual.toLocaleString('pt-BR')} ${unEstoque}`;
-
-                  // Capacidade de Uso: Área total calculada (ex: 30 M2)
                   const saldoEmUnidadeConsumo = temConversaoEmbalagem ? (saldoAtual * fatorConsumo) : saldoAtual;
                   const rendimentoCalculado = (saldoEmUnidadeConsumo / consBase) * qtdAplicada;
                   capacidadeUsoTexto = `${rendimentoCalculado.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${unAplicada}`;
-
                 } else if (temConversaoEmbalagem) {
-                  // CASO TACHÃO / CAIXA:
-                  // Saldo p/ RDO: Total de unidades dentro das caixas (ex: 1.200 UN)
                   const totalUnidades = saldoAtual * fatorConsumo;
                   saldoRDOTexto = `${totalUnidades.toLocaleString('pt-BR')} ${unConsumo}`;
-
-                  // Capacidade de Uso: Total disponível para uso (ex: 1.200 UN)
                   capacidadeUsoTexto = `${totalUnidades.toLocaleString('pt-BR')} ${unConsumo}`;
-
                 } else {
-                  // CASO MICROESFERA / MATERIAL DIRETO:
-                  // Saldo p/ RDO: Direto na unidade (ex: 6 UN)
                   saldoRDOTexto = `${saldoAtual.toLocaleString('pt-BR')} ${unConsumo}`;
-
-                  // Capacidade de Uso: Relação 1 para 1 (ex: 1 UN = 1 UN ou 1 SACO = 1 UN)
                   capacidadeUsoTexto = `1 ${unEstoque} = 1 ${unConsumo}`;
                 }
 

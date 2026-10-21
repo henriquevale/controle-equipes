@@ -6,7 +6,7 @@ import {
   RefreshCw, CheckCircle, Search, Download 
 } from 'lucide-react';
 
-export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
+export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem, usuarioLogado }) {
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [materiais, setMateriais] = useState([]);
   const [gestores, setGestores] = useState([]);
@@ -41,12 +41,17 @@ export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
   const [materialId, setMaterialId] = useState('');
   const [mostrarDropdownMaterial, setMostrarDropdownMaterial] = useState(false);
 
+  // Identificação e Permissões do Usuário Logado
+  const usuarioId = usuarioLogado?.id || usuarioLogado?.id_usuario || localStorage.getItem('usuario_id');
+  const cargoUsuario = String(usuarioLogado?.cargo || localStorage.getItem('usuario_cargo') || '').toUpperCase();
+  const ehAcessoGlobal = ['MASTER', 'RH', 'ENGENHARIA'].includes(cargoUsuario);
+
   useEffect(() => {
     carregarMateriais();
     carregarGestores();
     carregarListasLocais();
     carregarRelatorio();
-  }, []);
+  }, [usuarioId, cargoUsuario]);
 
   const carregarMateriais = async () => {
     try {
@@ -89,6 +94,11 @@ export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
     setCarregando(true);
     try {
       const params = new URLSearchParams();
+
+      // Passa a identificação de quem está logado para aplicar a regra de acesso
+      if (usuarioId) params.append('usuario_id', usuarioId);
+      if (cargoUsuario) params.append('cargo', cargoUsuario);
+
       if (dataInicio) params.append('data_inicio', dataInicio);
       if (dataFim) params.append('data_fim', dataFim);
       if (enviadoPor) params.append('enviado_por', enviadoPor);
@@ -99,6 +109,20 @@ export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
       if (destinoTipo) params.append('destino_tipo', destinoTipo);
       if (destinoId) params.append('destino_id', destinoId);
       if (materialId) params.append('material_id', materialId);
+
+      // Trava de segurança no Front-End para o Gestor:
+      // Se o Gestor escolher no filtro "Quem enviou" AND "Quem pediu" com IDs diferentes do dele, já bloqueia na hora.
+      if (!ehAcessoGlobal && usuarioId) {
+        const idLogado = Number(usuarioId);
+        const enviouOutro = enviadoPor && Number(enviadoPor) !== idLogado;
+        const pediuOutro = gestorId && Number(gestorId) !== idLogado;
+
+        if (enviouOutro && pediuOutro) {
+          setMovimentacoes([]);
+          setCarregando(false);
+          return;
+        }
+      }
 
       const res = await axios.get(`${API_URL}/master/relatorios/movimentacoes?${params.toString()}`);
       setMovimentacoes(res.data || []);
@@ -139,7 +163,6 @@ export default function RelatorioMovimentacoes({ API_URL, mostrarMensagem }) {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Movimentações");
 
-    // Ajusta tamanho das colunas automaticamente
     const fitToColumn = Object.keys(dadosExcel[0] || {}).map(key => ({
       wch: Math.max(key.length, 15)
     }));
