@@ -1626,6 +1626,9 @@ router.put('/master/movimentacoes/:id/confirmar', async (req, res) => {
 // GET: Relatório Avançado de Movimentações (Filtrado por Gestor)
 // ========================================================
 router.get('/master/relatorios/movimentacoes', async (req, res) => {
+  const cargo = req.user?.cargo || req.query.cargo;
+  const usuario_id = req.user?.id || req.query.usuario_id;
+
   const { 
     data_inicio, 
     data_fim, 
@@ -1718,6 +1721,13 @@ router.get('/master/relatorios/movimentacoes', async (req, res) => {
     if (enviado_por) {
       query += ` AND e.quem_envia_id = ?`;
       params.push(enviado_por);
+    }
+
+    // Restrição para gestores (não MASTER/RH)
+    if (!isMasterOuRH(cargo)) {
+      if (!usuario_id) return res.json([]);
+      query += ` AND (e.quem_pede_id = ? OR e.quem_envia_id = ?)`;
+      params.push(Number(usuario_id), Number(usuario_id));
     }
 
     query += ` ORDER BY e.data_solicitada DESC, e.id DESC`;
