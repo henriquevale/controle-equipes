@@ -271,7 +271,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
   // Funcionário já usado em OUTRA equipe da obra ou em OUTRA obra (retorna o motivo ou null)
   const conflitoFuncionarioExterno = (idFunc) => {
-    const id = String(idFunc);
+ /*   const id = String(idFunc);
     const eqAtiva = eqUp(equipeSelecionadaFiltro);
 
     const outraEquipeLocal = efetivoAgendado.find(
@@ -288,7 +288,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       r => String(r.id_funcionario) === id && Number(r.id_obra) !== Number(idObraSelecionada) && !regLiberado(r)
     );
     if (outraObra) return `já está alocado em "${nomeObraDe(outraObra)}" [${eqUp(outraObra.equipe)}]`;
-
+*/
     return null;
   };
 
