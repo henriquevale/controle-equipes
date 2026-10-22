@@ -216,6 +216,9 @@ router.get('/gestor/diario-efetivo', async (req, res) => {
 // ========================================================
 // 5. POST: SALVAR / ATUALIZAR APONTAMENTOS DE EFETIVO E CONFIRMAÇÃO
 // ========================================================
+// ========================================================
+// 5. POST: SALVAR / ATUALIZAR APONTAMENTOS DE EFETIVO E CONFIRMAÇÃO
+// ========================================================
 router.post('/gestor/diario-efetivo', async (req, res) => {
   const { data_diario, id_obra, equipe } = req.body;
   const listaFuncionarios = req.body.funcionarios || req.body.efetivo || [];
@@ -245,6 +248,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 
     await connection.beginTransaction();
 
+    // 1. Mapeia veículos antigos associados antes da substituição
     let queryVeiculosAnteriores = "SELECT DISTINCT id_veiculo FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND id_veiculo IS NOT NULL";
     let paramsVeiculosAnteriores = [data_diario, parseInt(id_obra)];
 
@@ -255,8 +259,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 
     const [veiculosRemovidos] = await connection.execute(queryVeiculosAnteriores, paramsVeiculosAnteriores);
 
-    // --- CORREÇÃO ANTI-DEADLOCK ---
-    // 1. Busca primeiro os IDs dos registros que serão substituídos
+    // 2. RESOLUÇÃO DE DEADLOCK: Ordenação estrita para remoção de locks concorrentes
     let selectSql = "SELECT id FROM diario_efetivo WHERE data_diario = ? AND id_obra = ?";
     let selectParams = [data_diario, parseInt(id_obra)];
 
@@ -265,28 +268,29 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
       selectParams.push(equipeTratada);
     }
 
+    // Aplica ORDER BY id para prevenir bloqueios fora de ordem
+    selectSql += " ORDER BY id ASC FOR UPDATE";
+
     const [registosAntigos] = await connection.execute(selectSql, selectParams);
 
     if (registosAntigos.length > 0) {
       const idsParaEliminar = registosAntigos.map(r => r.id);
       const placeholders = idsParaEliminar.map(() => '?').join(',');
 
-      // 2. Remove da tabela filha (diario_efetivo_confirmado) utilizando IDs diretos
       await connection.execute(
         `DELETE FROM diario_efetivo_confirmado WHERE id_diario IN (${placeholders})`,
         idsParaEliminar
       );
 
-      // 3. Remove da tabela pai (diario_efetivo) utilizando IDs diretos
       await connection.execute(
         `DELETE FROM diario_efetivo WHERE id IN (${placeholders})`,
         idsParaEliminar
       );
     }
-    // ------------------------------
     
     const veiculosAlocadosAtualmente = new Set();
 
+    // 3. Processa inserções
     if (listaFuncionarios.length > 0) {
       for (const f of listaFuncionarios) {
         const idFuncionario = parseInt(f.id_funcionario);
@@ -305,7 +309,6 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
         const horaInicio = f.hora_inicio || '07:00';
         const horaFim    = f.hora_fim    || '17:00';
 
-        // Inserção no diario_efetivo substituindo turno por hora_inicio e hora_fim
         const [resultInsert] = await connection.execute(
           `INSERT INTO diario_efetivo 
            (data_diario, id_obra, id_funcionario, id_gestor, nome, cargo, matricula, turno,
@@ -328,7 +331,6 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
 
         const idDiarioInserido = resultInsert.insertId;
 
-        // Inserção automática/espelhamento inicial no diario_efetivo_confirmado
         await connection.execute(
           `INSERT INTO diario_efetivo_confirmado 
            (id_diario, id_funcionario, status_presenca, horas_trabalhadas, id_veiculo, equipe, data_diario, id_obra)
@@ -347,7 +349,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
       }
     }
 
-    // Liberação de veículos que deixaram de ser usados
+    // 4. Libera veículos desvinculados
     for (const row of veiculosRemovidos) {
       const idVeicAntigo = row.id_veiculo;
       if (idVeicAntigo && !veiculosAlocadosAtualmente.has(idVeicAntigo)) {
@@ -370,7 +372,7 @@ router.post('/gestor/diario-efetivo', async (req, res) => {
   } catch (err) {
     await connection.rollback();
     console.error("Erro na transação:", err);
-    res.status(500).json({ error: "Falha ao persistir diário." });
+    res.status(500).json({ error: "Falha ao persistir diário devido a erro no banco de dados." });
   } finally {
     connection.release();
   }
@@ -2052,6 +2054,54 @@ router.delete('/planejamento/:id', async (req, res) => {
   } catch (error) {
     console.error("Erro ao remover planejamento:", error);
     return res.status(500).json({ error: "Erro ao excluir o item do planejamento." });
+  }
+});
+
+// PUT: RENOMEAR EQUIPE NO AGENDAMENTO
+router.put('/gestor/equipe/renomear', async (req, res) => {
+  const { id_obra, data_diario, nome_antigo, nome_novo } = req.body;
+
+  if (!id_obra || !data_diario || !nome_antigo || !nome_novo) {
+    return res.status(400).json({ error: "Todos os parâmetros são obrigatórios." });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const antigoUpper = String(nome_antigo).trim().toUpperCase();
+    const novoUpper = String(nome_novo).trim().toUpperCase();
+    const obraIdNum = parseInt(id_obra);
+
+    await connection.execute(
+      `UPDATE diario_efetivo 
+       SET equipe = ? 
+       WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?`,
+      [novoUpper, obraIdNum, data_diario, antigoUpper]
+    );
+
+    await connection.execute(
+      `UPDATE controle_diarios_equipe 
+       SET equipe = ? 
+       WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?`,
+      [novoUpper, obraIdNum, data_diario, antigoUpper]
+    );
+
+    await connection.execute(
+      `UPDATE diario_obra 
+       SET equipe = ? 
+       WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?`,
+      [novoUpper, obraIdNum, data_diario, antigoUpper]
+    );
+
+    await connection.commit();
+    res.json({ success: true, message: `Equipe renomeada de "${antigoUpper}" para "${novoUpper}" com sucesso!` });
+  } catch (err) {
+    await connection.rollback();
+    console.error("Erro ao renomear equipe:", err);
+    res.status(500).json({ error: "Erro ao renomear a equipe no banco de dados." });
+  } finally {
+    connection.release();
   }
 });
 

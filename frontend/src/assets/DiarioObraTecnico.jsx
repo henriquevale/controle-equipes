@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff, LogOut, Clock } from 'lucide-react';
+import { 
+  Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, 
+  CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff, 
+  LogOut, Clock, UserPlus, Users, Search, X 
+} from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const API_URL = 'http://localhost:3001/api';
 //const API_URL = 'https://api-controle-impacto.duckdns.org/api';
-
 
 export default function DiarioObraTecnico({ usuarioLogado }) {
   const [dataDiario, setDataDiario] = useState(new Date().toISOString().split('T')[0]);
@@ -26,7 +29,20 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [equipeSelecionadaFiltro, setEquipeSelecionadaFiltro] = useState('GERAL');
   
   // Estado para preservar TODAS as equipes encontradas na obra/data
-  const [listaEquipesTotal, setListaEquipesTotal] = useState([]);
+  // Equipes que vieram do banco + equipes criadas localmente (nunca se sobrescrevem)
+  const [equipesDoBanco, setEquipesDoBanco] = useState([]);
+  const [equipesLocais, setEquipesLocais] = useState([]);
+  const listaEquipesTotal = useMemo(() => {
+    const combinadas = [...equipesDoBanco];
+    equipesLocais.forEach(eq => {
+      if (!combinadas.includes(eq)) combinadas.push(eq);
+    });
+    return combinadas;
+  }, [equipesDoBanco, equipesLocais]);
+
+  // Agendas usadas para validar duplicidade de funcionários e veículos
+  const [agendaDaObra, setAgendaDaObra] = useState([]);     // todas as equipes da obra/data (servidor)
+  const [agendaGlobalDia, setAgendaGlobalDia] = useState([]); // todas as obras na data (servidor)
 
   const [equipeConfirmada, setEquipeConfirmada] = useState(false);
   const [turnoSelecionado, setTurnoSelecionado] = useState('DIURNO'); // 'DIURNO' ou 'NOTURNO'
@@ -46,6 +62,12 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [listaVeiculos, setListaVeiculos] = useState([]);
   const [mostrarTabelaVeiculos, setMostrarTabelaVeiculos] = useState(false);
 
+  // --- NOVOS ESTADOS PARA GESTÃO LOCAL DE EQUIPES E FUNCIONÁRIOS ---
+  const [nomeNovaEquipe, setNomeNovaEquipe] = useState('');
+  const [todosFuncionariosCadastrados, setTodosFuncionariosCadastrados] = useState([]);
+  const [mostrarPainelAdicionarFunc, setMostrarPainelAdicionarFunc] = useState(false);
+  const [termoBuscaFuncionario, setTermoBuscaFuncionario] = useState('');
+
   const ehEquipeFolguista = equipeSelecionadaFiltro === 'FOLGUISTAS';
   const rdoInterrompido = ['Choveu', 'Sem Material', 'Sem Equipamento','Apoio','Sem Atividade','Folga/FDS', 'Outros'].includes(statusDiario);
 
@@ -57,6 +79,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
   useEffect(() => {
     carregarVeiculosDoSistema(); 
+    carregarTodosFuncionariosDoSistema();
   }, [dataDiario]); 
 
   useEffect(() => {
@@ -78,7 +101,21 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setAtividadesLancadas([]);
       setMateriaisLancados([]);
       setEquipeConfirmada(false);
-      setListaEquipesTotal([]);
+      setEquipesDoBanco([]);
+      setEquipesLocais([]);
+      setAgendaDaObra([]);
+      setAgendaGlobalDia([]);
+    }
+  }, [idObraSelecionada, dataDiario]);
+
+  // Ao trocar de obra/data: zera equipes locais e carrega a agenda do dia (todas as obras)
+  useEffect(() => {
+    if (idObraSelecionada && dataDiario) {
+      setEfetivoAgendado([]);
+      setEquipesLocais([]);
+      setEquipesDoBanco([]);
+      setAgendaDaObra([]);
+      carregarAgendaGlobalDoDia();
     }
   }, [idObraSelecionada, dataDiario]);
   
@@ -106,6 +143,29 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setEquipeSelecionadaFiltro('GERAL');
     }
   }, [listaEquipesTotal]);
+
+  const carregarTodosFuncionariosDoSistema = async () => {
+    try {
+      const user = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
+      const res = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, {
+        params: { id: user.id, cargo: user.cargo, data_diario: dataDiario }
+      });
+      const lista = res.data && res.data.funcionarios ? res.data.funcionarios : (Array.isArray(res.data) ? res.data : []);
+      // remove duplicados (mesmo id) e ordena de A a Z
+      const mapa = new Map();
+      lista.forEach(f => {
+        const id = String(f.id_funcionario || f.id);
+        if (!mapa.has(id)) mapa.set(id, f);
+      });
+      setTodosFuncionariosCadastrados(
+        [...mapa.values()].sort((a, b) =>
+          (a.nome || a.name || '').localeCompare(b.nome || b.name || '', 'pt-BR', { sensitivity: 'base' })
+        )
+      );
+    } catch (e) {
+      console.error("Erro ao carregar banco global de funcionários:", e);
+    }
+  };
 
   const carregarCadastroAtividades = async () => {
     try {
@@ -181,6 +241,208 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }
     setMostrarGridExcelObra(true);
   };
+
+  // --- HELPERS DE VALIDAÇÃO ANTI-DUPLICIDADE (FUNCIONÁRIOS E VEÍCULOS) ---
+  const eqUp = (s) => String(s || 'GERAL').trim().toUpperCase();
+  const idFuncDe = (f) => String(f.id_funcionario || f.id);
+  const regLiberado = (r) =>
+    Number(r?.liberado) === 1 || r?.liberado === true || String(r?.status_presenca || '').toUpperCase() === 'LIBERADO';
+  const nomeObraDe = (r) => r.obra_nome || `Obra ID ${r.id_obra}`;
+
+  const carregarAgendaGlobalDoDia = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, { params: { data_diario: dataDiario } });
+      setAgendaGlobalDia(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error("Erro ao carregar agenda global do dia:", e);
+    }
+  };
+
+  const carregarAgendaDaObra = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
+        params: { data_diario: dataDiario, id_obra: idObraSelecionada }
+      });
+      setAgendaDaObra(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error("Erro ao carregar agenda da obra:", e);
+    }
+  };
+
+  // Funcionário já usado em OUTRA equipe da obra ou em OUTRA obra (retorna o motivo ou null)
+  const conflitoFuncionarioExterno = (idFunc) => {
+    const id = String(idFunc);
+    const eqAtiva = eqUp(equipeSelecionadaFiltro);
+
+    const outraEquipeLocal = efetivoAgendado.find(
+      f => idFuncDe(f) === id && eqUp(f.equipe) !== eqAtiva && !f.liberado
+    );
+    if (outraEquipeLocal) return `já está na equipe ${eqUp(outraEquipeLocal.equipe)} desta obra`;
+
+    const outraEquipeServidor = agendaDaObra.find(
+      r => String(r.id_funcionario) === id && eqUp(r.equipe) !== eqAtiva && !regLiberado(r)
+    );
+    if (outraEquipeServidor) return `já está na equipe ${eqUp(outraEquipeServidor.equipe)} desta obra`;
+
+    const outraObra = agendaGlobalDia.find(
+      r => String(r.id_funcionario) === id && Number(r.id_obra) !== Number(idObraSelecionada) && !regLiberado(r)
+    );
+    if (outraObra) return `já está alocado em "${nomeObraDe(outraObra)}" [${eqUp(outraObra.equipe)}]`;
+
+    return null;
+  };
+
+  // Ao adicionar: bloqueia também se já estiver na própria equipe
+  const conflitoFuncionarioAdicionar = (idFunc) => {
+    const id = String(idFunc);
+    const naEquipe = efetivoAgendado.find(
+      f => idFuncDe(f) === id && eqUp(f.equipe) === eqUp(equipeSelecionadaFiltro)
+    );
+    if (naEquipe) return 'já está nesta equipe';
+    return conflitoFuncionarioExterno(idFunc);
+  };
+
+  // Veículo já usado em OUTRA equipe da obra ou em OUTRA obra
+  const conflitoVeiculoExterno = (idVeic, idFuncAtual) => {
+    const v = Number(idVeic);
+    const eu = String(idFuncAtual);
+    const eqAtiva = eqUp(equipeSelecionadaFiltro);
+
+    const outroLocal = efetivoAgendado.find(
+      f => Number(f.id_veiculo) === v && idFuncDe(f) !== eu && eqUp(f.equipe) !== eqAtiva && !f.liberado
+    );
+    if (outroLocal) return `já está com ${outroLocal.nome} (equipe ${eqUp(outroLocal.equipe)})`;
+
+    const outroServidor = agendaDaObra.find(
+      r => Number(r.id_veiculo) === v && String(r.id_funcionario) !== eu && eqUp(r.equipe) !== eqAtiva && !regLiberado(r)
+    );
+    if (outroServidor) return `já está com ${outroServidor.nome} (equipe ${eqUp(outroServidor.equipe)})`;
+
+    const outraObra = agendaGlobalDia.find(
+      r => Number(r.id_veiculo) === v && Number(r.id_obra) !== Number(idObraSelecionada) && !regLiberado(r)
+    );
+    if (outraObra) return `já está em "${nomeObraDe(outraObra)}" com ${outraObra.nome}`;
+
+    return null;
+  };
+
+  // Ao atribuir: bloqueia também se outro colaborador da própria equipe já usa o veículo
+  const conflitoVeiculo = (idVeic, idFuncAtual) => {
+    const naEquipe = efetivoAgendado.find(
+      f => Number(f.id_veiculo) === Number(idVeic) &&
+           idFuncDe(f) !== String(idFuncAtual) &&
+           eqUp(f.equipe) === eqUp(equipeSelecionadaFiltro)
+    );
+    if (naEquipe) return `já está atribuído a ${naEquipe.nome}`;
+    return conflitoVeiculoExterno(idVeic, idFuncAtual);
+  };
+
+  // --- NOVA FUNÇÃO: CRIAR EQUIPE LOCALMENTE ---
+  const handleCriarNovaEquipe = (e) => {
+    e.preventDefault();
+    const nomeFormatado = nomeNovaEquipe.trim().toUpperCase();
+    if (!nomeFormatado) return;
+
+    if (listaEquipesTotal.includes(nomeFormatado)) {
+      alert(`⚠️ A equipe "${nomeFormatado}" já existe para este diário!`);
+      return;
+    }
+
+    setEquipesLocais(prev => [...prev, nomeFormatado]);
+    setEquipeSelecionadaFiltro(nomeFormatado);
+    setNomeNovaEquipe('');
+  };
+
+  // --- NOVA FUNÇÃO: ADICIONAR FUNCIONÁRIO COM VALIDAÇÃO ANTI-DUPLICIDADE ---
+  const handleAdicionarFuncionarioEquipe = (funcObj) => {
+    setErroPainel('');
+    const idNovo = String(funcObj.id_funcionario || funcObj.id);
+
+    // 1. Validação Anti-Duplicidade de Funcionários
+    const motivoConflito = conflitoFuncionarioAdicionar(idNovo);
+
+    if (motivoConflito) {
+      alert(`⚠️ O colaborador ${funcObj.nome || funcObj.name} ${motivoConflito}!`);
+      return;
+    }
+
+    const horaInicioPadrao = turnoSelecionado === 'NOTURNO' ? '19:00' : '07:00';
+    const horaFimPadrao = turnoSelecionado === 'NOTURNO' ? '05:00' : '17:00';
+
+    const novoIntegrante = {
+      id_funcionario: funcObj.id_funcionario || funcObj.id,
+      nome: funcObj.nome || funcObj.name,
+      cargo: funcObj.cargo || 'N/D',
+      matricula: funcObj.matricula || '—',
+      equipe: equipeSelecionadaFiltro,
+      statusPresenca: 'Presente',
+      hora_inicio: horarioGeralInicio || horaInicioPadrao,
+      hora_fim: horarioGeralFim || horaFimPadrao,
+      id_veiculo: null,
+      liberado: false,
+      _novo: true // adicionado localmente, ainda não salvo
+    };
+
+    setEfetivoAgendado(prev => [...prev, novoIntegrante]);
+    setSalvoComSucesso(false);
+  };
+
+  // --- NOVA FUNÇÃO: REMOVER FUNCIONÁRIO DA EQUIPE ---
+  const handleRemoverFuncionarioEquipe = (idFuncionarioRemover) => {
+    setEfetivoAgendado(prev => prev.filter(f => String(f.id_funcionario || f.id) !== String(idFuncionarioRemover)));
+    // libera o veículo que estava com o colaborador removido
+    setListaVeiculos(prev => prev.map(v =>
+      Number(v.id_funcionario) === Number(idFuncionarioRemover)
+        ? { ...v, id_funcionario: null, status: 'DISPONÍVEL' }
+        : v
+    ));
+    setSalvoComSucesso(false);
+  };
+
+  // --- NOVA FUNÇÃO: ALTERAR E VALIDAR VEÍCULO ANTI-DUPLICIDADE ---
+  const handleAtribuirVeiculoFuncionario = (idFuncionario, idVeiculoNovo) => {
+    const idVeiculoTratado = idVeiculoNovo ? Number(idVeiculoNovo) : null;
+
+    if (idVeiculoTratado) {
+      // 2. Validação Anti-Duplicidade de Veículos na mesma obra/data
+      const motivoVeiculo = conflitoVeiculo(idVeiculoTratado, idFuncionario);
+
+      if (motivoVeiculo) {
+        const veic = listaVeiculos.find(v => Number(v.id) === idVeiculoTratado);
+        alert(`⚠️ O veículo ${veic ? veic.placa : '#' + idVeiculoTratado} ${motivoVeiculo}!`);
+        return;
+      }
+    }
+
+    setEfetivoAgendado(prev => prev.map(f => {
+      if (String(f.id_funcionario || f.id) === String(idFuncionario)) {
+        return { ...f, id_veiculo: idVeiculoTratado };
+      }
+      return f;
+    }));
+
+    // Atualiza espelho na lista global de veículos
+    if (!idVeiculoTratado) {
+      setListaVeiculos(prev => prev.map(v =>
+        Number(v.id_funcionario) === Number(idFuncionario)
+          ? { ...v, id_funcionario: null, status: 'DISPONÍVEL' }
+          : v
+      ));
+    }
+    if (idVeiculoTratado) {
+      setListaVeiculos(prev => prev.map(v => {
+        if (Number(v.id) === idVeiculoTratado) {
+          return { ...v, id_funcionario: idFuncionario, status: 'EM USO' };
+        }
+        if (Number(v.id_funcionario) === Number(idFuncionario)) {
+          return { ...v, id_funcionario: null, status: 'DISPONÍVEL' };
+        }
+        return v;
+      }));
+    }
+
+    setSalvoComSucesso(false);
+  };
   
   const aplicarSugestaoHorarioTurno = (turno, listaFuncionarios) => {
     const horaInicioPadrao = turno === 'NOTURNO' ? '19:00' : '07:00';
@@ -193,7 +455,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }));
   };
 
-  // Mudar o turno atualiza o padrão e replica para a equipe selecionada
   const handleMudarTurno = (novoTurno) => {
     setTurnoSelecionado(novoTurno);
     const horaInicioPadrao = novoTurno === 'NOTURNO' ? '19:00' : '07:00';
@@ -216,7 +477,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
-  // Aplica a alteração do Horário Geral no topo para TODOS os membros da equipe ativa
   const handleMudarHorarioGeral = (campo, valor) => {
     if (campo === 'hora_inicio') setHorarioGeralInicio(valor);
     if (campo === 'hora_fim') setHorarioGeralFim(valor);
@@ -247,14 +507,14 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           }
         });
         colaboradoresCarregados = Array.isArray(resEfetivo.data) ? resEfetivo.data : [];
+        setAgendaDaObra(colaboradoresCarregados);
         
-        // Mapeia e fixa todas as equipes disponíveis para não se perderem após o filtro
         const equipesUnicas = Array.from(
           new Set(colaboradoresCarregados.map(f => String(f.equipe || 'GERAL').trim().toUpperCase()))
         ).filter(Boolean);
 
         if (equipesUnicas.length > 0) {
-          setListaEquipesTotal(equipesUnicas);
+          setEquipesDoBanco(equipesUnicas);
         }
       } catch (errEfetivo) {
         if (errEfetivo.response?.status !== 404) {
@@ -306,7 +566,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             hora_fim: colab.hora_fim || (colab.turno === 'NOTURNO' ? '05:00' : '17:00')
           }));
 
-          // Atualiza os inputs do topo de acordo com o primeiro colaborador da equipe ativa
           const colabEquipe = colaboradoresCarregados.find(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase());
           if (colabEquipe) {
             setHorarioGeralInicio(colabEquipe.hora_inicio ? colabEquipe.hora_inicio.slice(0,5) : (turnoSelecionado === 'NOTURNO' ? '19:00' : '07:00'));
@@ -323,7 +582,18 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         colaboradoresCarregados = aplicarSugestaoHorarioTurno(turnoSelecionado, colaboradoresCarregados);
       }
 
-      setEfetivoAgendado(colaboradoresCarregados);
+      // Remove duplicados do servidor e preserva quem foi adicionado localmente (ainda não salvo)
+      setEfetivoAgendado(prev => {
+        const chavesVistas = new Set();
+        const base = colaboradoresCarregados.filter(f => {
+          const chave = `${idFuncDe(f)}|${eqUp(f.equipe)}`;
+          if (chavesVistas.has(chave)) return false;
+          chavesVistas.add(chave);
+          return true;
+        });
+        const locaisNovos = prev.filter(f => f._novo && !base.some(b => idFuncDe(b) === idFuncDe(f)));
+        return [...base, ...locaisNovos];
+      });
 
     } catch (error) {
       if (error.response?.status === 404) {
@@ -360,7 +630,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
-  // Permite alterar o horário individual de apenas UM colaborador no card dele
   const handleMudarHorarioIndividual = (idxGlobal, campo, valor) => {
     setEfetivoAgendado(prev => prev.map((f, i) => {
       if (i === idxGlobal) {
@@ -466,27 +735,61 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       const efetivoFiltradoPorEquipe = efetivoAgendado.filter(f => {
         return String(f.equipe || 'Geral').toUpperCase() === String(equipeSelecionadaFiltro || '').toUpperCase();
       });
+
       if (efetivoFiltradoPorEquipe.length === 0) {
         setErroPainel(`Não há funcionários agendados para a equipe selecionada "${equipeSelecionadaFiltro}".`);
         setStatusEnvio({ texto: "Falha na validação dos dados.", tipo: "erro" });
         return;
       }
 
+      // Validação Estrita Anti-Duplicidade de Funcionários antes da submissão
       const idsVistos = new Set();
       const nomesDuplicados = [];
 
       efetivoFiltradoPorEquipe.forEach(f => {
-        if (f.id_funcionario) {
-          if (idsVistos.has(f.id_funcionario)) {
+        const idColab = f.id_funcionario || f.id;
+        if (idColab) {
+          if (idsVistos.has(String(idColab))) {
             if (!nomesDuplicados.includes(f.nome)) {
               nomesDuplicados.push(f.nome);
             }
           }
-          idsVistos.add(f.id_funcionario);
+          idsVistos.add(String(idColab));
         }
       });
+
       if (nomesDuplicados.length > 0) {
         setErroPainel(`Não é permitido salvar funcionários repetidos no mesmo diário: ${nomesDuplicados.join(', ')}`);
+        setStatusEnvio({ texto: "Falha na validação dos dados.", tipo: "erro" });
+        return;
+      }
+
+      // Validação anti-duplicidade: funcionários/veículos em outras equipes, outras obras ou repetidos
+      const veiculosVistos = new Map();
+      const problemas = [];
+      efetivoFiltradoPorEquipe.forEach(f => {
+        const idF = f.id_funcionario || f.id;
+        const conflitoFunc = conflitoFuncionarioExterno(idF);
+        if (conflitoFunc) problemas.push(`${f.nome} ${conflitoFunc}`);
+
+        if (f.id_veiculo) {
+          const idV = Number(f.id_veiculo);
+          const veic = listaVeiculos.find(v => Number(v.id) === idV);
+          const placa = veic ? veic.placa : `#${idV}`;
+
+          if (veiculosVistos.has(idV)) {
+            problemas.push(`Veículo ${placa} repetido (${veiculosVistos.get(idV)} e ${f.nome})`);
+          } else {
+            veiculosVistos.set(idV, f.nome);
+          }
+
+          const conflitoVeic = conflitoVeiculoExterno(idV, idF);
+          if (conflitoVeic) problemas.push(`Veículo ${placa} ${conflitoVeic}`);
+        }
+      });
+
+      if (problemas.length > 0) {
+        setErroPainel(`Corrija antes de salvar: ${problemas.join(' | ')}`);
         setStatusEnvio({ texto: "Falha na validação dos dados.", tipo: "erro" });
         return;
       }
@@ -522,10 +825,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
           ? 'OUTROS' 
           : (f.statusPresenca ? f.statusPresenca.toUpperCase() : 'PRESENTE');
 
-        const veiculoDados = listaVeiculos.find(v => v.id_funcionario && String(v.id_funcionario) === String(f.id_funcionario));
+        const veiculoDados = listaVeiculos.find(v => Number(v.id) === Number(f.id_veiculo));
 
         const baseFuncionario = {
-          id_funcionario: f.id_funcionario || null, 
+          id_funcionario: f.id_funcionario || f.id || null, 
           nome: f.nome, 
           cargo: f.cargo, 
           matricula: f.matricula,
@@ -579,6 +882,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         : `✓ RDO Completo salvo com sucesso com o status: ${statusDiario}`;
 
       setStatusEnvio({ texto: msgSucesso, tipo: "sucesso" });
+      // o que foi salvo deixa de ser "local" e as agendas são atualizadas
+      setEfetivoAgendado(prev => prev.map(f => ({ ...f, _novo: false })));
+      carregarAgendaDaObra();
+      carregarAgendaGlobalDoDia();
       setSalvoComSucesso(true);
       setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 4000);
     } catch (err) {
@@ -637,8 +944,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       const horaPadraoPDFFim = turnoSelecionado === 'NOTURNO' ? '05:00' : '17:00';
 
       const linhasEfetivo = funcionariosDaEquipeAtiva.map(f => {
-        const v = (listaVeiculos || []).find(ve => ve.id_funcionario && String(ve.id_funcionario) === String(f.id_funcionario));
-        const veiculoText = v ? `${v.placa} (${v.modelo}) - ${v.status}` : 'Nenhum';
+        const v = (listaVeiculos || []).find(ve => Number(ve.id) === Number(f.id_veiculo));
+        const veiculoText = v ? `${v.placa} (${v.modelo})` : 'Nenhum';
 
         const baseStatus = f?.statusPresenca === 'Outros' ? String(f?.statusCustomizado || 'Outros') : String(f?.statusPresenca).toUpperCase();
         const statusTexto = f.liberado 
@@ -739,6 +1046,23 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const totalFaltas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Faltou').length;
   const totalLiberados = funcionariosDaEquipe.filter(f => f.liberado).length;
 
+  // Filtragem de funcionários disponíveis no sistema para adicionar na equipe
+  const funcionariosDisponiveisParaAdicionar = todosFuncionariosCadastrados.filter(func => {
+    const idFunc = String(func.id_funcionario || func.id);
+    const jaNaEquipe = !!conflitoFuncionarioAdicionar(idFunc);
+    
+    if (jaNaEquipe) return false;
+
+    const termo = termoBuscaFuncionario.toLowerCase().trim();
+    if (!termo) return true;
+
+    const nomeMatch = (func.nome || func.name || '').toLowerCase().includes(termo);
+    const cargoMatch = (func.cargo || '').toLowerCase().includes(termo);
+    const matMatch = String(func.matricula || '').toLowerCase().includes(termo);
+
+    return nomeMatch || cargoMatch || matMatch;
+  });
+
   const idsFuncionariosNaEquipe = new Set(
     funcionariosDaEquipe
       .map(f => f.id_funcionario || f.id)
@@ -748,8 +1072,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
 
   const veiculosDoQuadroAtivo = listaVeiculos.filter(veiculo => {
     const idMotoristaVeiculo = veiculo.id_funcionario || veiculo.id_condutor;
-    if (!idMotoristaVeiculo) return false;
-    return idsFuncionariosNaEquipe.has(String(idMotoristaVeiculo).trim());
+    if (idMotoristaVeiculo && idsFuncionariosNaEquipe.has(String(idMotoristaVeiculo).trim())) {
+      return true;
+    }
+    return funcionariosDaEquipe.some(f => Number(f.id_veiculo) === Number(veiculo.id));
   });
 
   return (
@@ -762,10 +1088,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         </div>
       )}
 
-      {/* BLOCO 1: ESCOPO DE SELEÇÃO */}
+      {/* BLOCO 1: ESCOPO DE SELEÇÃO E CRIAÇÃO DE EQUIPE */}
       <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
         <div style={{ padding: '8px 12px', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', borderBottom: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569' }}>
-          <span>SELEÇÃO DE DATA E OBRA ALVO</span>
+          <span>SELEÇÃO DE DATA, OBRA ALVO E EQUIPES</span>
         </div>
         
         <div style={{ padding: '12px 16px', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: idObraSelecionada ? '1px dashed #cbd5e1' : 'none' }}>
@@ -804,7 +1130,9 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 setSalvoComSucesso(false); 
                 setEquipeConfirmada(false);
                 setEquipeSelecionadaFiltro('GERAL');
-                setListaEquipesTotal([]);
+                setEquipesDoBanco([]);
+                setEquipesLocais([]);
+                setAgendaDaObra([]);
                 setStatusDiario('Normal');
                 setLiberarEquipeAoSalvar(false);
               }} 
@@ -816,8 +1144,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         </div>
 
         {idObraSelecionada && (
-          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
-            <div style={{ flex: '1', maxWidth: '400px' }}>
+          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1', maxWidth: '350px' }}>
               <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', marginBottom: '4px', color: '#475569' }}>
                 IDENTIFICAÇÃO DA EQUIPE DE TRABALHO
               </label>
@@ -828,13 +1156,35 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: equipeConfirmada ? '#e2e8f0' : '#fff', fontWeight: 'bold', color: '#334155' }}
               >
                 {listaEquipesTotal.length === 0 && (
-                  <option value="GERAL">-- NENHUMA EQUIPE ENCONTRADA NESTA DATA --</option>
+                  <option value="GERAL">-- NENHUMA EQUIPE ENCONTRADA --</option>
                 )}
                 {listaEquipesTotal.map(eq => (
                   <option key={eq} value={eq}>{eq}</option>
                 ))}
               </select>
             </div>
+
+            {/* CRIAR NOVA EQUIPE */}
+            {!equipeConfirmada && (
+              <form onSubmit={handleCriarNovaEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <label style={{ fontSize: '9px', fontWeight: 'bold', color: '#475569' }}>CRIAR EQUIPE LOCAL</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: EQUIPE ASFALTO"
+                    value={nomeNovaEquipe}
+                    onChange={e => setNomeNovaEquipe(e.target.value)}
+                    style={{ height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  style={{ height: '32px', padding: '0 12px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Plus size={14} /> Criar
+                </button>
+              </form>
+            )}
             
             {!equipeConfirmada ? (
               <button
@@ -879,13 +1229,13 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 style={{ width: '280px', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold', backgroundColor: rdoInterrompido ? '#fff5f5' : '#f0fdf4', color: rdoInterrompido ? '#991b1b' : '#166534' }}
               >
                 <option value="Normal">Obra Normal / Em Andamento</option>
-                  <option value="Choveu">Obra Interrompida por Chuva</option>
-                  <option value="Sem Material">Obra Interrompida Sem Material</option>
-                  <option value="Sem Equipamento">Obra Interrompida Sem Equipamento</option>
-                  <option value="Apoio">Apoio</option>
-                  <option value="Sem Atividade">Sem Atividade</option>
-                  <option value="Folga/FDS">Folga / Fim de Semana</option>
-                  <option value="Outros">Obra Interrompida por Outros Motivos</option>
+                <option value="Choveu">Obra Interrompida por Chuva</option>
+                <option value="Sem Material">Obra Interrompida Sem Material</option>
+                <option value="Sem Equipamento">Obra Interrompida Sem Equipamento</option>
+                <option value="Apoio">Apoio</option>
+                <option value="Sem Atividade">Sem Atividade</option>
+                <option value="Folga/FDS">Folga / Fim de Semana</option>
+                <option value="Outros">Obra Interrompida por Outros Motivos</option>
               </select>
             </div>
 
@@ -990,7 +1340,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                       </tr>
                     ) : (
                       veiculosDoQuadroAtivo.map((veiculo, index) => {
-                        const motorista = funcionariosDaEquipe.find(f => String(f.id_funcionario) === String(veiculo.id_funcionario));
+                        const motorista = funcionariosDaEquipe.find(f => Number(f.id_funcionario || f.id) === Number(veiculo.id_funcionario) || Number(f.id_veiculo) === Number(veiculo.id));
                         return (
                           <tr key={`veic-${veiculo.id}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                             <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#0f172a' }}>{veiculo.placa}</td>
@@ -1033,49 +1383,129 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
             )}
           </div>
 
-          {/* SEÇÃO 1: EFETIVO (CARDS) */}
+          {/* SEÇÃO 1: EFETIVO (CARDS E PAINEL DE ADIÇÃO ANTI-DUPLICIDADE) */}
           <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
-            <div style={{ backgroundColor: '#f8fafc', padding: '10px 12px', fontWeight: 'bold', borderBottom: '1px solid #cbd5e1', color: '#1e293b' }}>
-              EFETIVO ATIVO - EQUIPE: <span style={{ color: '#2563eb' }}>{equipeSelecionadaFiltro}</span> {carregando && '(Carregando...)'}
-              
-              {funcionariosDaEquipe.length > 0 && (
-                <div style={{ display: 'inline-flex', gap: '8px', marginLeft: '15px', fontSize: '11px', fontWeight: 'normal', verticalAlign: 'middle' }}>
-                  <span style={{ backgroundColor: '#e2fbe8', color: '#15803d', padding: '2px 6px', borderRadius: '3px' }}>Pres: <strong>{totalPresentes}</strong></span>
-                  <span style={{ backgroundColor: '#fffbeb', color: '#b45309', padding: '2px 6px', borderRadius: '3px' }}>Folg: <strong>{totalFolgas}</strong></span>
-                  <span style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '2px 6px', borderRadius: '3px' }}>Falt: <strong>{totalFaltas}</strong></span>
-                  {totalLiberados > 0 && (
-                    <span style={{ backgroundColor: '#fef9c3', color: '#854d0e', padding: '2px 6px', borderRadius: '3px' }}>Liberados: <strong>{totalLiberados}</strong></span>
+            <div style={{ backgroundColor: '#f8fafc', padding: '10px 12px', fontWeight: 'bold', borderBottom: '1px solid #cbd5e1', color: '#1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                EFETIVO ATIVO - EQUIPE: <span style={{ color: '#2563eb' }}>{equipeSelecionadaFiltro}</span> {carregando && '(Carregando...)'}
+                
+                {funcionariosDaEquipe.length > 0 && (
+                  <div style={{ display: 'inline-flex', gap: '8px', marginLeft: '15px', fontSize: '11px', fontWeight: 'normal', verticalAlign: 'middle' }}>
+                    <span style={{ backgroundColor: '#e2fbe8', color: '#15803d', padding: '2px 6px', borderRadius: '3px' }}>Pres: <strong>{totalPresentes}</strong></span>
+                    <span style={{ backgroundColor: '#fffbeb', color: '#b45309', padding: '2px 6px', borderRadius: '3px' }}>Folg: <strong>{totalFolgas}</strong></span>
+                    <span style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '2px 6px', borderRadius: '3px' }}>Falt: <strong>{totalFaltas}</strong></span>
+                    {totalLiberados > 0 && (
+                      <span style={{ backgroundColor: '#fef9c3', color: '#854d0e', padding: '2px 6px', borderRadius: '3px' }}>Liberados: <strong>{totalLiberados}</strong></span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* BOTÃO PARA EXPANDIR PAINEL DE ADIÇÃO DE FUNCIONÁRIOS */}
+              <button
+                type="button"
+                onClick={() => setMostrarPainelAdicionarFunc(!mostrarPainelAdicionarFunc)}
+                style={{ height: '28px', padding: '0 12px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}
+              >
+                <UserPlus size={14} /> {mostrarPainelAdicionarFunc ? 'Fechar Adição' : 'Adicionar Colaborador'}
+              </button>
+            </div>
+
+            {/* PAINEL DE BUSCA E ADIÇÃO DE FUNCIONÁRIOS */}
+            {mostrarPainelAdicionarFunc && (
+              <div style={{ padding: '12px', backgroundColor: '#f0f9ff', borderBottom: '1px solid #bae6fd', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 'bold', color: '#0369a1', fontSize: '11px' }}>
+                    Selecione um Colaborador Disponível para incluir na equipe ({equipeSelecionadaFiltro}):
+                  </span>
+                  <div style={{ position: 'relative', width: '250px' }}>
+                    <input
+                      type="text"
+                      placeholder="Pesquisar por nome ou cargo..."
+                      value={termoBuscaFuncionario}
+                      onChange={e => setTermoBuscaFuncionario(e.target.value)}
+                      style={{ width: '100%', height: '26px', padding: '0 24px 0 8px', fontSize: '10px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box' }}
+                    />
+                    <Search style={{ width: '12px', height: '12px', color: '#94a3b8', position: 'absolute', right: '6px', top: '7px' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                  {funcionariosDisponiveisParaAdicionar.length === 0 ? (
+                    <div style={{ fontSize: '11px', color: '#64748b', fontStyle: 'italic', gridColumn: '1/-1', textAlign: 'center', padding: '10px' }}>
+                      Nenhum colaborador livre disponível encontrado.
+                    </div>
+                  ) : (
+                    funcionariosDisponiveisParaAdicionar.map(func => {
+                      const idF = func.id_funcionario || func.id;
+                      return (
+                        <div key={`add-func-${idF}`} style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '6px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontWeight: 'bold', color: '#0f172a', fontSize: '10px' }}>{func.nome || func.name}</div>
+                            <div style={{ fontSize: '8px', color: '#64748b' }}>{func.cargo} | MAT: {func.matricula || '—'}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAdicionarFuncionarioEquipe(func)}
+                            style={{ backgroundColor: '#16a34a', color: '#fff', border: 'none', borderRadius: '3px', padding: '3px 8px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer' }}
+                          >
+                            + Adicionar
+                          </button>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {funcionariosDaEquipe.length === 0 ? (
                 <div style={{ padding: '16px', color: '#b45309', backgroundColor: '#fffbeb', border: '1px dashed #fcd34d', borderRadius: '4px', textAlign: 'center', fontWeight: 'bold' }}>
-                  Nenhum funcionário agendado para a equipe "{equipeSelecionadaFiltro}".
+                  Nenhum funcionário agendado para a equipe "{equipeSelecionadaFiltro}". Clique em "+ Adicionar Colaborador" acima para incluir membros.
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
                   {efetivoAgendado
                     .filter(f => String(f.equipe || 'Geral').toUpperCase() === equipeSelecionadaFiltro.toUpperCase())
                     .map((func, index) => {
-                      // Busca o índice exato dentro do array global efetivoAgendado
-                      const indexGlobal = efetivoAgendado.findIndex(original => original.id_funcionario ? String(original.id_funcionario) === String(func.id_funcionario) : original.nome === func.nome);
+                      const indexGlobal = efetivoAgendado.findIndex(original => (original.id_funcionario || original.id) ? String(original.id_funcionario || original.id) === String(func.id_funcionario || func.id) : original.nome === func.nome);
                       const estaLiberado = func.liberado;
                       const horaInicioCard = func.hora_inicio || horarioGeralInicio;
                       const horaFimCard = func.hora_fim || horarioGeralFim;
+                      const idFuncionarioAtual = func.id_funcionario || func.id;
+
+                      // Veículos disponíveis ordenados para seleção sem duplicidade
+                      const veiculosDisponiveisOuAtual = [...listaVeiculos].sort((a, b) => (a.placa || '').localeCompare(b.placa || '')).filter(v => {
+                        const idOcupante = v.id_funcionario || v.id_condutor;
+                        const ehDoMesmo = Number(v.id) === Number(func.id_veiculo) || String(idOcupante) === String(idFuncionarioAtual);
+                        const outroUsoNoEfetivo = efetivoAgendado.some(f => 
+                          String(f.id_funcionario || f.id) !== String(idFuncionarioAtual) && Number(f.id_veiculo) === Number(v.id)
+                        );
+                        // mantém o veículo atual e só lista os que não estão em uso por outro colaborador/equipe/obra
+                        return Number(v.id) === Number(func.id_veiculo) || !conflitoVeiculo(v.id, idFuncionarioAtual);
+                      });
 
                       return (
-                        <div key={`${func.id_funcionario || indexGlobal}-${index}`} style={{ border: estaLiberado ? '1px solid #fde047' : '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: estaLiberado ? '#fefce8' : '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div key={`${idFuncionarioAtual || indexGlobal}-${index}`} style={{ border: estaLiberado ? '1px solid #fde047' : '1px solid #e2e8f0', borderRadius: '4px', padding: '8px', backgroundColor: estaLiberado ? '#fefce8' : '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '6px' }}>
                           <div>
                             <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '2px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span>{func.nome}</span>
-                              {estaLiberado && (
-                                <span style={{ fontSize: '9px', backgroundColor: '#fef08a', color: '#854d0e', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>
-                                  🟡 LIBERADO
-                                </span>
-                              )}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {estaLiberado && (
+                                  <span style={{ fontSize: '9px', backgroundColor: '#fef08a', color: '#854d0e', padding: '1px 5px', borderRadius: '3px', fontWeight: 'bold' }}>
+                                    🟡 LIBERADO
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoverFuncionarioEquipe(idFuncionarioAtual)}
+                                  title="Remover da equipe"
+                                  style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
                             </div>
                             <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '6px' }}>{func.cargo}</div>
                             
@@ -1091,7 +1521,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                             <select 
                               value={func.statusPresenca} 
                               onChange={e => handleMudarStatusPresenca(indexGlobal, e.target.value)}
-                              style={{ width: '100%', height: '26px', padding: '0 4px', fontSize: '11px', fontWeight: 'bold' }}
+                              style={{ width: '100%', height: '26px', padding: '0 4px', fontSize: '11px', fontWeight: 'bold', marginBottom: '6px' }}
                             >
                               <option value="Presente">Presente</option>
                               <option value="Folga">Folga</option>
@@ -1099,6 +1529,23 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                               <option value="Integração">Integração</option>
                               <option value="Outros">Outros</option>
                             </select>
+
+                            {/* SELETOR DE VEÍCULO DO COLABORADOR */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <Car size={12} color="#2563eb" />
+                              <select
+                                value={func.id_veiculo || ''}
+                                onChange={e => handleAtribuirVeiculoFuncionario(idFuncionarioAtual, e.target.value)}
+                                style={{ flex: 1, fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', fontWeight: 'bold', color: func.id_veiculo ? '#15803d' : '#64748b' }}
+                              >
+                                <option value="">-- Sem Veículo Atribuído --</option>
+                                {veiculosDisponiveisOuAtual.map(v => (
+                                  <option key={v.id} value={v.id}>
+                                    [{v.placa}] {v.marca} {v.modelo}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
 
                             {func.statusPresenca === 'Outros' && (
                               <input

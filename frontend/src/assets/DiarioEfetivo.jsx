@@ -1,6 +1,39 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios'; 
-import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Search, Lock, MoveHorizontal, Download } from 'lucide-react';
+import { Users, Trash2, Plus, X, Eye, EyeOff, Car, Search, CheckCircle2, MoveHorizontal, Download, Pencil, Check } from 'lucide-react';
+
+// --- HELPERS ---
+const eqUp = (s) => String(s || '').toUpperCase().trim();
+
+const estaLiberado = (a) =>
+  Number(a?.liberado) === 1 || String(a?.status_presenca || '').toUpperCase() === 'LIBERADO';
+
+// Remove registros duplicados do mesmo funcionário (prioriza o registro NÃO liberado)
+const deduplicarAlocacoes = (lista = []) => {
+  const mapa = new Map();
+  lista.forEach(a => {
+    const chave = String(a.id_funcionario);
+    const existente = mapa.get(chave);
+    if (!existente) {
+      mapa.set(chave, a);
+    } else if (estaLiberado(existente) && !estaLiberado(a)) {
+      mapa.set(chave, a);
+    }
+  });
+  return [...mapa.values()];
+};
+
+// Remove funcionários duplicados da base (mesmo id) e ordena A-Z
+const deduplicarFuncionarios = (lista = []) => {
+  const mapa = new Map();
+  lista.forEach(f => {
+    const id = String(f.id_funcionario || f.id);
+    if (!mapa.has(id)) mapa.set(id, f);
+  });
+  return [...mapa.values()].sort((a, b) =>
+    (a.nome || a.name || '').localeCompare(b.nome || b.name || '', 'pt-BR', { sensitivity: 'base' })
+  );
+};
 
 export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) {
 
@@ -23,11 +56,12 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
   const [alocacoesDoDia, setAlocacoesDoDia] = useState([]);
   const [todosOsAgendamentosDoDia, setTodosOsAgendamentosDoDia] = useState([]);
   const [listaVeiculos, setListaVeiculos] = useState([]);
-  const [equipesBloqueadas, setEquipesBloqueadas] = useState([]);
+  const [equipesConcluidas, setEquipesConcluidas] = useState([]); // equipes com RDO finalizado (apenas visual)
 
   // --- CONTROLE DE EQUIPES LOCAIS (POR OBRA) ---
   const [equipesLocais, setEquipesLocais] = useState([]); 
   const [nomeNovaEquipe, setNomeNovaEquipe] = useState('');
+  const [equipeEditando, setEquipeEditando] = useState(null); // { nomeAntigo, novoNome }
   
   // --- CONTROLE DE VISIBILIDADE DE PAINÉIS/TABELAS ---
   const [mostrarResumoOcupacao, setMostrarResumoOcupacao] = useState(false);
@@ -54,28 +88,30 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
   useEffect(() => {
     if (obraFiltro) {
       carregarAlocacoesDaObra();
-      carregarEquipesBloqueadas();
+      carregarEquipesConcluidas();
     }
     carregarTodosOsAgendamentosDoDia();
     carregarFuncionariosDoGestor();
     carregarVeiculosDoGestor(); 
   }, [dataSelecionada, obraFiltro]);
 
-  // --- BUSCAR EQUIPES FINALIZADAS (TRAVADAS) ---
-  const carregarEquipesBloqueadas = async () => {
+  // --- BUSCAR EQUIPES COM RDO FINALIZADO (APENAS PARA MUDAR A COR, NÃO BLOQUEIA) ---
+  const carregarEquipesConcluidas = async () => {
     if (!obraFiltro || !dataSelecionada) return;
     try {
       const res = await axios.get(`${API_URL}/gestor/equipes-finalizadas`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
-      setEquipesBloqueadas(res.data || []);
+      setEquipesConcluidas((res.data || []).map(eqUp));
     } catch (e) {
-      console.error("Erro ao carregar status de bloqueio das equipes:", e);
-      setEquipesBloqueadas([]);
+      console.error("Erro ao carregar status de conclusão das equipes:", e);
+      setEquipesConcluidas([]);
     }
   };
 
-  // --- COPIAR ÚLTIMO AGENDAMENTO/ESCALA REGISTRADO ---
+  const equipeEstaConcluida = (nomeEquipe) => equipesConcluidas.includes(eqUp(nomeEquipe));
+
+  // --- COPIAR ÚLTIMO AGENDAMENTO/ESCALA REGISTRADO (SEM DUPLICAR FUNCIONÁRIOS) ---
   const handleCopiarUltimoAgendamento = async () => {
     if (!obraFiltro) {
       alert("⚠️ Selecione uma Obra ativa antes de copiar a escala!");
@@ -101,10 +137,68 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         return;
       }
 
-      const novasAlocacoes = alocacoes.map(item => ({
-        ...item,
-        id_obra: Number(obraFiltro)
-      }));
+      // Funcionários e veículos já ocupados em OUTRAS obras na data atual
+      const funcionariosOcupadosOutrasObras = new Set(
+        todosOsAgendamentosDoDia
+          .filter(a => Number(a.id_obra) !== Number(obraFiltro) && !estaLiberado(a))
+          .map(a => String(a.id_funcionario))
+      );
+      const veiculosOcupadosOutrasObras = new Set(
+        todosOsAgendamentosDoDia
+          .filter(a => Number(a.id_obra) !== Number(obraFiltro) && a.id_veiculo)
+          .map(a => String(a.id_veiculo))
+      );
+
+      const funcionariosVistos = new Set();
+      const veiculosVistos = new Set();
+      let ignoradosOutraObra = 0;
+
+      const novasAlocacoes = [];
+      alocacoes.forEach(item => {
+        const idFunc = String(item.id_funcionario);
+
+        // evita duplicar o mesmo funcionário
+        if (funcionariosVistos.has(idFunc)) return;
+
+        // evita puxar quem já está escalado em outra obra hoje
+        if (funcionariosOcupadosOutrasObras.has(idFunc)) {
+          ignoradosOutraObra++;
+          return;
+        }
+        funcionariosVistos.add(idFunc);
+
+        // evita repetir/conflitar veículo
+        let idVeiculo = item.id_veiculo ? String(item.id_veiculo) : null;
+        if (idVeiculo && (veiculosVistos.has(idVeiculo) || veiculosOcupadosOutrasObras.has(idVeiculo))) {
+          idVeiculo = null;
+        }
+        if (idVeiculo) veiculosVistos.add(idVeiculo);
+
+        novasAlocacoes.push({
+          ...item,
+          id_obra: Number(obraFiltro),
+          id_veiculo: idVeiculo ? Number(idVeiculo) : null
+        });
+      });
+
+      if (novasAlocacoes.length === 0) {
+        alert("Nenhum colaborador do histórico está livre para ser copiado (todos já estão escalados em outras obras).");
+        return;
+      }
+
+      // Se vai substituir, limpa primeiro as equipes existentes do dia (evita duplicar)
+      if (alocacoesDoDia.length > 0) {
+        const equipesExistentes = [...new Set(alocacoesDoDia.map(a => a.equipe).filter(Boolean))];
+        for (const nomeEq of equipesExistentes) {
+          await axios.delete(`${API_URL}/gestor/equipe`, {
+            params: {
+              nome_equipe: nomeEq,
+              id_obra: Number(obraFiltro),
+              data_diario: dataSelecionada
+            }
+          });
+        }
+      }
 
       await axios.post(`${API_URL}/gestor/diario-efetivo`, {
         data_diario: dataSelecionada,
@@ -112,11 +206,15 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         efetivo: novasAlocacoes
       });
 
-      alert(`✅ Escala copiada com sucesso do dia ${data_origem}!`);
+      let msg = `✅ Escala copiada com sucesso do dia ${data_origem}! (${novasAlocacoes.length} colaborador(es))`;
+      if (ignoradosOutraObra > 0) {
+        msg += `\n\nℹ️ ${ignoradosOutraObra} colaborador(es) não foram copiados porque já estão escalados em outra obra hoje.`;
+      }
+      alert(msg);
 
-      carregarAlocacoesDaObra();
-      carregarTodosOsAgendamentosDoDia();
-      carregarFuncionariosDoGestor();
+      await carregarAlocacoesDaObra();
+      await carregarTodosOsAgendamentosDoDia();
+      await carregarFuncionariosDoGestor();
 
     } catch (err) {
       console.error("Erro ao copiar último agendamento:", err);
@@ -125,6 +223,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
       } else {
         alert(err.response?.data?.error || "Erro ao copiar a escala do agendamento anterior.");
       }
+      carregarAlocacoesDaObra();
     }
   };
 
@@ -145,9 +244,9 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
       const res = await axios.get(`${API_URL}/gestor/diario-efetivo`, {
         params: { data_diario: dataSelecionada, id_obra: obraFiltro }
       });
-      const alocs = (res.data || []).map(colab => ({
+      const alocs = deduplicarAlocacoes((res.data || []).map(colab => ({
         ...colab
-      }));
+      })));
       setAlocacoesDoDia(alocs);
 
       setEquipesLocais(prev => {
@@ -212,12 +311,9 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         data_diario: dataSelecionada
       };
       const res = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { params });
-      setTodosFuncionarios(res.data && res.data.funcionarios ? res.data.funcionarios : []);
-
-      const resGeral = await axios.get(`${API_URL}/gestor/funcionarios-disponiveis`, { 
-        params: { id: usuario?.id, cargo: usuario?.cargo, data_diario: dataSelecionada } 
-      });
-      setListaCompletaFuncionarios(resGeral.data && resGeral.data.funcionarios ? resGeral.data.funcionarios : []);
+      const lista = res.data && res.data.funcionarios ? res.data.funcionarios : [];
+      setTodosFuncionarios(lista);
+      setListaCompletaFuncionarios(lista);
 
     } catch (e) {
       console.error("Erro ao carregar colaboradores:", e);
@@ -277,51 +373,62 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
     if (ag) {
       const statusUpper = String(ag.status_presenca || '').toUpperCase();
       if (statusUpper === 'FOLGA' || String(ag.equipe).toUpperCase() === 'FOLGUISTAS') {
-        return { texto: 'FOLGA', corBg: '#fef2f2', corTxt: '#991b1b', id_obra: ag.id_obra };
+        return { texto: 'FOLGA', corBg: '#fef2f2', corTxt: '#991b1b', id_obra: ag.id_obra, grupo: 'indisponivel' };
       }
       if (ag.liberado === 1) {
-        return { texto: 'LIBERADO', corBg: '#fef9c3', corTxt: '#854d0e', id_obra: ag.id_obra };
+        return { texto: 'LIBERADO', corBg: '#fef9c3', corTxt: '#854d0e', id_obra: ag.id_obra, grupo: 'disponivel' };
       }
       const dadosObra = obrasDisponiveis.find(o => Number(o.id) === Number(ag.id_obra));
       const nomeObra = dadosObra ? dadosObra.nome_obra : `Obra ID ${ag.id_obra}`;
-      return { texto: `${nomeObra} [${ag.equipe}]`, corBg: '#e0f2fe', corTxt: '#0369a1', id_obra: ag.id_obra, emOutraObra: true };
+      return { texto: `${nomeObra} [${ag.equipe}]`, corBg: '#e0f2fe', corTxt: '#0369a1', id_obra: ag.id_obra, emOutraObra: true, grupo: 'indisponivel' };
     }
-    return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d', emOutraObra: false };
+    return { texto: 'Disponível', corBg: '#dcfce7', corTxt: '#15803d', emOutraObra: false, grupo: 'disponivel' };
   };
 
-  // --- LISTA DE TODOS OS FUNCIONÁRIOS EXIBIDOS NO PAINEL DE DISPONÍVEIS ---
-  const funcionariosDisponiveis = useMemo(() => {
-    const baseFuncionarios = todosFuncionarios.length > 0 
-      ? todosFuncionarios 
-      : listaCompletaFuncionarios;
+  // --- BASE ÚNICA (SEM DUPLICADOS, A-Z) USADA NO QUADRO E NOS RESUMOS ---
+  const baseFuncionariosResumo = useMemo(() => {
+    const base = listaCompletaFuncionarios.length > 0 ? listaCompletaFuncionarios : todosFuncionarios;
+    return deduplicarFuncionarios(base);
+  }, [listaCompletaFuncionarios, todosFuncionarios]);
 
-    return baseFuncionarios.filter(func => {
+  // --- QUADRO DE FUNCIONÁRIOS: DISPONÍVEIS EM CIMA, DEPOIS OS INDISPONÍVEIS, TUDO EM ORDEM ALFABÉTICA ---
+  const { quadroDisponiveis, quadroIndisponiveis } = useMemo(() => {
+    const termo = termoBuscaDisponiveis.toLowerCase().trim();
+
+    const filtrados = baseFuncionariosResumo.filter(func => {
       const idFunc = func.id_funcionario || func.id;
 
-      const termo = termoBuscaDisponiveis.toLowerCase().trim();
-      const nomeMatch = (func.nome || func.name || '').toLowerCase().includes(termo);
-      const cargoMatch = (func.cargo || '').toLowerCase().includes(termo);
-      const matMatch = String(func.matricula || '').toLowerCase().includes(termo);
-
-      if (termo && !nomeMatch && !cargoMatch && !matMatch) {
-        return false;
+      if (termo) {
+        const nomeMatch = (func.nome || func.name || '').toLowerCase().includes(termo);
+        const cargoMatch = (func.cargo || '').toLowerCase().includes(termo);
+        const matMatch = String(func.matricula || '').toLowerCase().includes(termo);
+        if (!nomeMatch && !cargoMatch && !matMatch) return false;
       }
 
-      // Oculta da lista APENAS se o colaborador já estiver alocado NA OBRA SELECIONADA ATUALMENTE
-      const jaEstaAlocadoNaObraAtual = alocacoesDoDia.some(a => {
-        const mesmoFunc = String(a.id_funcionario) === String(idFunc);
-        const estaLiberado = Number(a.liberado) === 1 || String(a.status_presenca).toUpperCase() === 'LIBERADO';
-        
-        return mesmoFunc && !estaLiberado;
-      });
-
+      // Oculta APENAS quem já está alocado na obra selecionada (e não foi liberado)
+      const jaEstaAlocadoNaObraAtual = alocacoesDoDia.some(a =>
+        String(a.id_funcionario) === String(idFunc) && !estaLiberado(a)
+      );
       return !jaEstaAlocadoNaObraAtual;
     });
-  }, [todosFuncionarios, listaCompletaFuncionarios, alocacoesDoDia, termoBuscaDisponiveis]);
+
+    const comStatus = filtrados.map(func => ({
+      func,
+      status: obterStatusFuncionario(func.id_funcionario || func.id)
+    }));
+
+    return {
+      quadroDisponiveis: comStatus.filter(x => x.status.grupo === 'disponivel'),
+      quadroIndisponiveis: comStatus.filter(x => x.status.grupo !== 'disponivel')
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseFuncionariosResumo, alocacoesDoDia, termoBuscaDisponiveis, todosOsAgendamentosDoDia, obrasDisponiveis]);
+
+  const totalQuadro = quadroDisponiveis.length + quadroIndisponiveis.length;
 
   // --- EXPORTAÇÃO DO RESUMO DE OCUPAÇÃO PARA O RH (CSV) ---
   const handleDownloadResumoRH = () => {
-    const base = listaCompletaFuncionarios.length > 0 ? listaCompletaFuncionarios : todosFuncionarios;
+    const base = baseFuncionariosResumo;
     if (!base || base.length === 0) {
       alert("Não há dados de funcionários para exportar.");
       return;
@@ -391,22 +498,94 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
     setNomeNovaEquipe('');
   };
 
-  // --- ALOCAÇÃO DO COLABORADOR À EQUIPE ---
+  // --- RENOMEAR EQUIPE ---
+  const handleConfirmarRenomear = async () => {
+    if (!equipeEditando) return;
+    const { nomeAntigo, novoNome } = equipeEditando;
+    const nomeNovo = novoNome.trim().toUpperCase();
+
+    if (!nomeNovo || nomeNovo === eqUp(nomeAntigo)) {
+      setEquipeEditando(null);
+      return;
+    }
+
+    const jaExiste = equipesDaObraAtiva.some(eq => eqUp(eq.nome) === nomeNovo);
+    if (jaExiste) {
+      alert(`⚠️ Já existe uma equipe chamada "${nomeNovo}" nesta obra!`);
+      return;
+    }
+
+    const membros = alocacoesDoDia.filter(a => eqUp(a.equipe) === eqUp(nomeAntigo));
+
+    // Atualiza o nome localmente (lista de equipes da obra)
+    const renomearLocal = () => setEquipesLocais(prev => prev.map(eq =>
+      (eqUp(eq.nome) === eqUp(nomeAntigo) && String(eq.id_obra) === String(obraFiltro))
+        ? { ...eq, nome: nomeNovo }
+        : eq
+    ));
+
+    // Equipe vazia: só existe localmente
+    if (membros.length === 0) {
+      renomearLocal();
+      setEquipeEditando(null);
+      return;
+    }
+
+    try {
+      // remove a equipe com o nome antigo e recria com o novo nome mantendo os integrantes
+      await axios.delete(`${API_URL}/gestor/equipe`, {
+        params: {
+          nome_equipe: nomeAntigo,
+          id_obra: Number(obraFiltro),
+          data_diario: dataSelecionada
+        }
+      });
+
+      await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+        data_diario: dataSelecionada,
+        id_obra: Number(obraFiltro),
+        equipe: nomeNovo,
+        funcionarios: membros.map(m => ({ ...m, equipe: nomeNovo }))
+      });
+
+      renomearLocal();
+      setEquipeEditando(null);
+
+      await carregarAlocacoesDaObra();
+      await carregarTodosOsAgendamentosDoDia();
+      await carregarFuncionariosDoGestor();
+      await carregarEquipesConcluidas();
+    } catch (err) {
+      console.error("Erro ao renomear equipe:", err);
+      alert(err.response?.data?.error || "Erro ao renomear a equipe no servidor.");
+      setEquipeEditando(null);
+      carregarAlocacoesDaObra();
+      carregarTodosOsAgendamentosDoDia();
+    }
+  };
+
+  // --- ALOCAÇÃO / TROCA DE COLABORADOR ENTRE EQUIPES ---
   const handleAlocarParaEquipe = async (idFuncionario, nomeEquipe) => {
     if (!obraFiltro) {
       alert("⚠️ Selecione uma Obra ativa!");
       return;
     }
 
-    const funcObj = (todosFuncionarios.length > 0 ? todosFuncionarios : listaCompletaFuncionarios).find(
+    const funcObj = baseFuncionariosResumo.find(
       f => String(f.id_funcionario || f.id) === String(idFuncionario)
     );
     if (!funcObj) return;
 
     const usuario = usuarioLogado || JSON.parse(localStorage.getItem('usuario') || '{}');
-    const ehFolguista = nomeEquipe.toUpperCase() === 'FOLGUISTAS';
+    const ehFolguista = eqUp(nomeEquipe) === 'FOLGUISTAS';
 
-    let listaAtualizada = [...alocacoesDoDia];
+    // Se já estava em outra equipe desta obra, guardamos a origem e preservamos o veículo
+    const membroAtual = alocacoesDoDia.find(
+      a => String(a.id_funcionario) === String(idFuncionario) && !estaLiberado(a)
+    );
+    const equipeOrigem = membroAtual?.equipe || null;
+
+    let listaAtualizada = alocacoesDoDia.filter(a => String(a.id_funcionario) !== String(idFuncionario));
 
     const baseFuncionario = {
       id_funcionario: funcObj.id_funcionario || funcObj.id,
@@ -415,12 +594,10 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
       nome: funcObj.nome || funcObj.name,
       cargo: funcObj.cargo || 'N/D',
       matricula: funcObj.matricula || '',
-      id_veiculo: null
+      id_veiculo: ehFolguista ? null : (membroAtual?.id_veiculo || null)
     };
 
     if (ehFolguista) {
-      listaAtualizada = listaAtualizada.filter(a => String(a.id_funcionario) !== String(idFuncionario));
-
       listaAtualizada.push({
         ...baseFuncionario,
         status_presenca: 'Folga',
@@ -428,7 +605,6 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         equipe: 'FOLGUISTAS'
       });
     } else {
-      listaAtualizada = listaAtualizada.filter(a => String(a.id_funcionario) !== String(idFuncionario));
       listaAtualizada.push({
         ...baseFuncionario,
         status_presenca: 'ALOCADO',
@@ -444,8 +620,18 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         equipe: nomeEquipe,
-        funcionarios: listaAtualizada.filter(a => a.equipe.toUpperCase() === nomeEquipe.toUpperCase())
+        funcionarios: listaAtualizada.filter(a => eqUp(a.equipe) === eqUp(nomeEquipe))
       });
+
+      // Se veio de outra equipe, atualiza também a equipe de origem
+      if (equipeOrigem && eqUp(equipeOrigem) !== eqUp(nomeEquipe)) {
+        await axios.post(`${API_URL}/gestor/diario-efetivo`, {
+          data_diario: dataSelecionada,
+          id_obra: Number(obraFiltro),
+          equipe: equipeOrigem,
+          funcionarios: listaAtualizada.filter(a => eqUp(a.equipe) === eqUp(equipeOrigem))
+        });
+      }
       
       await carregarTodosOsAgendamentosDoDia();
       await carregarFuncionariosDoGestor();
@@ -473,7 +659,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         equipe: membro.equipe,
-        funcionarios: listaAtualizada.filter(a => a.equipe.toUpperCase() === membro.equipe.toUpperCase())
+        funcionarios: listaAtualizada.filter(a => eqUp(a.equipe) === eqUp(membro.equipe))
       });
 
       await carregarTodosOsAgendamentosDoDia();
@@ -510,7 +696,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
         data_diario: dataSelecionada,
         id_obra: Number(obraFiltro),
         equipe: membro.equipe,
-        funcionarios: listaAtualizada.filter(a => a.equipe.toUpperCase() === membro.equipe.toUpperCase())
+        funcionarios: listaAtualizada.filter(a => eqUp(a.equipe) === eqUp(membro.equipe))
       });
 
       carregarTodosOsAgendamentosDoDia();
@@ -525,7 +711,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
     }
   };
 
-  // --- EXCLUSÃO DE EQUIPE (PERMITIDA MESMO COM RDO FINALIZADO) ---
+  // --- EXCLUSÃO DE EQUIPE ---
   const handleDeletarEquipe = async (nomeEquipeDeletar) => {
     if (!obraFiltro) {
       alert("⚠️ Selecione uma Obra ativa!");
@@ -546,12 +732,12 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
       });
 
       const listaAtualizada = alocacoesDoDia.filter(
-        a => !(a.equipe.toUpperCase() === nomeEquipeDeletar.toUpperCase())
+        a => !(eqUp(a.equipe) === eqUp(nomeEquipeDeletar))
       );
 
       setAlocacoesDoDia(listaAtualizada);
       setEquipesLocais(prev => prev.filter(
-        eq => !(eq.nome.toUpperCase() === nomeEquipeDeletar.toUpperCase() && String(eq.id_obra) === String(obraFiltro))
+        eq => !(eqUp(eq.nome) === eqUp(nomeEquipeDeletar) && String(eq.id_obra) === String(obraFiltro))
       ));
 
       await carregarAlocacoesDaObra();
@@ -636,8 +822,6 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
   };
 
   // --- FILTRO DE FUNCIONÁRIOS DISPONÍVEIS PARA REMANEJAMENTO ---
-  const baseFuncionariosResumo = listaCompletaFuncionarios.length > 0 ? listaCompletaFuncionarios : todosFuncionarios;
-
   const funcionariosDisponiveisParaRemanejamento = baseFuncionariosResumo.filter(func => {
     const idFunc = func.id_funcionario || func.id;
     const agendamentosDoFuncionario = todosOsAgendamentosDoDia.filter(
@@ -653,6 +837,65 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
 
     return totalmenteLiberado;
   });
+
+  // --- CARD DE UM FUNCIONÁRIO NO QUADRO ---
+  const renderCardFuncionarioQuadro = ({ func, status }) => {
+    const idFunc = func.id_funcionario || func.id;
+
+    return (
+      <div 
+        key={`disp-${idFunc}`} 
+        style={{ 
+          padding: '8px', 
+          border: '1px solid #e2e8f0', 
+          borderRadius: '4px', 
+          backgroundColor: status.emOutraObra ? '#f0f9ff' : '#f8fafc', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '6px' 
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{func.nome || func.name}</div>
+          <div style={{ fontSize: '9px', color: '#64748b' }}>{func.cargo} | MAT: {func.matricula || '—'}</div>
+          
+          <div style={{ marginTop: '4px' }}>
+            <span style={{ 
+              fontSize: '9px', 
+              fontWeight: 'bold', 
+              padding: '2px 6px', 
+              borderRadius: '3px', 
+              backgroundColor: status.corBg, 
+              color: status.corTxt,
+              display: 'inline-block' 
+            }}>
+              {status.texto}
+            </span>
+          </div>
+        </div>
+
+        {equipesDaObraAtiva.length > 0 && (
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) {
+                handleAlocarParaEquipe(idFunc, e.target.value);
+                e.target.value = "";
+              }
+            }}
+            style={{ fontSize: '10px', padding: '3px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            <option value="" disabled>+ Mover para Equipe...</option>
+            {equipesDaObraAtiva.map(eq => (
+              <option key={`opt-${eq.nome}`} value={eq.nome}>
+                {eq.nome} {equipeEstaConcluida(eq.nome) ? '✅ (Concluída)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
@@ -756,11 +999,11 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
       {/* 3. PAINEL DINÂMICO DE ALOCAÇÃO */}
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '16px', alignItems: 'start' }}>
         
-        {/* COLUNA ESQUERDA: DISPONÍVEIS E ALOCADOS EM OUTRAS OBRAS */}
+        {/* COLUNA ESQUERDA: QUADRO DE FUNCIONÁRIOS (DISPONÍVEIS EM CIMA, A-Z, SEM DUPLICADOS) */}
         <div style={{ backgroundColor: '#fff', border: '2px solid #3b82f6', borderRadius: '6px', padding: '12px', minHeight: '380px' }}>
           <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#1e40af', textTransform: 'uppercase' }}>
-              Quadro de Funcionários: {funcionariosDisponiveis.length}
+              Quadro de Funcionários: {totalQuadro}
             </span>
           </div>
 
@@ -785,73 +1028,32 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '460px', overflowY: 'auto' }}>
-            {funcionariosDisponiveis.length === 0 ? (
+            {totalQuadro === 0 ? (
               <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
                 {termoBuscaDisponiveis ? 'Nenhum colaborador encontrado com essa busca.' : 'Nenhum colaborador disponível.'}
               </div>
             ) : (
-              funcionariosDisponiveis.map(f => {
-                const idFunc = f.id_funcionario || f.id;
-                const statusGlobal = obterStatusFuncionario(idFunc);
-
-                return (
-                  <div 
-                    key={`disp-${idFunc}`} 
-                    style={{ 
-                      padding: '8px', 
-                      border: '1px solid #e2e8f0', 
-                      borderRadius: '4px', 
-                      backgroundColor: statusGlobal.emOutraObra ? '#f0f9ff' : '#f8fafc', 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      gap: '6px' 
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 'bold', fontSize: '11px', color: '#0f172a' }}>{f.nome || f.name}</div>
-                      <div style={{ fontSize: '9px', color: '#64748b' }}>{f.cargo} | MAT: {f.matricula || '—'}</div>
-                      
-                      {/* INDICADOR SE O COLABORADOR JÁ ESTÁ EM OUTRA OBRA OU FOLGA */}
-                      <div style={{ marginTop: '4px' }}>
-                        <span style={{ 
-                          fontSize: '9px', 
-                          fontWeight: 'bold', 
-                          padding: '2px 6px', 
-                          borderRadius: '3px', 
-                          backgroundColor: statusGlobal.corBg, 
-                          color: statusGlobal.corTxt,
-                          display: 'inline-block' 
-                        }}>
-                          {statusGlobal.texto}
-                        </span>
-                      </div>
+              <>
+                {/* DISPONÍVEIS */}
+                {quadroDisponiveis.length > 0 && (
+                  <>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#15803d', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '3px', padding: '3px 8px', textTransform: 'uppercase', position: 'sticky', top: 0, zIndex: 2 }}>
+                      Disponíveis ({quadroDisponiveis.length})
                     </div>
+                    {quadroDisponiveis.map(renderCardFuncionarioQuadro)}
+                  </>
+                )}
 
-                    {equipesDaObraAtiva.length > 0 && (
-                      <select
-                        defaultValue=""
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            handleAlocarParaEquipe(idFunc, e.target.value);
-                            e.target.value = "";
-                          }
-                        }}
-                        style={{ fontSize: '10px', padding: '3px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
-                      >
-                        <option value="" disabled>+ Mover para Equipe...</option>
-                        {equipesDaObraAtiva.map(eq => {
-                          const bloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
-                          return (
-                            <option key={`opt-${eq.nome}`} value={eq.nome}>
-                              {eq.nome} {bloqueada ? '🔒 (RDO Finalizado)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    )}
-                  </div>
-                );
-              })
+                {/* INDISPONÍVEIS (OUTRA OBRA / FOLGA) */}
+                {quadroIndisponiveis.length > 0 && (
+                  <>
+                    <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#0369a1', backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '3px', padding: '3px 8px', textTransform: 'uppercase', marginTop: quadroDisponiveis.length > 0 ? '4px' : 0, position: 'sticky', top: 0, zIndex: 2 }}>
+                      Em outra obra / Folga ({quadroIndisponiveis.length})
+                    </div>
+                    {quadroIndisponiveis.map(renderCardFuncionarioQuadro)}
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -864,37 +1066,78 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
             </div>
           ) : (
             equipesDaObraAtiva.map((eq) => {
-              const estaBloqueada = equipesBloqueadas.includes(eq.nome.toUpperCase());
-              const integrantes = alocacoesDoDia.filter(
-                a => a.equipe.toUpperCase() === eq.nome.toUpperCase()
-              );
+              const concluida = equipeEstaConcluida(eq.nome);
+              const editando = equipeEditando && eqUp(equipeEditando.nomeAntigo) === eqUp(eq.nome);
+              const integrantes = alocacoesDoDia
+                .filter(a => eqUp(a.equipe) === eqUp(eq.nome))
+                .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
               return (
                 <div 
                   key={`card-eq-${eq.nome}`} 
                   style={{ 
                     backgroundColor: '#fff', 
-                    border: estaBloqueada ? '2px solid #f59e0b' : '1px solid #cbd5e1', 
+                    border: concluida ? '2px solid #16a34a' : '1px solid #cbd5e1', 
                     borderRadius: '6px', 
                     overflow: 'hidden', 
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                    opacity: estaBloqueada ? 0.9 : 1 
+                    boxShadow: concluida ? '0 1px 4px rgba(22,163,74,0.25)' : '0 1px 3px rgba(0,0,0,0.05)'
                   }}
                 >
                   
-                  {estaBloqueada && (
-                    <div style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '4px 8px', fontSize: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
-                      <Lock style={{ width: '12px', height: '12px' }} /> RDO FINALIZADO
+                  {concluida && (
+                    <div style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '4px 8px', fontSize: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                      <CheckCircle2 style={{ width: '12px', height: '12px' }} /> EQUIPE CONCLUÍDA (RDO FINALIZADO)
                     </div>
                   )}
 
-                  <div style={{ backgroundColor: estaBloqueada ? '#334155' : '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{eq.nome}</div>
+                  <div style={{ backgroundColor: concluida ? '#166534' : '#0f172a', color: '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {editando ? (
+                        <form
+                          onSubmit={(e) => { e.preventDefault(); handleConfirmarRenomear(); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <input
+                            autoFocus
+                            type="text"
+                            value={equipeEditando.novoNome}
+                            onChange={(e) => setEquipeEditando({ ...equipeEditando, novoNome: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === 'Escape') setEquipeEditando(null); }}
+                            style={{ width: '100%', height: '24px', fontSize: '11px', fontWeight: 'bold', padding: '0 6px', border: '1px solid #cbd5e1', borderRadius: '3px', color: '#0f172a', boxSizing: 'border-box', textTransform: 'uppercase' }}
+                          />
+                          <button
+                            type="submit"
+                            title="Salvar novo nome"
+                            style={{ border: 'none', background: 'rgba(34,197,94,0.25)', color: '#bbf7d0', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Check style={{ width: '13px', height: '13px' }} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEquipeEditando(null)}
+                            title="Cancelar"
+                            style={{ border: 'none', background: 'rgba(255,255,255,0.15)', color: '#e2e8f0', borderRadius: '4px', padding: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                          >
+                            <X style={{ width: '13px', height: '13px' }} />
+                          </button>
+                        </form>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{ fontWeight: 'bold', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{eq.nome}</div>
+                          <button
+                            type="button"
+                            onClick={() => setEquipeEditando({ nomeAntigo: eq.nome, novoNome: eq.nome })}
+                            title="Renomear equipe"
+                            style={{ border: 'none', background: 'rgba(255,255,255,0.15)', color: '#e2e8f0', borderRadius: '4px', padding: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Pencil style={{ width: '11px', height: '11px' }} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ backgroundColor: '#334155', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold' }}>
+                      <span style={{ backgroundColor: concluida ? '#15803d' : '#334155', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                         {integrantes.length} Colaboradores
                       </span>
 
@@ -909,7 +1152,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                     </div>
                   </div>
 
-                  <div style={{ padding: '8px', minHeight: '120px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#fafafa' }}>
+                  <div style={{ padding: '8px', minHeight: '120px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: concluida ? '#f0fdf4' : '#fafafa' }}>
                     {integrantes.length === 0 ? (
                       <div style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '16px' }}>
                         Selecione colaboradores na caixa ao lado para alocar nesta equipe.
@@ -938,10 +1181,12 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                           return disponivelOuAtual && (placaMatch || marcaMatch || modeloMatch);
                         });
 
+                        const outrasEquipes = equipesDaObraAtiva.filter(e => eqUp(e.nome) !== eqUp(eq.nome));
+
                         return (
                           <div 
                             key={`${membro.id_funcionario}-${index}`} 
-                            style={{ padding: '8px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}
+                            style={{ padding: '8px', backgroundColor: '#fff', border: concluida ? '1px solid #bbf7d0' : '1px solid #e2e8f0', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
@@ -958,6 +1203,27 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                                 <X style={{ width: '14px', height: '14px' }} />
                               </button>
                             </div>
+
+                            {/* TROCAR DE EQUIPE */}
+                            {outrasEquipes.length > 0 && (
+                              <select
+                                defaultValue=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    handleAlocarParaEquipe(membro.id_funcionario, e.target.value);
+                                    e.target.value = "";
+                                  }
+                                }}
+                                style={{ fontSize: '9px', padding: '2px 4px', border: '1px solid #cbd5e1', borderRadius: '3px', backgroundColor: '#fff', color: '#1d4ed8', fontWeight: 'bold', cursor: 'pointer' }}
+                              >
+                                <option value="" disabled>⇄ Trocar de equipe...</option>
+                                {outrasEquipes.map(e => (
+                                  <option key={`troca-${membro.id_funcionario}-${e.nome}`} value={e.nome}>
+                                    {e.nome} {equipeEstaConcluida(e.nome) ? '✅' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                               <div style={{ position: 'relative', width: '100%' }}>
@@ -1064,10 +1330,12 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
               </thead>
               <tbody>
                 {(() => {
-                  const alocsFiltradas = alocacoesDoDia.filter(aloc => {
-                    if (filtroEquipeTabela === 'TODAS') return true;
-                    return String(aloc.equipe).toUpperCase().trim() === filtroEquipeTabela.toUpperCase().trim();
-                  });
+                  const alocsFiltradas = alocacoesDoDia
+                    .filter(aloc => {
+                      if (filtroEquipeTabela === 'TODAS') return true;
+                      return eqUp(aloc.equipe) === eqUp(filtroEquipeTabela);
+                    })
+                    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
 
                   if (alocsFiltradas.length === 0) {
                     return (
@@ -1082,6 +1350,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                   return alocsFiltradas.map((aloc, index) => {
                     const ehFolguista = String(aloc.equipe).toUpperCase().includes('FOLGUISTA') || 
                                         String(aloc.status_presenca).toUpperCase() === 'FOLGA';
+                    const concluida = equipeEstaConcluida(aloc.equipe);
                     const veiculoUtilizado = listaVeiculos.find(v => Number(v.id) === Number(aloc.id_veiculo));
 
                     return (
@@ -1089,7 +1358,7 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                         key={`aloc-row-${aloc.id_funcionario}-${index}`} 
                         style={{ 
                           borderBottom: '1px solid #e2e8f0', 
-                          backgroundColor: ehFolguista ? '#fef2f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc') 
+                          backgroundColor: ehFolguista ? '#fef2f2' : (concluida ? '#f0fdf4' : (index % 2 === 0 ? '#ffffff' : '#f8fafc')) 
                         }}
                       >
                         <td style={{ padding: '10px 12px' }}>
@@ -1099,8 +1368,8 @@ export default function DiarioEfetivo({ obrasDisponiveis = [], usuarioLogado }) 
                           <div style={{ fontSize: '9px', color: '#64748b' }}>MAT: {aloc.matricula || '—'}</div>
                         </td>
                         <td style={{ padding: '10px 12px', color: '#334155' }}>{aloc.cargo || '—'}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : '#1e3a8a' }}>
-                          {aloc.equipe || 'Geral'}
+                        <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ehFolguista ? '#b91c1c' : (concluida ? '#166534' : '#1e3a8a') }}>
+                          {aloc.equipe || 'Geral'} {concluida ? '✅' : ''}
                         </td>
                         <td style={{ padding: '10px 12px', fontWeight: '500', color: '#16a34a' }}>
                           {veiculoUtilizado ? `🚗 ${veiculoUtilizado.placa} (${veiculoUtilizado.modelo})` : '—'}
