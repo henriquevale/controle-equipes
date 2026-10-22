@@ -897,21 +897,17 @@ router.post('/gestor/remanezar-funcionario-vincular', async (req, res) => {
   }
 });
 
+
 // ========================================================
-// 17. GET: HISTÓRICO DE DIÁRIOS (PRODUÇÃO + MATERIAIS)
+// 1. HISTÓRICO DE DIÁRIOS E RDOs (COM MÉDIA COMPARATIVA)
 // ========================================================
+// --- ROTA DE HISTÓRICO DE DIÁRIOS (ATIVIDADES) ---
+// --- ROTA DE HISTÓRICO DE DIÁRIOS (ATIVIDADES) ---
 router.get('/gestor/historico-diarios', async (req, res) => {
   try {
     const { 
-      id, 
-      cargo, 
-      id_obra, 
-      tipo_obra, 
-      data_inicio, 
-      data_fim, 
-      status_rdo, 
-      status_operacional,
-      id_gestor_filtro 
+      id, cargo, id_obra, tipo_obra, data_inicio, data_fim, 
+      status_rdo, status_operacional, id_gestor_filtro 
     } = req.query;
 
     if (!id) {
@@ -919,22 +915,25 @@ router.get('/gestor/historico-diarios', async (req, res) => {
     }
 
     const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
-    const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'ADMIN' || cargoUpper === 'RH';
+    const isMaster = ['MASTER', 'ADMIN', 'RH'].includes(cargoUpper);
 
+    // SQL Principal da Tabela de Diários
     let sql = `
       SELECT
         r.data_diario,
         r.id_obra,
         r.equipe, 
         o.nome_obra,
+        o.codigo_obra,
         u.nome AS nome_gestor,
         IFNULL(c.status_rdo, 'PENDENTE') AS status_rdo,
         IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')) AS status_operacional,
         COUNT(DISTINCT r.id_funcionario) AS total_efetivo,
         GROUP_CONCAT(DISTINCT r.nome ORDER BY r.nome SEPARATOR ', ') AS nomes_efetivo,
         IFNULL(do.observacoes, '') AS observacoes,
+        do.id AS id_diario,
         (
-          SELECT GROUP_CONCAT(CONCAT(sub_da.tipo_servico, ': ', sub_da.quantidade) SEPARATOR '\n')
+          SELECT GROUP_CONCAT(CONCAT(sub_da.tipo_servico, ':', sub_da.quantidade) SEPARATOR '\n')
           FROM diario_atividades sub_da
           WHERE sub_da.id_diario = do.id
         ) AS servicos_resumo,
@@ -944,7 +943,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
           WHERE sub_da.id_diario = do.id
         ) AS total_quantidade_produzida,
         (
-          SELECT GROUP_CONCAT(CONCAT(dma.material_nome, ': ', dma.quantidade) SEPARATOR '\n')
+          SELECT GROUP_CONCAT(CONCAT(dma.material_nome, ':', dma.quantidade) SEPARATOR '\n')
           FROM diario_materiais_apontados dma
           WHERE dma.id_diario = do.id
         ) AS materiais_resumo
@@ -976,19 +975,22 @@ router.get('/gestor/historico-diarios', async (req, res) => {
         sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
         params.push(Number(id), Number(id));
       }
-    } else {
-      if (id_gestor_filtro && id_gestor_filtro !== '' && id_gestor_filtro !== 'TODOS') {
-        sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
-        params.push(Number(id_gestor_filtro), Number(id_gestor_filtro));
-      }
+    } else if (id_gestor_filtro && id_gestor_filtro !== 'TODOS') {
+      sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
+      params.push(Number(id_gestor_filtro), Number(id_gestor_filtro));
     }
 
-    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
-      sql += ` AND r.id_obra = ? `;
-      params.push(Number(id_obra));
+    const obrasArray = id_obra && id_obra !== 'TODAS' 
+      ? String(id_obra).split(',').map(v => v.trim()).filter(Boolean) 
+      : [];
+
+    if (obrasArray.length > 0) {
+      const placeholders = obrasArray.map(() => '?').join(',');
+      sql += ` AND r.id_obra IN (${placeholders}) `;
+      params.push(...obrasArray.map(Number));
     }
 
-    if (tipo_obra && tipo_obra !== '' && tipo_obra !== 'TODOS') {
+    if (tipo_obra && tipo_obra !== 'TODOS') {
       const tiposArray = Array.isArray(tipo_obra) 
         ? tipo_obra 
         : String(tipo_obra).split(',').map(t => t.trim()).filter(Boolean);
@@ -1005,7 +1007,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
       params.push(data_inicio, data_fim);
     }
 
-    if (status_rdo && status_rdo !== '' && status_rdo !== 'TODOS') {
+    if (status_rdo && status_rdo !== 'TODOS') {
       if (status_rdo.toUpperCase() === 'PENDENTE') {
         sql += ` AND (c.status_rdo IS NULL OR UPPER(TRIM(c.status_rdo)) = 'PENDENTE') `;
       } else {
@@ -1014,45 +1016,205 @@ router.get('/gestor/historico-diarios', async (req, res) => {
       }
     }
 
-    if (status_operacional && status_operacional !== '' && status_operacional !== 'TODOS') {
+    if (status_operacional && status_operacional !== 'TODOS') {
       const stOp = status_operacional.toUpperCase().trim();
-      
-      if (stOp === 'OUTROS') {
-        sql += ` 
-          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%NORMAL%'
-          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%CHOVEU%'
-          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%CHUVA%'
-          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%MATERIAL%'
-          AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) NOT LIKE '%INSUMO%'
-        `;
-      } else {
-        sql += ` AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) LIKE ? `;
-        params.push(`%${stOp}%`);
-      }
+      sql += ` AND UPPER(TRIM(IFNULL(c.status_operacional, IFNULL(do.status, 'NORMAL')))) LIKE ? `;
+      params.push(`%${stOp}%`);
     }
 
     sql += `
       GROUP BY 
-        r.data_diario, 
-        r.id_obra, 
-        r.equipe, 
-        o.nome_obra, 
-        u.nome, 
-        c.status_rdo, 
-        c.status_operacional,
-        do.status,
-        do.observacoes, 
-        do.id
+        r.data_diario, r.id_obra, r.equipe, o.nome_obra, o.codigo_obra, 
+        u.nome, c.status_rdo, c.status_operacional, do.status, do.observacoes, do.id
       ORDER BY r.data_diario DESC, r.equipe ASC
     `;
 
     const [resultados] = await db.execute(sql, params);
+
+    // --- CÁLCULO DA MÉDIA DE CADA ATIVIDADE NAS OUTRAS OBRAS (COMPATÍVEL COM ONLY_FULL_GROUP_BY) ---
+    let sqlMediaAtividades = `
+      SELECT 
+        sub_da.atividade AS atividade,
+        IFNULL(AVG(sub_da.qtd_por_obra), 0) AS media_por_obra
+      FROM (
+        SELECT 
+          sub_do.id_obra,
+          UPPER(TRIM(sub_da_in.tipo_servico)) AS atividade,
+          SUM(sub_da_in.quantidade) AS qtd_por_obra
+        FROM diario_atividades sub_da_in
+        INNER JOIN diario_obra sub_do ON sub_da_in.id_diario = sub_do.id
+        WHERE 1=1
+    `;
+    const paramsMedia = [];
+
+    if (data_inicio && data_fim) {
+      sqlMediaAtividades += ` AND sub_do.data_diario BETWEEN ? AND ? `;
+      paramsMedia.push(data_inicio, data_fim);
+    } else {
+      sqlMediaAtividades += ` AND sub_do.data_diario >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) `;
+    }
+
+    if (obrasArray.length > 0) {
+      const placeholders = obrasArray.map(() => '?').join(',');
+      sqlMediaAtividades += ` AND sub_do.id_obra NOT IN (${placeholders}) `;
+      paramsMedia.push(...obrasArray.map(Number));
+    }
+
+    sqlMediaAtividades += `
+        GROUP BY sub_do.id_obra, UPPER(TRIM(sub_da_in.tipo_servico))
+      ) AS sub_da
+      GROUP BY sub_da.atividade
+    `;
+
+    const [resMediaAtividades] = await db.execute(sqlMediaAtividades, paramsMedia);
+    
+    const mapaMediaAtividades = {};
+    (resMediaAtividades || []).forEach(row => {
+      if (row.atividade) {
+        mapaMediaAtividades[row.atividade] = Number(parseFloat(row.media_por_obra || 0).toFixed(2));
+      }
+    });
+
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.json(resultados);
+    res.json({
+      lista: resultados,
+      media_outras_obras: mapaMediaAtividades
+    });
 
   } catch (error) {
     console.error("Erro na rota de histórico de diários:", error);
     res.status(500).json({ error: "Erro interno no servidor ao carregar histórico." });
+  }
+});
+
+
+// --- ROTA DE HISTÓRICO DE MATERIAIS ---
+router.get('/gestor/historico-materiais', async (req, res) => {
+  try {
+    const { id, cargo, id_obra, tipo_obra, data_inicio, data_fim } = req.query;
+
+    if (!id) {
+      return res.status(400).json({ error: "ID numérico do usuário não foi fornecido." });
+    }
+
+    let sql = `
+      SELECT 
+        r.data_diario,
+        r.id_obra,
+        r.equipe,
+        o.nome_obra,
+        o.codigo_obra,
+        COUNT(DISTINCT r.id_funcionario) AS total_efetivo,
+        GROUP_CONCAT(DISTINCT r.nome ORDER BY r.nome SEPARATOR ', ') AS nomes_efetivo,
+        IFNULL(do.observacoes, '') AS observacoes,
+        do.id,
+        (
+          SELECT GROUP_CONCAT(CONCAT(dma.material_nome, ':', dma.quantidade) SEPARATOR '\n')
+          FROM diario_materiais_apontados dma
+          WHERE dma.id_diario = do.id
+        ) AS materiais_resumo
+      FROM diario_efetivo r
+      INNER JOIN obras o ON r.id_obra = o.id
+      LEFT JOIN diario_obra do ON do.id_obra = r.id_obra AND do.data_diario = r.data_diario AND do.equipe = r.equipe
+      LEFT JOIN controle_diarios_equipe cde 
+        ON cde.id_obra = r.id_obra 
+        AND cde.data_diario = r.data_diario 
+        AND UPPER(TRIM(cde.equipe)) = UPPER(TRIM(r.equipe))
+      WHERE 1=1
+        AND (cde.status_rdo IS NULL OR TRIM(UPPER(cde.status_rdo)) <> 'PENDENTE')
+    `;
+
+    const params = [];
+    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
+
+    if (cargoUpper !== 'MASTER' && cargoUpper !== 'RH') {
+      if (cargoUpper === 'ENGENHARIA') {
+        sql += ` AND r.id_obra IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?) `;
+        params.push(Number(id));
+      } else if (data_inicio && data_fim) {
+        sql += ` AND r.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?) `;
+        params.push(Number(id));
+      } else {
+        sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
+        params.push(Number(id), Number(id));
+      }
+    }
+
+    const obrasArray = id_obra && id_obra !== '' && id_obra !== 'TODAS'
+      ? String(id_obra).split(',').map(v => v.trim()).filter(Boolean)
+      : [];
+
+    if (obrasArray.length > 0) {
+      const placeholders = obrasArray.map(() => '?').join(',');
+      sql += ` AND r.id_obra IN (${placeholders}) `;
+      params.push(...obrasArray.map(Number));
+    }
+
+    if (data_inicio && data_fim) {
+      sql += ` AND r.data_diario BETWEEN ? AND ? `;
+      params.push(data_inicio, data_fim);
+    }
+
+    sql += `
+      GROUP BY r.data_diario, r.id_obra, r.equipe, o.nome_obra, o.codigo_obra, do.observacoes, do.id
+      ORDER BY r.data_diario DESC, r.equipe ASC
+    `;
+
+    const [resultadosTabela] = await db.execute(sql, params);
+
+    // --- CÁLCULO DA MÉDIA DE CADA MATERIAL NAS OUTRAS OBRAS (COMPATÍVEL COM ONLY_FULL_GROUP_BY) ---
+    let sqlMediaMateriais = `
+      SELECT 
+        sub_dm.material AS material,
+        IFNULL(AVG(sub_dm.qtd_por_obra), 0) AS media_por_obra
+      FROM (
+        SELECT 
+          sub_do.id_obra,
+          UPPER(TRIM(sub_dm_in.material_nome)) AS material,
+          SUM(sub_dm_in.quantidade) AS qtd_por_obra
+        FROM diario_materiais_apontados sub_dm_in
+        INNER JOIN diario_obra sub_do ON sub_dm_in.id_diario = sub_do.id
+        WHERE 1=1
+    `;
+    const paramsMediaMat = [];
+
+    if (data_inicio && data_fim) {
+      sqlMediaMateriais += ` AND sub_do.data_diario BETWEEN ? AND ? `;
+      paramsMediaMat.push(data_inicio, data_fim);
+    } else {
+      sqlMediaMateriais += ` AND sub_do.data_diario >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) `;
+    }
+
+    if (obrasArray.length > 0) {
+      const placeholders = obrasArray.map(() => '?').join(',');
+      sqlMediaMateriais += ` AND sub_do.id_obra NOT IN (${placeholders}) `;
+      paramsMediaMat.push(...obrasArray.map(Number));
+    }
+
+    sqlMediaMateriais += `
+        GROUP BY sub_do.id_obra, UPPER(TRIM(sub_dm_in.material_nome))
+      ) AS sub_dm
+      GROUP BY sub_dm.material
+    `;
+
+    const [resMediaMateriais] = await db.execute(sqlMediaMateriais, paramsMediaMat);
+
+    const mapaMediaMateriais = {};
+    (resMediaMateriais || []).forEach(row => {
+      if (row.material) {
+        mapaMediaMateriais[row.material] = Number(parseFloat(row.media_por_obra || 0).toFixed(2));
+      }
+    });
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.json({
+      lista: resultadosTabela,
+      media_outras_obras: mapaMediaMateriais
+    });
+
+  } catch (error) {
+    console.error("❌ Erro na rota de histórico de materiais:", error);
+    res.status(500).json({ error: "Erro interno no servidor ao processar histórico de materiais." });
   }
 });
 
@@ -1249,110 +1411,7 @@ router.get('/gestor/status-diarios-consolidado', async (req, res) => {
   }
 });
 
-// ========================================================
-// HISTÓRICO DE MATERIAIS
-// ========================================================
-router.get('/gestor/historico-materiais', async (req, res) => {
-  try {
-    const { id, cargo, id_obra, data_inicio, data_fim } = req.query;
 
-    if (!id) {
-      return res.status(400).json({ error: "ID numérico do usuário não foi fornecido." });
-    }
-
-    let sql = `
-      SELECT 
-        r.data_diario,
-        r.id_obra,
-        r.equipe,
-        o.nome_obra,
-        o.codigo_obra,
-        COUNT(DISTINCT r.id_funcionario) AS total_efetivo,
-        GROUP_CONCAT(DISTINCT r.nome ORDER BY r.nome SEPARATOR ', ') AS nomes_efetivo,
-        IFNULL(do.observacoes, '') AS observacoes,
-        do.id
-      FROM diario_efetivo r
-      INNER JOIN obras o ON r.id_obra = o.id
-      LEFT JOIN diario_obra do ON do.id_obra = r.id_obra AND do.data_diario = r.data_diario AND do.equipe = r.equipe
-      LEFT JOIN controle_diarios_equipe cde 
-        ON cde.id_obra = r.id_obra 
-        AND cde.data_diario = r.data_diario 
-        AND UPPER(TRIM(cde.equipe)) = UPPER(TRIM(r.equipe))
-      WHERE 1=1
-        AND (cde.status_rdo IS NULL OR TRIM(UPPER(cde.status_rdo)) <> 'PENDENTE')
-    `;
-
-    const params = [];
-
-    const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
-
-    if (cargoUpper !== 'MASTER' && cargoUpper !== 'RH') {
-      if (cargoUpper === 'ENGENHARIA') {
-        sql += ` AND r.id_obra IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?) `;
-        params.push(Number(id));
-      } else if (data_inicio && data_fim) {
-        sql += ` AND r.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?) `;
-        params.push(Number(id));
-      } else {
-        sql += ` AND (do.id_gestor = ? OR r.id_gestor = ?) `;
-        params.push(Number(id), Number(id));
-      }
-    }
-
-    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
-      sql += ` AND r.id_obra = ? `;
-      params.push(Number(id_obra));
-    }
-
-    if (data_inicio && data_fim) {
-      sql += ` AND r.data_diario BETWEEN ? AND ? `;
-      params.push(data_inicio, data_fim);
-    }
-
-    sql += `
-      GROUP BY r.data_diario, r.id_obra, r.equipe, o.nome_obra, o.codigo_obra, do.observacoes, do.id
-      ORDER BY r.data_diario DESC, r.equipe ASC
-    `;
-
-    const [resultadosTabela] = await db.execute(sql, params);
-
-    let sqlGrafico = `
-      SELECT 
-        dm.material_nome AS material,
-        SUM(dm.quantidade) AS total_quantidade
-      FROM diario_materiais_apontados dm
-      INNER JOIN diario_obra do ON dm.id_diario = do.id
-      WHERE do.id_obra = ?
-    `;
-    const paramsGrafico = [Number(id_obra)];
-
-    if (data_inicio && data_fim) {
-      sqlGrafico += ` AND do.data_diario BETWEEN ? AND ? `;
-      paramsGrafico.push(data_inicio, data_fim);
-    }
-
-    sqlGrafico += `
-      GROUP BY dm.material_nome
-      ORDER BY total_quantidade DESC
-    `;
-
-    let resultadosGrafico = [];
-    if (id_obra && id_obra !== 'TODAS') {
-      const [dadosGrafico] = await db.execute(sqlGrafico, paramsGrafico);
-      resultadosGrafico = dadosGrafico;
-    }
-
-    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.json({
-      lista: resultadosTabela,
-      materials_grafico: resultadosGrafico
-    });
-
-  } catch (error) {
-    console.error("❌ Erro na rota de histórico de materiais:", error);
-    res.status(500).json({ error: "Erro interno no servidor ao processar histórico de materiais." });
-  }
-});
 
 // ========================================================
 // GET: LISTAR VEÍCULOS COM COLABORADORES E EQUIPES

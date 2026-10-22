@@ -5,24 +5,37 @@ import {
   Users, 
   Filter, 
   Download, 
-  Trash2, 
   Layers, 
   Package, 
-  X, 
-  Image as ImageIcon 
+  X
 } from 'lucide-react';
-import { Bar } from 'react-chartjs-2';
+import { Chart as ChartComponent } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  PointElement,
+  LineElement,
+  BarController,
+  LineController,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+ChartJS.register(
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  PointElement, 
+  LineElement, 
+  BarController,
+  LineController,
+  Title, 
+  Tooltip, 
+  Legend
+);
 
 const API_URL = 'http://localhost:3001/api';
 
@@ -32,10 +45,8 @@ const ABAS = [
 ];
 
 export default function HistoricoDiarios({ id, cargo }) {
-  // --- ESTADOS DE NAVEGAÇÃO E FILTROS ---
   const [abaAtiva, setAbaAtiva] = useState('ATIVIDADES');
   
-  // MULTI-SELEÇÃO DE OBRAS E TIPOS
   const [obrasSelecionadas, setObrasSelecionadas] = useState([]);
   const [isOpenObras, setIsOpenObras] = useState(false);
   
@@ -48,24 +59,20 @@ export default function HistoricoDiarios({ id, cargo }) {
   const [statusOperacionalFiltro, setStatusOperacionalFiltro] = useState(''); 
   const [idGestorFiltro, setIdGestorFiltro] = useState(''); 
 
-  // --- ESTADOS DE DADOS ---
   const [tiposDisponiveis, setTiposDisponiveis] = useState([]);
   const [obras, setObras] = useState([]);
   const [gestores, setGestores] = useState([]); 
   const [listaDiarios, setListaDiarios] = useState([]);
+  const [mapaMedias, setMapaMedias] = useState({});
   const [loading, setLoading] = useState(false);
 
-  // --- ESTADOS DE MODAIS ---
   const [diarioSelecionado, setDiarioSelecionado] = useState(null);
   const [modalExcluir, setModalExcluir] = useState(null);
-  const [fotosModal, setFotosModal] = useState(null);
-  const [imagemZoom, setImagemZoom] = useState(null);
   const [processandoAcao, setProcessandoAcao] = useState(false);
 
   const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
   const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'ADMIN' || cargoUpper === 'RH';
 
-  // --- REQUISIÇÕES DE SUPORTE ---
   useEffect(() => {
     const carregarTiposObra = async () => {
       if (!id) return;
@@ -106,12 +113,15 @@ export default function HistoricoDiarios({ id, cargo }) {
     }
   }, [isMaster]);
 
-  // --- BUSCA HISTÓRICO ---
   const buscarHistorico = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
-      const res = await axios.get(`${API_URL}/gestor/historico-diarios`, {
+      const endpoint = abaAtiva === 'ATIVIDADES' 
+        ? `${API_URL}/gestor/historico-diarios`
+        : `${API_URL}/gestor/historico-materiais`;
+
+      const res = await axios.get(endpoint, {
         params: { 
           id,                  
           cargo,            
@@ -126,21 +136,22 @@ export default function HistoricoDiarios({ id, cargo }) {
         }
       });
       
-      const lista = Array.isArray(res.data) ? res.data : (res.data.diarios || res.data.dados || []);
+      const lista = Array.isArray(res.data) ? res.data : (res.data.lista || res.data.diarios || res.data.dados || []);
       setListaDiarios(lista);
+      setMapaMedias(res.data?.media_outras_obras && typeof res.data.media_outras_obras === 'object' ? res.data.media_outras_obras : {});
     } catch (err) {
       console.error("Erro ao buscar histórico do banco:", err);
       setListaDiarios([]);
+      setMapaMedias({});
     } finally {
       setLoading(false);
     }
-  }, [id, cargo, obrasSelecionadas, tiposSelecionados, dataInicio, dataFim, statusFiltro, statusOperacionalFiltro, idGestorFiltro]);
+  }, [id, cargo, abaAtiva, obrasSelecionadas, tiposSelecionados, dataInicio, dataFim, statusFiltro, statusOperacionalFiltro, idGestorFiltro]);
 
   useEffect(() => {
     buscarHistorico();
   }, [buscarHistorico]);
 
-  // --- EXCLUSÃO DE RDO ---
   const handleExcluirRdo = async () => {
     if (!modalExcluir) return;
     try {
@@ -156,49 +167,90 @@ export default function HistoricoDiarios({ id, cargo }) {
     }
   };
 
-  // --- PROCESSAMENTO DE DADOS (ATIVIDADES E MATERIAIS) ---
+  // --- PARSER DE DADOS PARA EXTRAIR NOME E QUANTIDADE ---
+  const extrairItemEQuantidade = (linha) => {
+    if (!linha || !linha.trim()) return null;
+    const formatado = linha.replace(/^[•\-*]\s*/, '').trim();
+    
+    let descricao = formatado;
+    let quantidade = 0;
+
+    if (formatado.includes(':')) {
+      const parts = formatado.split(':');
+      descricao = parts[0].trim();
+      quantidade = parseFloat(parts[1].replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+    } else if (/\(([^)]+)\)/.test(formatado)) {
+      const match = formatado.match(/(.*?)\(([^)]+)\)/);
+      if (match) {
+        descricao = match[1].trim();
+        quantidade = parseFloat(match[2].replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+      }
+    } else {
+      quantidade = 1;
+    }
+
+    return { descricao: descricao || 'Item', quantidade };
+  };
+
+  // --- CONVERSÃO E EXTRAÇÃO DE ATIVIDADES ---
   const atividadesExtraidas = useMemo(() => {
     return listaDiarios.flatMap(rdo => {
       if (rdo.atividades && Array.isArray(rdo.atividades)) {
-        return rdo.atividades.map(a => ({ ...a, rdo }));
+        return rdo.atividades.map(a => ({
+          descricao: a.descricao || a.nome || a.atividade || 'Atividade sem nome',
+          quantidade: parseFloat(a.quantidade || a.qtd || 0) || 0,
+          unidade: a.unidade || 'UN',
+          rdo
+        }));
       }
       if (!rdo.servicos_resumo) return [];
       
       return rdo.servicos_resumo.split(/[\n,]+/).map(linha => {
-        if (!linha.trim()) return null;
-        const formatado = linha.replace(/^[•\-*]\s*/, '').trim();
-        const idx = formatado.lastIndexOf(':');
-        if (idx === -1) return null;
-        const descricao = formatado.substring(0, idx).trim();
-        const qtdTexto = formatado.substring(idx + 1).trim();
-        const quantidade = parseFloat(qtdTexto.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
-        return { descricao, quantidade, unidade: 'UN', rdo };
+        const item = extrairItemEQuantidade(linha);
+        return item ? { ...item, unidade: 'UN', rdo } : null;
       }).filter(Boolean);
     });
   }, [listaDiarios]);
 
+  // --- CONVERSÃO E EXTRAÇÃO DE MATERIAIS ---
   const materiaisExtraidos = useMemo(() => {
     return listaDiarios.flatMap(rdo => {
-      if (rdo.materiais && Array.isArray(rdo.materiais)) {
-        return rdo.materiais.map(m => ({ ...m, rdo }));
+      const mat = rdo.materiais || rdo.materiais_resumo || rdo.insumos || rdo.insumos_resumo;
+      if (!mat) return [];
+
+      if (Array.isArray(mat)) {
+        return mat.map(m => ({
+          descricao: m.descricao || m.nome || m.material || 'Material sem nome',
+          quantidade: parseFloat(m.quantidade || m.qtd || 0) || 0,
+          unidade: m.unidade || m.und || 'UN',
+          rdo
+        }));
       }
+
+      if (typeof mat === 'string') {
+        return mat.split(/[\n,]+/).map(linha => {
+          const item = extrairItemEQuantidade(linha);
+          return item ? { ...item, unidade: 'UN', rdo } : null;
+        }).filter(Boolean);
+      }
+
       return [];
     });
   }, [listaDiarios]);
 
-  // --- EXPORTAÇÃO DE PLANILHA CSV ---
   const handleExportarPlanilha = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
     
     if (abaAtiva === 'ATIVIDADES') {
-      csvContent += "Data;Obra;Equipe;Atividade;Quantidade;Unidade;Status RDO\n";
-      atividadesExtraidas.forEach(a => {
-        csvContent += `${formatarDataExibicao(a.rdo.data_diario)};${a.rdo.nome_obra || ''};${a.rdo.equipe || ''};${a.descricao};${a.quantidade};${a.unidade || 'UN'};${a.rdo.status_rdo || ''}\n`;
+      csvContent += "Data;Obra;Equipe;Status RDO;Status Operacional;Atividades (Qtd)\n";
+      listaDiarios.forEach(rdo => {
+        const servicos = (rdo.servicos_resumo || 'Sem registro').replace(/\n/g, ' | ').replace(/;/g, ',');
+        csvContent += `"${formatarDataExibicao(rdo.data_diario)}";"${rdo.nome_obra || ''}";"${rdo.equipe || ''}";"${rdo.status_rdo || 'PENDENTE'}";"${rdo.status_operacional || 'NORMAL'}";"${servicos}"\n`;
       });
     } else {
       csvContent += "Data;Obra;Equipe;Material;Quantidade;Unidade;Status RDO\n";
       materiaisExtraidos.forEach(m => {
-        csvContent += `${formatarDataExibicao(m.rdo.data_diario)};${m.rdo.nome_obra || ''};${m.rdo.equipe || ''};${m.descricao};${m.quantidade};${m.unidade || 'UN'};${m.rdo.status_rdo || ''}\n`;
+        csvContent += `"${formatarDataExibicao(m.rdo.data_diario)}";"${m.rdo.nome_obra || ''}";"${m.rdo.equipe || ''}";"${m.descricao}";"${m.quantidade}";"${m.unidade || 'UN'}";"${m.rdo.status_rdo || ''}"\n`;
       });
     }
 
@@ -211,34 +263,94 @@ export default function HistoricoDiarios({ id, cargo }) {
     document.body.removeChild(link);
   };
 
-  // --- CONSTRUÇÃO DO GRÁFICO DA ABA ATIVIDADES ---
+  // --- MONTAGEM DO GRÁFICO DE ATIVIDADES ---
   const processarDadosAtividadesGrafico = () => {
     const totaisAtividades = {};
     let somaGeral = 0;
 
     atividadesExtraidas.forEach(a => {
-      const nome = a.descricao.toUpperCase();
-      totaisAtividades[nome] = (totaisAtividades[nome] || 0) + a.quantidade;
-      somaGeral += a.quantidade;
+      const nome = String(a.descricao || 'OUTROS').toUpperCase();
+      totaisAtividades[nome] = (totaisAtividades[nome] || 0) + (Number(a.quantidade) || 0);
+      somaGeral += (Number(a.quantidade) || 0);
     });
 
     const labels = Object.keys(totaisAtividades);
+    const mediaValores = labels.map(label => mapaMedias[label] || 0);
+
     return {
       dicionarioItens: totaisAtividades,
       totalGeral: somaGeral,
       chartData: {
         labels: labels,
-        datasets: [{
-          label: 'Quantidade Total Produzida',
-          data: Object.values(totaisAtividades),
-          backgroundColor: '#10b981', 
-          borderRadius: 4,
-        }]
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Quantidade Total Produzida',
+            data: Object.values(totaisAtividades),
+            backgroundColor: '#10b981', 
+            borderRadius: 4,
+          },
+          {
+            type: 'line',
+            label: 'Média Outras Obras (Por Atividade)',
+            data: mediaValores,
+            borderColor: '#f59e0b',
+            backgroundColor: '#f59e0b',
+            borderWidth: 2,
+            pointRadius: 4,
+            tension: 0.1,
+            fill: false
+          }
+        ]
+      }
+    };
+  };
+
+  // --- MONTAGEM DO GRÁFICO DE MATERIAIS ---
+  const processarDadosMateriaisGrafico = () => {
+    const totaisMateriais = {};
+    let somaGeral = 0;
+
+    materiaisExtraidos.forEach(m => {
+      const nome = String(m.descricao || 'OUTROS').toUpperCase();
+      totaisMateriais[nome] = (totaisMateriais[nome] || 0) + (Number(m.quantidade) || 0);
+      somaGeral += (Number(m.quantidade) || 0);
+    });
+
+    const labels = Object.keys(totaisMateriais);
+    const mediaValores = labels.map(label => mapaMedias[label] || 0);
+
+    return {
+      dicionarioMateriais: totaisMateriais,
+      totalGeralMateriais: somaGeral,
+      chartDataMateriais: {
+        labels: labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Quantidade Total Consumida',
+            data: Object.values(totaisMateriais),
+            backgroundColor: '#3b82f6', 
+            borderRadius: 4,
+          },
+          {
+            type: 'line',
+            label: 'Média Outras Obras (Por Material)',
+            data: mediaValores,
+            borderColor: '#f59e0b',
+            backgroundColor: '#f59e0b',
+            borderWidth: 2,
+            pointRadius: 4,
+            tension: 0.1,
+            fill: false
+          }
+        ]
       }
     };
   };
 
   const { chartData, dicionarioItens, totalGeral } = processarDadosAtividadesGrafico();
+  const { chartDataMateriais, dicionarioMateriais, totalGeralMateriais } = processarDadosMateriaisGrafico();
 
   const handleToggleTipo = (tipo) => {
     setTiposSelecionados(prev => prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo]);
@@ -255,86 +367,40 @@ export default function HistoricoDiarios({ id, cargo }) {
     return `${dia}/${mes}/${ano}`;
   };
 
+  const renderizarBadgeStatusRdo = (statusRdo) => {
+    const isFinalizado = String(statusRdo).toUpperCase().trim() === 'FINALIZADO';
+    return (
+      <span style={{
+        padding: '3px 8px',
+        borderRadius: '4px',
+        fontWeight: 'bold',
+        fontSize: '10px',
+        backgroundColor: isFinalizado ? '#dcfce7' : '#fef9c3',
+        color: isFinalizado ? '#15803d' : '#854d0e',
+        border: isFinalizado ? '1px solid #86efac' : '1px solid #fef08a'
+      }}>
+        {isFinalizado ? '✓ CONCLUÍDO' : '⏳ PENDENTE'}
+      </span>
+    );
+  };
+
   const renderizarBadgeStatusOperacional = (statusOp) => {
     const st = statusOp ? String(statusOp).toUpperCase().trim() : 'NORMAL';
 
-    if (st.includes('NORMAL')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc' }}>
-          ✓ NORMAL
-        </span>
-      );
-    }
-    if (st.includes('CHUVA') || st.includes('CHOVEU')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0e7ff', color: '#3730a3', border: '1px solid #a5b4fc' }}>
-          🌧️ CHUVA
-        </span>
-      );
-    }
-    if (st.includes('MATERIAL')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
-          ⚠️ SEM MATERIAL
-        </span>
-      );
-    }
-    if (st.includes('EQUIPAMENTO')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#ffedd5', color: '#c2410c', border: '1px solid #fed7aa' }}>
-          ⚙️ SEM EQUIPAMENTO
-        </span>
-      );
-    }
-    if (st.includes('APOIO')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #86efac' }}>
-          🤝 APOIO
-        </span>
-      );
-    }
-    if (st.includes('SEM ATIVIDADE')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f3f4f6', color: '#4b5563', border: '1px solid #d1d5db' }}>
-          ⏸️ SEM ATIVIDADE
-        </span>
-      );
-    }
-    if (st.includes('FOLGA') || st.includes('FDS')) {
-      return (
-        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fde047' }}>
-          🏖️ FOLGA / FDS
-        </span>
-      );
-    }
+    if (st.includes('NORMAL')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc' }}>✓ NORMAL</span>;
+    if (st.includes('CHUVA') || st.includes('CHOVEU')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#e0e7ff', color: '#3730a3', border: '1px solid #a5b4fc' }}>🌧️ CHUVA</span>;
+    if (st.includes('MATERIAL')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>⚠️ SEM MATERIAL</span>;
+    if (st.includes('EQUIPAMENTO')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#ffedd5', color: '#c2410c', border: '1px solid #fed7aa' }}>⚙️ SEM EQUIPAMENTO</span>;
+    if (st.includes('APOIO')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #86efac' }}>🤝 APOIO</span>;
+    if (st.includes('SEM ATIVIDADE')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f3f4f6', color: '#4b5563', border: '1px solid #d1d5db' }}>⏸️ SEM ATIVIDADE</span>;
+    if (st.includes('FOLGA') || st.includes('FDS')) return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fde047' }}>🏖️ FOLGA / FDS</span>;
 
-    return (
-      <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}>
-        {st}
-      </span>
-    );
+    return <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}>{st}</span>;
   };
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: '#f8fafc', minHeight: '100vh', boxSizing: 'border-box' }}>
       
-      {/* CABEÇALHO COM TÍTULO E BOTÃO EXPORTAR */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', backgroundColor: '#fff', padding: '16px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '18px', color: '#0f172a' }}>Histórico de Produção e Materiais</h1>
-          <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '12px' }}>
-            Acompanhe o volume acumulado de atividades executadas e o consumo de insumos na obra.
-          </p>
-        </div>
-        <button 
-          onClick={handleExportarPlanilha} 
-          disabled={listaDiarios.length === 0}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', opacity: listaDiarios.length === 0 ? 0.6 : 1 }}
-        >
-          <Download style={{ width: '15px' }} /> Baixar Planilha
-        </button>
-      </div>
-
       {/* ABAS DE NAVEGAÇÃO */}
       <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #cbd5e1' }}>
         {ABAS.map(aba => {
@@ -365,8 +431,8 @@ export default function HistoricoDiarios({ id, cargo }) {
         })}
       </div>
 
-      {/* SEÇÃO DE FILTROS */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '14px' }}>
+      {/* FILTROS DE HISTÓRICO */}
+      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '14px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold', color: '#1e293b', marginBottom: '12px' }}>
           <Filter style={{ width: '16px', color: '#2563eb' }} /> FILTROS DE HISTÓRICO
         </div>
@@ -386,7 +452,6 @@ export default function HistoricoDiarios({ id, cargo }) {
             </div>
           )}
 
-          {/* MULTI-SELECT TIPO DE OBRA */}
           <div style={{ position: 'relative' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#334155', fontSize: '11px' }}>
               TIPO DE OBRA ({tiposSelecionados.length > 0 ? `${tiposSelecionados.length} sel.` : 'TODOS'})
@@ -416,7 +481,6 @@ export default function HistoricoDiarios({ id, cargo }) {
             )}
           </div>
 
-          {/* MULTI-SELECT OBRA VINCULADA */}
           <div style={{ position: 'relative' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#334155', fontSize: '11px' }}>
               OBRA VINCULADA ({obrasSelecionadas.length > 0 ? `${obrasSelecionadas.length} sel.` : 'TODAS'})
@@ -463,7 +527,6 @@ export default function HistoricoDiarios({ id, cargo }) {
             </select>
           </div>
 
-          {/* FILTRO DE STATUS OPERACIONAL ATUALIZADO */}
           <div>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px', color: '#334155', fontSize: '11px' }}>STATUS OPERACIONAL</label>
             <select value={statusOperacionalFiltro} onChange={e => setStatusOperacionalFiltro(e.target.value)} style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }}>
@@ -489,9 +552,33 @@ export default function HistoricoDiarios({ id, cargo }) {
             <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={{ width: '100%', height: '36px', padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: '#fff' }} />
           </div>
         </div>
+
+        <div style={{ borderTop: '1px solid #f1f5f9', marginTop: '12px', paddingTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={handleExportarPlanilha}
+            disabled={listaDiarios.length === 0}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#64748b',
+              fontSize: '11px',
+              fontWeight: '600',
+              cursor: listaDiarios.length === 0 ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              opacity: listaDiarios.length === 0 ? 0.5 : 1
+            }}
+            title="Baixar dados filtrados em formato CSV"
+          >
+            <Download style={{ width: '13px', height: '13px' }} /> Exportar Planilha (CSV)
+          </button>
+        </div>
       </div>
 
-      {/* --- CONTEÚDO DA ABA: PRODUÇÃO POR ATIVIDADE --- */}
+      {/* --- ABA ATIVIDADES --- */}
       {abaAtiva === 'ATIVIDADES' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {loading ? (
@@ -515,48 +602,69 @@ export default function HistoricoDiarios({ id, cargo }) {
                       <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#2563eb' }}>{totalGeral.toLocaleString('pt-BR')}</span>
                     </div>
                   </div>
-                  <div style={{ height: '220px' }}>
-                    <Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }} />
+                  <div style={{ position: 'relative', width: '100%', minHeight: '320px' }}>
+                    <ChartComponent 
+                      type='bar'
+                      data={chartData} 
+                      options={{ 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        plugins: { 
+                          legend: { display: true, position: 'top' } 
+                        } 
+                      }} 
+                    />
                   </div>
                 </div>
               )}
 
               <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '12px' }}>
-                <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a' }}>Listagem detalhada das atividades</h3>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a' }}>Listagem Detalhada dos Diários de Obra</h3>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                     <thead>
-                      <tr style={{ backgroundColor: '#f1f5f9' }}>
-                        <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>DATA</th>
-                        <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>OBRA</th>
-                        <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>EQUIPE</th>
-                        <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>ATIVIDADE</th>
-                        <th style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>QTD</th>
-                        <th style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>AÇÕES</th>
+                      <tr style={{ backgroundColor: '#f1f5f9', color: '#334155', textTransform: 'uppercase' }}>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>DATA / OBRA</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>EQUIPE</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', textAlign: 'center' }}>STATUS RDO</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', textAlign: 'center' }}>STATUS OPERACIONAL</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>ATIVIDADES E QUANTIDADES</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>AÇÕES</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {atividadesExtraidas.length === 0 ? (
-                        <tr><td colSpan={6} style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>Nenhuma atividade registrada no período.</td></tr>
+                      {listaDiarios.length === 0 ? (
+                        <tr><td colSpan={6} style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>Nenhum diário registrado no período.</td></tr>
                       ) : (
-                        atividadesExtraidas.map((a, i) => (
-                          <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                            <td style={{ padding: '8px', fontWeight: 'bold' }}>{formatarDataExibicao(a.rdo.data_diario)}</td>
-                            <td style={{ padding: '8px' }}>{a.rdo.nome_obra}</td>
-                            <td style={{ padding: '8px' }}>{a.rdo.equipe || 'Geral'}</td>
-                            <td style={{ padding: '8px', fontWeight: 'bold' }}>{a.descricao}</td>
-                            <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color: '#16a34a' }}>{a.quantidade} {a.unidade || 'UN'}</td>
+                        listaDiarios.map((rdo, i) => (
+                          <tr key={`rdo-${i}`} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: i % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                            <td style={{ padding: '8px' }}>
+                              <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{formatarDataExibicao(rdo.data_diario)}</div>
+                              <div style={{ fontSize: '10px', color: '#2563eb', fontWeight: 'bold' }}>[{rdo.codigo_obra || 'OBRA'}] {rdo.nome_obra}</div>
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              <div style={{ fontWeight: 'bold', color: '#334155' }}>{rdo.equipe || 'Geral'}</div>
+                              <div style={{ fontSize: '9px', color: '#64748b' }}>Gestor: {rdo.nome_gestor || '—'}</div>
+                            </td>
+                            <td style={{ padding: '8px', textAlign: 'center' }}>
+                              {renderizarBadgeStatusRdo(rdo.status_rdo)}
+                            </td>
+                            <td style={{ padding: '8px', textAlign: 'center' }}>
+                              {renderizarBadgeStatusOperacional(rdo.status_operacional)}
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              {rdo.servicos_resumo ? (
+                                <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '6px 8px', color: '#166534', fontWeight: '500', whiteSpace: 'pre-line' }}>
+                                  {rdo.servicos_resumo}
+                                </div>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sem atividades lançadas</span>
+                              )}
+                            </td>
                             <td style={{ padding: '8px', textAlign: 'right' }}>
-                              <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-                                {a.fotos && a.fotos.length > 0 && (
-                                  <button onClick={() => setFotosModal(a)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                    <ImageIcon style={{ width: '13px' }} /> Fotos ({a.fotos.length})
-                                  </button>
-                                )}
-                                <button onClick={() => setDiarioSelecionado(a.rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
-                                  Abrir RDO
-                                </button>
-                              </div>
+                              <button onClick={() => setDiarioSelecionado(rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}>
+                                Abrir RDO
+                              </button>
                             </td>
                           </tr>
                         ))
@@ -570,47 +678,84 @@ export default function HistoricoDiarios({ id, cargo }) {
         </div>
       )}
 
-      {/* --- CONTEÚDO DA ABA: CONSUMO DE MATERIAIS --- */}
+      {/* --- ABA MATERIAIS --- */}
       {abaAtiva === 'MATERIAIS' && (
-        <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '12px' }}>
-          <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a' }}>Listagem detalhada de materiais</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {loading ? (
-            <div style={{ padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b' }}>Carregando consumo de materiais...</div>
+            <div style={{ backgroundColor: '#fff', padding: '20px', textAlign: 'center', fontWeight: 'bold', color: '#64748b', borderRadius: '6px', border: '1px solid #cbd5e1' }}>Carregando consumo de materiais...</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f1f5f9' }}>
-                    <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>DATA</th>
-                    <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>OBRA</th>
-                    <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>EQUIPE</th>
-                    <th style={{ padding: '8px', border: '1px solid #cbd5e1' }}>MATERIAL / INSUMO</th>
-                    <th style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>QTD</th>
-                    <th style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>AÇÕES</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {materiaisExtraidos.length === 0 ? (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>Nenhum material registrado no período.</td></tr>
-                  ) : (
-                    materiaisExtraidos.map((m, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                        <td style={{ padding: '8px', fontWeight: 'bold' }}>{formatarDataExibicao(m.rdo.data_diario)}</td>
-                        <td style={{ padding: '8px' }}>{m.rdo.nome_obra}</td>
-                        <td style={{ padding: '8px' }}>{m.rdo.equipe || 'Geral'}</td>
-                        <td style={{ padding: '8px', fontWeight: 'bold' }}>{m.descricao}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{m.quantidade} {m.unidade || 'UN'}</td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>
-                          <button onClick={() => setDiarioSelecionado(m.rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
-                            Abrir RDO
-                          </button>
-                        </td>
+            <>
+              {chartDataMateriais.labels.length > 0 && (
+                <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', color: '#1e293b', marginBottom: '12px' }}>
+                    <BarChart3 style={{ width: '16px', color: '#3b82f6' }} /> CONSOLIDADO DE CONSUMO DE MATERIAIS NO PERÍODO
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', backgroundColor: '#f1f5f9', padding: '12px', borderRadius: '4px', marginBottom: '12px' }}>
+                    {Object.entries(dicionarioMateriais).map(([material, total]) => (
+                      <div key={material} style={{ display: 'flex', flexDirection: 'column', gap: '2px', borderRight: '1px solid #cbd5e1', paddingRight: '8px' }}>
+                        <span style={{ fontSize: '10px', color: '#475569', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{material}</span>
+                        <span style={{ fontSize: '15px', color: '#0f172a', fontWeight: 'bold' }}>{total.toLocaleString('pt-BR')}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', backgroundColor: '#e2e8f0', padding: '8px', borderRadius: '4px' }}>
+                      <span style={{ fontSize: '10px', color: '#1e293b', fontWeight: 'bold' }}>TOTAL GERAL</span>
+                      <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#2563eb' }}>{totalGeralMateriais.toLocaleString('pt-BR')}</span>
+                    </div>
+                  </div>
+                  <div style={{ position: 'relative', width: '100%', minHeight: '320px' }}>
+                    <ChartComponent 
+                      type='bar'
+                      data={chartDataMateriais} 
+                      options={{ 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        plugins: { 
+                          legend: { display: true, position: 'top' } 
+                        } 
+                      }} 
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '12px' }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f172a' }}>Listagem detalhada de materiais</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f1f5f9', color: '#334155', textTransform: 'uppercase' }}>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>DATA</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>OBRA</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>EQUIPE</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1' }}>MATERIAL / INSUMO</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>QTD</th>
+                        <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', textAlign: 'right' }}>AÇÕES</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {materiaisExtraidos.length === 0 ? (
+                        <tr><td colSpan={6} style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>Nenhum material registrado no período.</td></tr>
+                      ) : (
+                        materiaisExtraidos.map((m, i) => (
+                          <tr key={i} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: i % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                            <td style={{ padding: '8px', fontWeight: 'bold' }}>{formatarDataExibicao(m.rdo.data_diario)}</td>
+                            <td style={{ padding: '8px' }}>{m.rdo.nome_obra}</td>
+                            <td style={{ padding: '8px' }}>{m.rdo.equipe || 'Geral'}</td>
+                            <td style={{ padding: '8px', fontWeight: 'bold' }}>{m.descricao}</td>
+                            <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{m.quantidade} {m.unidade || 'UN'}</td>
+                            <td style={{ padding: '8px', textAlign: 'right' }}>
+                              <button onClick={() => setDiarioSelecionado(m.rdo)} style={{ border: '1px solid #cbd5e1', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}>
+                                Abrir RDO
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -627,6 +772,7 @@ export default function HistoricoDiarios({ id, cargo }) {
               <div><strong>Obra Vinculada:</strong> {diarioSelecionado.nome_obra}</div>
               <div><strong>Equipe Responsável:</strong> {diarioSelecionado.equipe || 'Geral'}</div>
               <div><strong>Gestor Responsável:</strong> {diarioSelecionado.nome_gestor || 'Não informado'}</div>
+              <div><strong>Status do RDO:</strong> {renderizarBadgeStatusRdo(diarioSelecionado.status_rdo)}</div>
               <div><strong>Status Operacional:</strong> {renderizarBadgeStatusOperacional(diarioSelecionado.status_operacional)}</div>
               
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px' }}>
@@ -660,7 +806,7 @@ export default function HistoricoDiarios({ id, cargo }) {
         </div>
       )}
 
-      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
+      {/* MODAL EXCLUIR */}
       {modalExcluir && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 210, padding: '12px' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '6px', width: '100%', maxWidth: '400px', padding: '16px', border: '1px solid #cbd5e1' }}>
@@ -675,36 +821,6 @@ export default function HistoricoDiarios({ id, cargo }) {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* MODAL DE FOTOS DA ATIVIDADE */}
-      {fotosModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '12px' }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: '6px', width: '100%', maxWidth: '600px', padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '14px' }}>Fotos — {fotosModal.descricao}</h3>
-              <button onClick={() => setFotosModal(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}><X style={{ width: '18px' }} /></button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '8px' }}>
-              {fotosModal.fotos.map((f, idx) => (
-                <img 
-                  key={idx} 
-                  src={f.url || f} 
-                  alt="Foto atividade" 
-                  onClick={() => setImagemZoom(f.url || f)} 
-                  style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid #cbd5e1' }} 
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ZOOM DA FOTO */}
-      {imagemZoom && (
-        <div onClick={() => setImagemZoom(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, cursor: 'pointer' }}>
-          <img src={imagemZoom} alt="Zoom" style={{ maxWidth: '90%', maxHeight: '90%', borderRadius: '4px' }} />
         </div>
       )}
 
