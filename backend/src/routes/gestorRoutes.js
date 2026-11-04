@@ -1508,7 +1508,7 @@ router.delete('/gestor/equipe', async (req, res) => {
   const { nome_equipe, id_obra, data_diario } = req.query;
 
   if (!nome_equipe || !id_obra || !data_diario) {
-    return res.status(400).json({ error: "Parâmetros ausentes." });
+    return res.status(400).json({ error: "Parâmetros ausentes (nome_equipe, id_obra e data_diario são obrigatórios)." });
   }
 
   const connection = await db.getConnection();
@@ -1518,11 +1518,12 @@ router.delete('/gestor/equipe', async (req, res) => {
 
     const equipeTratada = String(nome_equipe).trim().toUpperCase();
     const idObraNum = parseInt(id_obra);
+    const dataLimpa = String(data_diario).split('T')[0];
 
     // 1. Localizar o ID do diário técnico (se existir)
     const [mestre] = await connection.execute(
-      `SELECT id FROM diario_obra WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
-      [data_diario, idObraNum, equipeTratada]
+      `SELECT id FROM diario_obra WHERE DATE(data_diario) = DATE(?) AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [dataLimpa, idObraNum, equipeTratada]
     );
 
     if (mestre.length > 0) {
@@ -1536,23 +1537,23 @@ router.delete('/gestor/equipe', async (req, res) => {
 
     // 3. Apagar registros vinculados por obra, data e equipe
     await connection.execute(
-      `DELETE FROM diarios_veiculos WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
-      [data_diario, idObraNum, equipeTratada]
+      `DELETE FROM diarios_veiculos WHERE DATE(data_diario) = DATE(?) AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [dataLimpa, idObraNum, equipeTratada]
     );
 
     await connection.execute(
-      `DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
-      [data_diario, idObraNum, equipeTratada]
+      `DELETE FROM diario_efetivo WHERE DATE(data_diario) = DATE(?) AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [dataLimpa, idObraNum, equipeTratada]
     );
 
     await connection.execute(
-      `DELETE FROM controle_diarios_equipe WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
-      [data_diario, idObraNum, equipeTratada]
+      `DELETE FROM controle_diarios_equipe WHERE DATE(data_diario) = DATE(?) AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [dataLimpa, idObraNum, equipeTratada]
     );
 
     await connection.execute(
-      `DELETE FROM diario_obra WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
-      [data_diario, idObraNum, equipeTratada]
+      `DELETE FROM diario_obra WHERE DATE(data_diario) = DATE(?) AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+      [dataLimpa, idObraNum, equipeTratada]
     );
 
     await connection.commit();
@@ -2163,5 +2164,71 @@ router.put('/gestor/equipe/renomear', async (req, res) => {
     connection.release();
   }
 });
+// ========================================================
+// DELETE: EXCLUIR RDO POR ID (SOLUÇÃO DO ERRO 404)
+// ========================================================
+router.delete('/gestor/diarios/:id', async (req, res) => {
+  const { id } = req.params;
 
+  if (!id) {
+    return res.status(400).json({ error: "ID do diário é obrigatório." });
+  }
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const diarioId = parseInt(id);
+
+    // 1. Busca os dados do diário pai para obter data, obra e equipe
+    const [mestre] = await connection.execute(
+      `SELECT data_diario, id_obra, equipe FROM diario_obra WHERE id = ?`,
+      [diarioId]
+    );
+
+    if (mestre.length > 0) {
+      const { data_diario, id_obra, equipe } = mestre[0];
+      const equipeUpper = String(equipe || '').trim().toUpperCase();
+
+      // 2. Apaga apontamentos vinculados ao ID do diário
+      await connection.execute(`DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_atividades WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_materiais_apontados WHERE id_diario = ?`, [diarioId]);
+
+      // 3. Apaga registros vinculados por obra, data e equipe
+      await connection.execute(
+        `DELETE FROM diarios_veiculos WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+        [data_diario, id_obra, equipeUpper]
+      );
+
+      await connection.execute(
+        `DELETE FROM diario_efetivo WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+        [data_diario, id_obra, equipeUpper]
+      );
+
+      await connection.execute(
+        `DELETE FROM controle_diarios_equipe WHERE data_diario = ? AND id_obra = ? AND UPPER(TRIM(equipe)) = ?`,
+        [data_diario, id_obra, equipeUpper]
+      );
+
+      await connection.execute(`DELETE FROM diario_obra WHERE id = ?`, [diarioId]);
+    } else {
+      // Caso seja um diário dinâmico sem registro na diario_obra
+      await connection.execute(`DELETE FROM diario_efetivo_confirmado WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_atividades WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_materiais_apontados WHERE id_diario = ?`, [diarioId]);
+      await connection.execute(`DELETE FROM diario_obra WHERE id = ?`, [diarioId]);
+    }
+
+    await connection.commit();
+    res.status(200).json({ success: true, message: "RDO excluído com sucesso." });
+  } catch (err) {
+    await connection.rollback();
+    console.error("Erro ao excluir RDO por ID:", err);
+    res.status(500).json({ error: "Erro interno no servidor ao excluir o RDO." });
+  } finally {
+    connection.release();
+  }
+});
 export default router;
