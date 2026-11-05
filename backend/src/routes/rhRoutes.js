@@ -628,6 +628,7 @@ router.get('/rh/historico-presenca', async (req, res) => {
       params.push(data_fim);
     }
 
+    // O alias final foi alterado para total_horas e foi adicionada a subtração de 1h
     const sql = `
       SELECT 
         resumo_diario.id_funcionario,
@@ -640,7 +641,8 @@ router.get('/rh/historico-presenca', async (req, res) => {
         SUM(CASE WHEN resumo_diario.status_final = 'INTEGRAÇÃO' THEN 1 ELSE 0 END) AS total_integracao,
         SUM(CASE WHEN resumo_diario.status_final = 'FÉRIAS' THEN 1 ELSE 0 END) AS total_ferias,
         SUM(CASE WHEN resumo_diario.status_final = 'FOLGA' THEN 1 ELSE 0 END) AS total_folga,
-        SUM(CASE WHEN resumo_diario.status_final NOT IN ('PRESENTE', 'FALTOU', 'INTEGRAÇÃO', 'FÉRIAS', 'FOLGA', 'ALOCADO') THEN 1 ELSE 0 END) AS total_outro 
+        SUM(CASE WHEN resumo_diario.status_final NOT IN ('PRESENTE', 'FALTOU', 'INTEGRAÇÃO', 'FÉRIAS', 'FOLGA', 'ALOCADO') THEN 1 ELSE 0 END) AS total_outro,
+        SUM(resumo_diario.horas_dia) AS total_horas
       FROM (
         SELECT 
           de.id_funcionario,
@@ -648,7 +650,13 @@ router.get('/rh/historico-presenca', async (req, res) => {
           de.matricula,
           de.cargo,
           de.data_diario,
-          MAX(de.status_presenca) AS status_final
+          MAX(de.status_presenca) AS status_final,
+          MAX(
+            CASE 
+              WHEN de.status_presenca IN ('FALTOU', 'FOLGA', 'FÉRIAS', 'FERIAS', 'ALOCADO') THEN 0
+              ELSE GREATEST(0, ROUND((TIME_TO_SEC(TIMEDIFF(de.hora_fim, de.hora_inicio)) / 3600) - 1, 2))
+            END
+          ) AS horas_dia
         FROM diario_efetivo de
         WHERE 1=1 ${filtroCondicional}
         GROUP BY de.id_funcionario, de.nome, de.matricula, de.cargo, de.data_diario
@@ -671,7 +679,6 @@ router.get('/rh/historico-presenca', async (req, res) => {
 
 // ========================================================
 // 2. GET: RASTREABILIDADE DETALHADA E TIMELINE DE JORNADA
-// (Cruza diario_efetivo com obras e controle_diarios_equipe)
 // ========================================================
 router.get('/rh/historico-presenca-detalhado', async (req, res) => {
   const { id, cargo, id_obra, data_inicio, data_fim, id_funcionario } = req.query;
@@ -709,6 +716,7 @@ router.get('/rh/historico-presenca-detalhado', async (req, res) => {
       params.push(parseInt(id_funcionario));
     }
 
+    // Adicionado cálculo de horas com subtração de 1 hora de almoço
     const sql = `
       SELECT 
         de.id,
@@ -726,6 +734,10 @@ router.get('/rh/historico-presenca-detalhado', async (req, res) => {
         de.hora_fim,
         de.liberado,
         de.data_hora_liberacao,
+        CASE 
+          WHEN de.status_presenca IN ('FALTOU', 'FOLGA', 'FÉRIAS', 'FERIAS', 'ALOCADO') THEN 0
+          ELSE GREATEST(0, ROUND((TIME_TO_SEC(TIMEDIFF(de.hora_fim, de.hora_inicio)) / 3600) - 1, 2))
+        END AS horas_trabalhadas,
         o.nome_obra,
         o.codigo_obra,
         cde.status_operacional,

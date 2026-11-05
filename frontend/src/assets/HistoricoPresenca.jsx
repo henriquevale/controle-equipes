@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx'; // NOVO: Importação do SheetJS
 import {
   Users,
   CheckCircle,
@@ -19,9 +20,6 @@ import {
   Briefcase,
 } from 'lucide-react';
 
-/* ==========================================================================
-   CONSTANTES
-   ========================================================================== */
 
 const API_URL = 'http://localhost:3001/api'; // Ajuste conforme seu ambiente
 
@@ -32,6 +30,7 @@ const COL_NOME = 220;
 const COL_NOME_LEFT = COL_EXPANDIR + COL_MATRICULA; // 125
 const COL_DIA = 34;
 const COL_TOTAL = 60;
+const COL_HORAS = 70; // Largura da coluna de Horas
 
 const COR = {
   slate: {
@@ -51,6 +50,7 @@ const COR = {
 // Paleta de cada status (fundo / texto)
 const PALETA = {
   presente: { bg: '#dcfce7', fg: '#15803d' },
+  alocado: { bg: '#e0e7ff', fg: '#4338ca' },
   falta: { bg: '#fee2e2', fg: '#dc2626' },
   ferias: { bg: '#f3e8ff', fg: '#7e22ce' },
   folga: { bg: '#fef3c7', fg: '#b45309' },
@@ -113,6 +113,27 @@ const intervaloDoMes = (tipo) => {
   };
 };
 
+/** NOVO: Retorna o símbolo para a exportação do Excel idêntico ao da grelha */
+const obterSimboloDia = (eventos) => {
+  if (!eventos || eventos.length === 0) return '-';
+  if (eventos.length > 1) return `+${eventos.length}`;
+
+  const ev = eventos[0];
+  const presenca = maiusculo(ev.status_presenca);
+
+  if (presenca === 'FALTOU') return 'F';
+  if (presenca === 'FÉRIAS' || presenca === 'FERIAS') return 'FE';
+  if (presenca === 'FOLGA') return 'FOL';
+  if (presenca === 'ALOCADO') return 'AL';
+
+  switch (classificarOperacional(ev)) {
+    case 'chuva': return '☔';
+    case 'impedimento': return 'IMP';
+    case 'apoio': return 'AP';
+    default: return 'P';
+  }
+};
+
 /* ==========================================================================
    ESTILOS
    ========================================================================== */
@@ -164,6 +185,9 @@ const s = {
     padding: 10,
     borderBottom: `2px solid ${COR.slate[300]}`,
     backgroundColor: COR.slate[100],
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
   },
   td: {
     padding: 8,
@@ -231,6 +255,9 @@ function CelulaMatriz({ eventos }) {
   if (presenca === 'FOLGA') {
     return <Badge paleta={PALETA.folga} title="Folga programada">FOL</Badge>;
   }
+  if (presenca === 'ALOCADO') {
+    return <Badge paleta={PALETA.alocado} title="Alocado (Não salvo completamente)">AL</Badge>;
+  }
 
   switch (classificarOperacional(ev)) {
     case 'chuva':
@@ -252,6 +279,7 @@ function CelulaMatriz({ eventos }) {
 function LegendaMatriz() {
   const itens = [
     { paleta: PALETA.presente, simbolo: 'P', texto: 'Trabalho Normal' },
+    { paleta: PALETA.alocado, simbolo: 'AL', texto: 'Alocado (Incompleto)' },
     { paleta: PALETA.chuva, simbolo: '☔', texto: 'Impedimento / Chuva' },
     { paleta: PALETA.apoio, simbolo: 'AP', texto: 'Apoio / Remanejado' },
     { paleta: PALETA.falta, simbolo: 'F', texto: 'Falta' },
@@ -382,7 +410,7 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
 
               const presenca = item.status_presenca || 'PRESENTE';
               const paletaPresenca =
-                presenca === 'PRESENTE' ? PALETA.presente : presenca === 'FALTOU' ? PALETA.falta : PALETA.info;
+                presenca === 'PRESENTE' ? PALETA.presente : presenca === 'FALTOU' ? PALETA.falta : presenca === 'ALOCADO' ? PALETA.alocado : PALETA.info;
               const paletaOperacional = PALETA[classificarOperacional(item)];
 
               const horario = item.hora_inicio
@@ -577,7 +605,7 @@ export default function HistoricoPresenca({ id, cargo }) {
 
   /* ---------- Rolagem horizontal (barra espelhada no topo) ---------- */
 
-  const larguraTabela = COL_EXPANDIR + COL_MATRICULA + COL_NOME + listaDiasMes.length * COL_DIA + COL_TOTAL;
+  const larguraTabela = COL_EXPANDIR + COL_MATRICULA + COL_NOME + listaDiasMes.length * COL_DIA + COL_TOTAL + COL_HORAS;
 
   const refTopo = useRef(null);
   const refCorpo = useRef(null);
@@ -620,33 +648,59 @@ export default function HistoricoPresenca({ id, cargo }) {
     ajustarDatasPorMes('MES_ATUAL');
   };
 
-  const exportarParaCSV = () => {
+  // NOVO: Função que gera o arquivo Excel com o layout idêntico à Grelha Visual
+  const exportarParaExcel = () => {
     if (dadosFiltrados.length === 0) return;
 
-    const cabecalho = ['Matricula', 'Funcionario', 'Cargo', 'Alocado', 'Integracao', 'Presente', 'Faltou', 'Folga', 'Ferias', 'Outros'];
-    const linhas = dadosFiltrados.map((p) => [
-      `"${p.matricula || ''}"`,
-      `"${p.nome_funcionario || ''}"`,
-      `"${p.cargo || ''}"`,
-      p.total_alocado || 0,
-      p.total_integracao || 0,
-      p.total_presente || 0,
-      p.total_faltou || 0,
-      p.total_folga || 0,
-      p.total_ferias || 0,
-      p.total_outro || p.total_outros || 0,
-    ]);
+    // 1. Montar Cabeçalho
+    const cabecalho = [
+      'Matrícula',
+      'Colaborador',
+      'Cargo',
+      ...listaDiasMes.map(dia => `${String(dia.getDate()).padStart(2, '0')}/${String(dia.getMonth() + 1).padStart(2, '0')}`),
+      'Total Pres.',
+      'Total Horas'
+    ];
 
-    const csv = '\uFEFF' + [cabecalho.join(';'), ...linhas.map((l) => l.join(';'))].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    // 2. Montar Linhas (célula a célula)
+    const linhas = dadosFiltrados.map((p) => {
+      const mapaFunc = mapaDiarioFuncionario[p.id_funcionario] || {};
 
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Matriz_Presenca_RH_${dataInicio}_a_${dataFim}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      // Obtém o símbolo/letra para cada dia do mês para o funcionário atual
+      const diasDoFuncionario = listaDiasMes.map(dia => {
+        const dataIso = isoLocal(dia);
+        const eventosDoDia = mapaFunc[dataIso];
+        return obterSimboloDia(eventosDoDia);
+      });
+
+      return [
+        p.matricula || '-',
+        p.nome_funcionario || '-',
+        p.cargo || '-',
+        ...diasDoFuncionario,
+        p.total_presente || 0,
+        p.total_horas ? `${Number(p.total_horas).toFixed(1)}h` : '0h'
+      ];
+    });
+
+    // 3. Unir e gerar o ficheiro
+    const wsData = [cabecalho, ...linhas];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Ajuste de largura das colunas
+    const colWidths = [
+      { wch: 15 }, // Matrícula
+      { wch: 35 }, // Colaborador
+      { wch: 20 }, // Cargo
+      ...listaDiasMes.map(() => ({ wch: 6 })), // Colunas de cada dia
+      { wch: 12 }, // Total Pres.
+      { wch: 12 }  // Total Horas
+    ];
+    ws['!cols'] = colWidths;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Matriz_Presenca');
+    XLSX.writeFile(wb, `Matriz_Presenca_${dataInicio}_a_${dataFim}.xlsx`);
   };
 
   /* ---------- Render ---------- */
@@ -667,7 +721,7 @@ export default function HistoricoPresenca({ id, cargo }) {
         </div>
 
         <button
-          onClick={exportarParaCSV}
+          onClick={exportarParaExcel} // NOVO: Chama a nova função do Excel
           disabled={semDados}
           style={{
             height: 34,
@@ -686,7 +740,7 @@ export default function HistoricoPresenca({ id, cargo }) {
           }}
         >
           <Download style={{ width: 14, height: 14 }} />
-          <span>Exportar Relatório</span>
+          <span>Exportar Matriz Excel</span>
         </button>
       </div>
 
@@ -835,16 +889,17 @@ export default function HistoricoPresenca({ id, cargo }) {
                   <col key={isoLocal(dia)} style={{ width: COL_DIA }} />
                 ))}
                 <col style={{ width: COL_TOTAL }} />
+                <col style={{ width: COL_HORAS }} />
               </colgroup>
 
               {/* ---- Cabeçalho ---- */}
               <thead>
                 <tr style={{ color: COR.slate[600], fontSize: 10, textTransform: 'uppercase' }}>
-                  <th style={{ ...s.th, position: 'sticky', left: 0, zIndex: 10, borderRight: `1px solid ${COR.slate[300]}`, textAlign: 'center' }} />
-                  <th style={{ ...s.th, position: 'sticky', left: COL_EXPANDIR, zIndex: 10, borderRight: `1px solid ${COR.slate[300]}` }}>
+                  <th style={{ ...s.th, position: 'sticky', left: 0, top: 0, zIndex: 20, borderRight: `1px solid ${COR.slate[300]}`, textAlign: 'center' }} />
+                  <th style={{ ...s.th, position: 'sticky', left: COL_EXPANDIR, top: 0, zIndex: 20, borderRight: `1px solid ${COR.slate[300]}` }}>
                     Matrícula
                   </th>
-                  <th style={{ ...s.th, position: 'sticky', left: COL_NOME_LEFT, zIndex: 10, borderRight: `2px solid ${COR.slate[300]}` }}>
+                  <th style={{ ...s.th, position: 'sticky', left: COL_NOME_LEFT, top: 0, zIndex: 20, borderRight: `2px solid ${COR.slate[300]}` }}>
                     Colaborador / Cargo
                   </th>
 
@@ -854,9 +909,8 @@ export default function HistoricoPresenca({ id, cargo }) {
                       <th
                         key={isoLocal(dia)}
                         style={{
+                          ...s.th,
                           padding: 6,
-                          borderBottom: `2px solid ${COR.slate[300]}`,
-                          borderRight: `1px solid ${COR.slate[200]}`,
                           textAlign: 'center',
                           backgroundColor: fimDeSemana ? COR.slate[200] : COR.slate[100],
                           color: fimDeSemana ? COR.slate[500] : COR.slate[700],
@@ -869,6 +923,7 @@ export default function HistoricoPresenca({ id, cargo }) {
                   })}
 
                   <th style={{ ...s.th, textAlign: 'center' }}>Pres.</th>
+                  <th style={{ ...s.th, textAlign: 'center' }}>Horas</th>
                 </tr>
               </thead>
 
@@ -937,16 +992,21 @@ export default function HistoricoPresenca({ id, cargo }) {
                           );
                         })}
 
-                        {/* Total */}
+                        {/* Total Presenças */}
                         <td style={{ ...s.td, textAlign: 'center', fontWeight: 'bold', color: '#16a34a', backgroundColor: '#f0fdf4' }}>
                           {p.total_presente || 0}
+                        </td>
+
+                        {/* Total Horas */}
+                        <td style={{ ...s.td, textAlign: 'center', fontWeight: 'bold', color: '#0284c7', backgroundColor: '#e0f2fe' }}>
+                          {p.total_horas ? `${Number(p.total_horas).toFixed(1)}h` : '0h'}
                         </td>
                       </tr>
 
                       {/* Linha expandida */}
                       {expandido && (
                         <tr>
-                          <td colSpan={listaDiasMes.length + 4} style={{ padding: 0, backgroundColor: '#f0f9ff', borderBottom: '2px solid #0284c7' }}>
+                          <td colSpan={listaDiasMes.length + 5} style={{ padding: 0, backgroundColor: '#f0f9ff', borderBottom: '2px solid #0284c7' }}>
                             {/* Fica preso à esquerda com a largura da área visível, sem rolar junto */}
                             <div
                               style={{
