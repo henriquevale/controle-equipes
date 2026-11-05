@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Trash2, Edit3, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search, Download, Eye, X, ArrowUpDown } from 'lucide-react';
+import { Trash2, Edit3, Users, RefreshCw, CheckCircle2, XCircle, AlertCircle, Search, Download, Eye, X, ArrowUpDown, UserCheck } from 'lucide-react';
 
 export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionariosGlobal, API_URL: propsApiUrl, mostrarMensagemGlobal }) {
   // Garante o uso correto da URL vinda por props ou fallback local
-  //const API_URL = propsApiUrl || 'http://localhost:3001/api';
-  const API_URL = propsApiUrl || 'https://controle-equipes.onrender.com/api';
+  const API_URL = propsApiUrl || 'http://localhost:3001/api';
+  //const API_URL = propsApiUrl || 'https://api-controle-impacto.duckdns.org/api';
 
   const [funcionarioEmEdicao, setFuncionarioEmEdicao] = useState(null);
   const [funcionarioDetalhar, setFuncionarioDetalhar] = useState(null);
@@ -25,6 +25,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     cargo: '',
     id_usuario_gestor: '',
     ativo: 'ATIVO',
+    encarregado: false, // 👔 ADICIONADO: Estado do booleano Encarregado
     cpf: '',
     telefone: '',
     tam_calca: '',
@@ -40,7 +41,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   const [filtroStatus, setFiltroStatus] = useState('TODOS');
   const [filtroGestor, setFiltroGestor] = useState('TODOS');
   const [termoPesquisa, setTermoPesquisa] = useState('');
-  // NOVO: Estado para controlar a ordenação
   const [ordem, setOrdem] = useState('ALFABETICA_ASC');
 
   useEffect(() => {
@@ -56,75 +56,75 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   }, [API_URL]);
 
   useEffect(() => {
-  const carregarDadosCompletos = async () => {
-    if (!funcionarioEmEdicao) {
-      setFormData({
-        nome: '', matricula: '', cargo: '', id_usuario_gestor: '', ativo: 'ATIVO',
-        cpf: '', telefone: '', tam_calca: '', tam_camisa: '', tam_calcado: '',
-        data_admissao: '', data_demissao: '', data_postagem_aso_pasta: '',
-        data_documentos_rh_completos: '', observacoes: ''
-      });
-      return;
-    }
+    const carregarDadosCompletos = async () => {
+      if (!funcionarioEmEdicao) {
+        setFormData({
+          nome: '', matricula: '', cargo: '', id_usuario_gestor: '', ativo: 'ATIVO', encarregado: false,
+          cpf: '', telefone: '', tam_calca: '', tam_camisa: '', tam_calcado: '',
+          data_admissao: '', data_demissao: '', data_postagem_aso_pasta: '',
+          data_documentos_rh_completos: '', observacoes: ''
+        });
+        return;
+      }
 
-    try {
-      // Busca os dados diretamente da rota que retorna todos os campos
-      const res = await axios.get(`${API_URL}/rh/funcionarios-geral`);
-      const completo = res.data?.find(f => Number(f.id) === Number(funcionarioEmEdicao.id)) || funcionarioEmEdicao;
+      try {
+        // Busca os dados diretamente da rota que retorna todos os campos
+        const res = await axios.get(`${API_URL}/rh/funcionarios-geral`);
+        const completo = res.data?.find(f => Number(f.id) === Number(funcionarioEmEdicao.id)) || funcionarioEmEdicao;
 
-      setFormData({
-        nome: completo.nome || '',
-        matricula: completo.matricula || '',
-        cargo: completo.cargo || '',
-        id_usuario_gestor: completo.id_usuario_gestor || completo.gestor_id || completo.id_gestor || '',
-        ativo: completo.ativo || 'ATIVO',
-        cpf: completo.cpf || '',
-        telefone: completo.telefone || '',
-        tam_calca: completo.tam_calca || completo.tamanho_calca || '',
-        tam_camisa: completo.tam_camisa || completo.tamanho_camisa || '',
-        tam_calcado: completo.tam_calcado || completo.tamanho_calcado || completo.tam_sapato || '',
-        data_admissao: formatarDataParaInput(completo.data_admissao),
-        data_demissao: formatarDataParaInput(completo.data_demissao),
-        data_postagem_aso_pasta: formatarDataParaInput(completo.data_postagem_aso_pasta),
-        data_documentos_rh_completos: formatarDataParaInput(completo.data_documentos_rh_completos),
-        observacoes: completo.observacoes || ''
-      });
+        setFormData({
+          nome: completo.nome || '',
+          matricula: completo.matricula || '',
+          cargo: completo.cargo || '',
+          id_usuario_gestor: completo.id_usuario_gestor || completo.gestor_id || completo.id_gestor || '',
+          ativo: completo.ativo || 'ATIVO',
+          encarregado: Boolean(Number(completo.encarregado)), // 👔 ADICIONADO: Mapeia 1/0 para boolean
+          cpf: completo.cpf || '',
+          telefone: completo.telefone || '',
+          tam_calca: completo.tam_calca || completo.tamanho_calca || '',
+          tam_camisa: completo.tam_camisa || completo.tamanho_camisa || '',
+          tam_calcado: completo.tam_calcado || completo.tamanho_calcado || completo.tam_sapato || '',
+          data_admissao: formatarDataParaInput(completo.data_admissao),
+          data_demissao: formatarDataParaInput(completo.data_demissao),
+          data_postagem_aso_pasta: formatarDataParaInput(completo.data_postagem_aso_pasta),
+          data_documentos_rh_completos: formatarDataParaInput(completo.data_documentos_rh_completos),
+          observacoes: completo.observacoes || ''
+        });
 
-      setTimeout(() => {
-        scrollFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    } catch (err) {
-      console.error("Erro ao carregar dados do funcionário para edição:", err);
-    }
-  };
+        setTimeout(() => {
+          scrollFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      } catch (err) {
+        console.error("Erro ao carregar dados do funcionário para edição:", err);
+      }
+    };
 
-  carregarDadosCompletos();
-}, [funcionarioEmEdicao, API_URL]);
+    carregarDadosCompletos();
+  }, [funcionarioEmEdicao, API_URL]);
 
   const safeLista = Array.isArray(listaFuncionarios) ? listaFuncionarios : [];
   const totalGeral = safeLista.length;
   const totalAtivos = safeLista.filter(f => f.ativo === 'ATIVO').length;
   const totalInativos = safeLista.filter(f => f.ativo === 'INATIVO').length;
   const totalPendentes = safeLista.filter(f => f.ativo === 'INTEGRAÇÃO PENDENTE').length;
+
   const abrirDetalhesCompleto = async (func) => {
-  try {
-    // Busca os dados completos na API usando a rota detalhada ou passando a busca
-    const res = await axios.get(`${API_URL}/rh/funcionarios-geral`);
-    if (res.data && Array.isArray(res.data)) {
-      // Procura o funcionário correspondente na lista detalhada que veio do banco
-      const completo = res.data.find(f => Number(f.id) === Number(func.id));
-      if (completo) {
-        setFuncionarioDetalhar(completo);
-        return;
+    try {
+      const res = await axios.get(`${API_URL}/rh/funcionarios-geral`);
+      if (res.data && Array.isArray(res.data)) {
+        const completo = res.data.find(f => Number(f.id) === Number(func.id));
+        if (completo) {
+          setFuncionarioDetalhar(completo);
+          return;
+        }
       }
+      setFuncionarioDetalhar(func);
+    } catch (err) {
+      console.error("Erro ao buscar detalhes completos:", err);
+      setFuncionarioDetalhar(func);
     }
-    // Fallback caso a rota falhe ou não ache
-    setFuncionarioDetalhar(func);
-  } catch (err) {
-    console.error("Erro ao buscar detalhes completos:", err);
-    setFuncionarioDetalhar(func); // Fallback
-  }
-};
+  };
+
   // Lógica de filtragem tripla (Status, Gestor e Nome)
   const funcionariosFiltrados = safeLista.filter(func => {
     const atendeStatus = filtroStatus === 'TODOS' || 
@@ -138,7 +138,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
     return atendeStatus && atendeGestor && atendeNome;
   });
 
-  // NOVO: Lógica de Ordenação
+  // Lógica de Ordenação
   const funcionariosOrdenados = [...funcionariosFiltrados].sort((a, b) => {
     if (ordem === 'ALFABETICA_ASC') {
       return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
@@ -151,7 +151,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
         const val = obj.atualizado_em || obj.criado_em || obj.created_at;
         if (!val) return 0;
         
-        // Tratamento para strings de data do MySQL no formato "YYYY-MM-DD HH:mm:ss"
         const dataTratada = typeof val === 'string' ? val.replace(' ', 'T') : val;
         const t = new Date(dataTratada).getTime();
         
@@ -161,7 +160,6 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       const timeA = extrairTimestamp(a);
       const timeB = extrairTimestamp(b);
 
-      // Se as datas forem iguais ou ambas nulas, usa o ID como critério de desempate
       if (timeB === timeA) {
         return (b.id || 0) - (a.id || 0);
       }
@@ -177,11 +175,12 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       return;
     }
 
-    const cabecalho = ['Nome', 'Matrícula', 'Cargo/Função', 'Gestor', 'Status', 'CPF', 'Telefone', 'Admissão', 'Demissão', 'Observações'];
+    const cabecalho = ['Nome', 'Matrícula', 'Cargo/Função', 'Encarregado', 'Gestor', 'Status', 'CPF', 'Telefone', 'Admissão', 'Demissão', 'Observações'];
     const linhas = funcionariosOrdenados.map(f => [
       `"${(f.nome || '').replace(/"/g, '""')}"`,
       `"${(f.matricula || '').replace(/"/g, '""')}"`,
       `"${(f.cargo || '').replace(/"/g, '""')}"`,
+      `"${Boolean(Number(f.encarregado)) ? 'SIM' : 'NÃO'}"`,
       `"${(f.gestor || f.nome_gestor || '').replace(/"/g, '""')}"`,
       `"${(f.ativo || 'ATIVO').replace(/"/g, '""')}"`,
       `"${(f.cpf || '').replace(/"/g, '""')}"`,
@@ -207,64 +206,58 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   };
 
   const lidarComEnvio = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  // Validação de campos obrigatórios
-  if (!formData.nome || !formData.matricula || !formData.cargo || !formData.ativo) {
-    if (mostrarMensagemGlobal) {
-      mostrarMensagemGlobal('Por favor, preencha todos os campos obrigatórios (*)!', 'erro');
-    }
-    return;
-  }
-
-  try {
-    let novaLista = [];
-
-    if (funcionarioEmEdicao) {
-      // 1. EDIÇÃO (PUT)
-      await axios.put(`${API_URL}/rh/funcionarios/${funcionarioEmEdicao.id}`, formData);
-      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário atualizado com sucesso!', 'sucesso');
-
-      // 2. Recarrega a lista atualizada
-      if (recarregarFuncionariosGlobal) {
-        novaLista = await recarregarFuncionariosGlobal();
+    if (!formData.nome || !formData.matricula || !formData.cargo || !formData.ativo) {
+      if (mostrarMensagemGlobal) {
+        mostrarMensagemGlobal('Por favor, preencha todos os campos obrigatórios (*)!', 'erro');
       }
+      return;
+    }
 
-      // 3. Atualiza o modal de detalhes caso esteja aberto com o funcionário editado
-      if (funcionarioDetalhar && Array.isArray(novaLista)) {
-        const itemAtualizado = novaLista.find(f => Number(f.id) === Number(funcionarioEmEdicao.id));
-        if (itemAtualizado) {
-          setFuncionarioDetalhar(itemAtualizado);
+    try {
+      let novaLista = [];
+
+      if (funcionarioEmEdicao) {
+        // 1. EDIÇÃO (PUT)
+        await axios.put(`${API_URL}/rh/funcionarios/${funcionarioEmEdicao.id}`, formData);
+        if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário atualizado com sucesso!', 'sucesso');
+
+        // 2. Recarrega a lista atualizada
+        if (recarregarFuncionariosGlobal) {
+          novaLista = await recarregarFuncionariosGlobal();
+        }
+
+        // 3. Atualiza o modal de detalhes caso esteja aberto com o funcionário editado
+        if (funcionarioDetalhar && Array.isArray(novaLista)) {
+          const itemAtualizado = novaLista.find(f => Number(f.id) === Number(funcionarioEmEdicao.id));
+          if (itemAtualizado) {
+            setFuncionarioDetalhar(itemAtualizado);
+          }
+        }
+
+        setFuncionarioEmEdicao(null);
+
+      } else {
+        // 4. NOVO CADASTRO (POST)
+        await axios.post(`${API_URL}/rh/funcionarios`, formData);
+        if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário cadastrado com sucesso!', 'sucesso');
+
+        if (recarregarFuncionariosGlobal) {
+          await recarregarFuncionariosGlobal();
         }
       }
 
-      setFuncionarioEmEdicao(null);
-
-    } else {
-      // 4. NOVO CADASTRO (POST)
-      await axios.post(`${API_URL}/rh/funcionarios`, formData);
-      if (mostrarMensagemGlobal) mostrarMensagemGlobal('Funcionário cadastrado com sucesso!', 'sucesso');
-
-      // Recarrega a lista após cadastrar
-      if (recarregarFuncionariosGlobal) {
-        await recarregarFuncionariosGlobal();
+    } catch (err) {
+      console.error("Erro na API (RH):", err);
+      if (mostrarMensagemGlobal) {
+        mostrarMensagemGlobal(
+          err.response?.data?.error || 'Erro ao processar requisição dos funcionários.', 
+          'erro'
+        );
       }
     }
-
-    // 5. Limpa os estados do formulário/modal de edição
-    if (typeof setModalAberto === 'function') setModalAberto(false);
-    if (typeof resetForm === 'function') resetForm();
-
-  } catch (err) {
-    console.error("Erro na API (RH):", err);
-    if (mostrarMensagemGlobal) {
-      mostrarMensagemGlobal(
-        err.response?.data?.error || 'Erro ao processar requisição dos funcionários.', 
-        'erro'
-      );
-    }
-  }
-};
+  };
 
   const deletarFuncionario = async (id) => {
     if (!window.confirm("Tem certeza que deseja excluir permanentemente este funcionário? Isso pode afetar os vínculos ativos.")) return;
@@ -281,10 +274,10 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
   };
 
   const formatarDataBR = (data) => {
-  if (!data) return '-';
-  const d = new Date(data);
-  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-};
+    if (!data) return '-';
+    const d = new Date(data);
+    return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
@@ -371,6 +364,25 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                   <option value="INTEGRAÇÃO PENDENTE">INTEGRAÇÃO PENDENTE</option>
                 </select>
               </div>
+            </div>
+
+            {/* 👔 NOVO BOX: Opção de Encarregado na Edição */}
+            <div style={{ backgroundColor: '#eef2ff', padding: '8px 12px', border: '1px solid #c7d2fe', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label htmlFor="encarregado-edit" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                <UserCheck style={{ width: '16px', height: '16px', color: '#3730a3' }} />
+                <div>
+                  <span style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#312e81' }}>
+                    DEFINIR COMO ENCARREGADO / LÍDER DE EQUIPE
+                  </span>
+                </div>
+              </label>
+              <input
+                type="checkbox"
+                id="encarregado-edit"
+                checked={formData.encarregado}
+                onChange={e => setFormData({ ...formData, encarregado: e.target.checked })}
+                style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#4f46e5' }}
+              />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
@@ -475,7 +487,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
               </select>
             </div>
 
-            {/* NOVO: FILTRO DE ORDENAÇÃO */}
+            {/* FILTRO DE ORDENAÇÃO */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <ArrowUpDown style={{ width: '13px', height: '13px', color: '#64748b' }} />
               <select 
@@ -539,6 +551,7 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                   let statusBg = '#dcfce7'; 
                   let statusColor = '#15803d';
                   const ehPendente = func.ativo === 'INTEGRAÇÃO PENDENTE';
+                  const ehEncarregado = Boolean(Number(func.encarregado));
 
                   if (func.ativo === 'INATIVO') {
                     statusBg = '#fee2e2'; 
@@ -552,7 +565,17 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
 
                   return (
                     <tr key={func.id || index} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#1e293b' }}>{func.nome}</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#1e293b' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>{func.nome}</span>
+                          {/* 👔 BADGE VISUAL DE ENCARREGADO */}
+                          {ehEncarregado && (
+                            <span style={{ backgroundColor: '#e0e7ff', color: '#3730a3', fontSize: '9px', fontWeight: 'bold', padding: '1px 5px', borderRadius: '4px', border: '1px solid #c7d2fe' }}>
+                              👔 ENCARREGADO
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ padding: '10px 12px', color: '#475569' }}>{func.matricula}</td>
                       <td style={{ padding: '10px 12px' }}>
                         <span style={{ backgroundColor: '#f1f5f9', color: '#334155', padding: '2px 6px', borderRadius: '4px', fontWeight: '500' }}>
@@ -577,17 +600,15 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                           
-                          {/* BOTÃO DETALHES CORRIGIDO */}
-                            <button 
-                              type="button"
-                              onClick={() => abrirDetalhesCompleto(func)}
-                              style={{ backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                              title="Ver Detalhes do Funcionário"
-                            >
-                              <Eye style={{ width: '13px', height: '13px' }} />
-                            </button>
+                          <button 
+                            type="button"
+                            onClick={() => abrirDetalhesCompleto(func)}
+                            style={{ backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                            title="Ver Detalhes do Funcionário"
+                          >
+                            <Eye style={{ width: '13px', height: '13px' }} />
+                          </button>
 
-                          {/* BOTÃO EDITA CORRIGIDO (REMOVIDO BLOQUEIO DE PENDENTE) */}
                           <button 
                             type="button"
                             onClick={() => setFuncionarioEmEdicao(func)}
@@ -626,67 +647,77 @@ export default function RecursosHumanos({ listaFuncionarios, recarregarFuncionar
       </div>
 
       {/* JANELA MODAL DE DETALHES COMPLETO */}
-{funcionarioDetalhar && (
-  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
-    <div style={{ backgroundColor: '#fff', borderRadius: '8px', maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', border: '1px solid #cbd5e1' }}>
-      
-      <div style={{ padding: '16px 20px', backgroundColor: '#0f172a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px 8px 0 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <Users style={{ width: '20px', height: '20px', color: '#38bdf8' }} />
-          <span style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>Ficha Cadastral do Colaborador</span>
-        </div>
-        <button onClick={() => setFuncionarioDetalhar(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}>
-          <X style={{ width: '20px', height: '20px' }} />
-        </button>
-      </div>
+      {funcionarioDetalhar && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '8px', maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', border: '1px solid #cbd5e1' }}>
+            
+            <div style={{ padding: '16px 20px', backgroundColor: '#0f172a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px 8px 0 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Users style={{ width: '20px', height: '20px', color: '#38bdf8' }} />
+                <span style={{ fontWeight: 'bold', fontSize: '14px', textTransform: 'uppercase' }}>Ficha Cadastral do Colaborador</span>
+              </div>
+              <button onClick={() => setFuncionarioDetalhar(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}>
+                <X style={{ width: '20px', height: '20px' }} />
+              </button>
+            </div>
 
-      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '12px' }}>
-        
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 'bold' }}>{funcionarioDetalhar.nome || funcionarioDetalhar.nome_funcionario}</h3>
-            <p style={{ margin: '2px 0 0 0', color: '#64748b' }}>Matrícula: <strong>{funcionarioDetalhar.matricula}</strong> | Cargo: <strong>{funcionarioDetalhar.cargo}</strong></p>
+            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '12px' }}>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: 'bold' }}>
+                      {funcionarioDetalhar.nome || funcionarioDetalhar.nome_funcionario}
+                    </h3>
+                    {Boolean(Number(funcionarioDetalhar.encarregado)) && (
+                      <span style={{ backgroundColor: '#e0e7ff', color: '#3730a3', fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '4px', border: '1px solid #c7d2fe' }}>
+                        👔 ENCARREGADO
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ margin: '2px 0 0 0', color: '#64748b' }}>Matrícula: <strong>{funcionarioDetalhar.matricula}</strong> | Cargo: <strong>{funcionarioDetalhar.cargo}</strong></p>
+                </div>
+                <span style={{ backgroundColor: funcionarioDetalhar.ativo === 'ATIVO' ? '#dcfce7' : funcionarioDetalhar.ativo === 'INATIVO' ? '#fee2e2' : '#fef3c7', color: funcionarioDetalhar.ativo === 'ATIVO' ? '#15803d' : funcionarioDetalhar.ativo === 'INATIVO' ? '#b91c1c' : '#b45309', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '11px' }}>
+                  {funcionarioDetalhar.ativo || 'ATIVO'}
+                </span>
+              </div>
+
+              {/* MAPEAMENTO COM RECURSO DE FALLBACK */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                <div><strong>Gestor Vinculado:</strong> {funcionarioDetalhar.gestor || funcionarioDetalhar.nome_gestor || funcionarioDetalhar.gestor_nome || 'Nenhum'}</div>
+                <div><strong>Liderança / Encarregado:</strong> {Boolean(Number(funcionarioDetalhar.encarregado)) ? 'SIM' : 'NÃO'}</div>
+                <div><strong>CPF:</strong> {funcionarioDetalhar.cpf || '-'}</div>
+                <div><strong>Telefone:</strong> {funcionarioDetalhar.telefone || funcionarioDetalhar.celular || '-'}</div>
+                <div><strong>Tamanho Calça:</strong> {funcionarioDetalhar.tam_calca || funcionarioDetalhar.tamanho_calca || '-'}</div>
+                <div><strong>Tamanho Camisa:</strong> {funcionarioDetalhar.tam_camisa || funcionarioDetalhar.tamanho_camisa || '-'}</div>
+                <div><strong>Tamanho Calçado:</strong> {funcionarioDetalhar.tam_calcado || funcionarioDetalhar.tamanho_calcado || funcionarioDetalhar.tam_sapato || '-'}</div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                <div><strong>Data Admissão:</strong> {formatarDataBR(funcionarioDetalhar.data_admissao || funcionarioDetalhar.admissao)}</div>
+                <div><strong style={{ color: funcionarioDetalhar.data_demissao ? '#b91c1c' : '#334155' }}>Data Demissão:</strong> {formatarDataBR(funcionarioDetalhar.data_demissao || funcionarioDetalhar.demissao)}</div>
+                <div><strong>Postagem ASO / Pasta:</strong> {formatarDataBR(funcionarioDetalhar.data_postagem_aso_pasta || funcionarioDetalhar.aso_pasta)}</div>
+                <div><strong>Docs RH Completos:</strong> {formatarDataBR(funcionarioDetalhar.data_documentos_rh_completos || funcionarioDetalhar.docs_rh)}</div>
+              </div>
+
+              <div style={{ backgroundColor: '#fffbebf', padding: '12px', borderRadius: '6px', border: '1px solid #fef3c7' }}>
+                <strong style={{ color: '#b45309', display: 'block', marginBottom: '4px' }}>Observações:</strong>
+                <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap' }}>
+                  {funcionarioDetalhar.observacoes || funcionarioDetalhar.obs || 'Nenhuma observação registrada.'}
+                </p>
+              </div>
+
+            </div>
+
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc', borderRadius: '0 0 8px 8px' }}>
+              <button onClick={() => setFuncionarioDetalhar(null)} style={{ padding: '6px 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                Fechar
+              </button>
+            </div>
+
           </div>
-          <span style={{ backgroundColor: funcionarioDetalhar.ativo === 'ATIVO' ? '#dcfce7' : funcionarioDetalhar.ativo === 'INATIVO' ? '#fee2e2' : '#fef3c7', color: funcionarioDetalhar.ativo === 'ATIVO' ? '#15803d' : funcionarioDetalhar.ativo === 'INATIVO' ? '#b91c1c' : '#b45309', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold', fontSize: '11px' }}>
-            {funcionarioDetalhar.ativo || 'ATIVO'}
-          </span>
         </div>
-
-        {/* MAPEAMENTO COM RECURSO DE FALLBACK */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
-          <div><strong>Gestor Vinculado:</strong> {funcionarioDetalhar.gestor || funcionarioDetalhar.nome_gestor || funcionarioDetalhar.gestor_nome || 'Nenhum'}</div>
-          <div><strong>CPF:</strong> {funcionarioDetalhar.cpf || '-'}</div>
-          <div><strong>Telefone:</strong> {funcionarioDetalhar.telefone || funcionarioDetalhar.celular || '-'}</div>
-          <div><strong>Tamanho Calça:</strong> {funcionarioDetalhar.tam_calca || funcionarioDetalhar.tamanho_calca || '-'}</div>
-          <div><strong>Tamanho Camisa:</strong> {funcionarioDetalhar.tam_camisa || funcionarioDetalhar.tamanho_camisa || '-'}</div>
-          <div><strong>Tamanho Calçado:</strong> {funcionarioDetalhar.tam_calcado || funcionarioDetalhar.tamanho_calcado || funcionarioDetalhar.tam_sapato || '-'}</div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
-          <div><strong>Data Admissão:</strong> {formatarDataBR(funcionarioDetalhar.data_admissao || funcionarioDetalhar.admissao)}</div>
-          <div><strong style={{ color: funcionarioDetalhar.data_demissao ? '#b91c1c' : '#334155' }}>Data Demissão:</strong> {formatarDataBR(funcionarioDetalhar.data_demissao || funcionarioDetalhar.demissao)}</div>
-          <div><strong>Postagem ASO / Pasta:</strong> {formatarDataBR(funcionarioDetalhar.data_postagem_aso_pasta || funcionarioDetalhar.aso_pasta)}</div>
-          <div><strong>Docs RH Completos:</strong> {formatarDataBR(funcionarioDetalhar.data_documentos_rh_completos || funcionarioDetalhar.docs_rh)}</div>
-        </div>
-
-        <div style={{ backgroundColor: '#fffbebf', padding: '12px', borderRadius: '6px', border: '1px solid #fef3c7' }}>
-          <strong style={{ color: '#b45309', display: 'block', marginBottom: '4px' }}>Observações:</strong>
-          <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap' }}>
-            {funcionarioDetalhar.observacoes || funcionarioDetalhar.obs || 'Nenhuma observação registrada.'}
-          </p>
-        </div>
-
-      </div>
-
-      <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc', borderRadius: '0 0 8px 8px' }}>
-        <button onClick={() => setFuncionarioDetalhar(null)} style={{ padding: '6px 16px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-          Fechar
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
+      )}
 
     </div>
   );

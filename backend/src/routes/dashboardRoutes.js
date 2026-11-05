@@ -17,12 +17,29 @@ function getOrderBySql(ordenacao, tipoRelatorio) {
   return mapeamento[ordenacao] || 'valor_total_gasto DESC';
 }
 
+// Auxiliar para processar obra_id (aceita 'TODAS', '1,2,3' ou números simples)
+function parseObraParam(obra_id) {
+  if (!obra_id || obra_id === 'TODAS' || obra_id === 'undefined' || obra_id === 'null') {
+    return { isTodas: true, ids: [] };
+  }
+
+  const ids = String(obra_id)
+    .split(',')
+    .map(id => Number(id.trim()))
+    .filter(id => !isNaN(id) && id > 0);
+
+  if (ids.length === 0) {
+    return { isTodas: true, ids: [] };
+  }
+
+  return { isTodas: false, ids };
+}
+
 // 1. GET: ATIVIDADES EXECUTADAS
 router.get('/relatorios/atividades-executadas', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
-
-    if (!obra_id) return res.json([]);
+    const { isTodas, ids } = parseObraParam(obra_id);
 
     let sqlObra = `
       SELECT 
@@ -30,9 +47,14 @@ router.get('/relatorios/atividades-executadas', async (req, res) => {
         SUM(da.quantidade) AS quantidade
       FROM diario_atividades da
       INNER JOIN diario_obra do ON da.id_diario = do.id
-      WHERE do.id_obra = ?
+      WHERE 1=1
     `;
-    const paramsObra = [Number(obra_id)];
+    const paramsObra = [];
+
+    if (!isTodas) {
+      sqlObra += ` AND do.id_obra IN (?) `;
+      paramsObra.push(ids);
+    }
 
     if (data_inicio && data_fim) {
       sqlObra += ` AND do.data_diario BETWEEN ? AND ? `;
@@ -83,12 +105,11 @@ router.get('/relatorios/atividades-executadas', async (req, res) => {
   }
 }); 
 
-// 2. GET: MATERIAIS CONSUMIDOS (Sincronizado tratamento de strings)
+// 2. GET: MATERIAIS CONSUMIDOS
 router.get('/relatorios/materiais-consumidos', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
-
-    if (!obra_id) return res.json([]);
+    const { isTodas, ids } = parseObraParam(obra_id);
 
     let sqlObra = `
       SELECT 
@@ -96,9 +117,14 @@ router.get('/relatorios/materiais-consumidos', async (req, res) => {
         SUM(dm.quantidade) AS quantidade
       FROM diario_materiais_apontados dm
       INNER JOIN diario_obra do ON dm.id_diario = do.id
-      WHERE do.id_obra = ?
+      WHERE 1=1
     `;
-    const paramsObra = [Number(obra_id)];
+    const paramsObra = [];
+
+    if (!isTodas) {
+      sqlObra += ` AND do.id_obra IN (?) `;
+      paramsObra.push(ids);
+    }
 
     if (data_inicio && data_fim) {
       sqlObra += ` AND do.data_diario BETWEEN ? AND ? `;
@@ -152,21 +178,19 @@ router.get('/relatorios/materiais-consumidos', async (req, res) => {
 router.get('/relatorios/presenca-detalhada', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
-
-    if (!obra_id) {
-      return res.json({
-        totalRdos: 0,
-        percentualFrequenciaGeral: 0,
-        relacaoPresenca: []
-      });
-    }
+    const { isTodas, ids } = parseObraParam(obra_id);
 
     let sqlRdoCount = `
       SELECT COUNT(DISTINCT id) AS total_rdos
       FROM diario_obra
-      WHERE id_obra = ?
+      WHERE 1=1
     `;
-    const paramsRdo = [Number(obra_id)];
+    const paramsRdo = [];
+
+    if (!isTodas) {
+      sqlRdoCount += ` AND id_obra IN (?) `;
+      paramsRdo.push(ids);
+    }
 
     if (data_inicio && data_fim) {
       sqlRdoCount += ` AND data_diario BETWEEN ? AND ? `;
@@ -176,8 +200,13 @@ router.get('/relatorios/presenca-detalhada', async (req, res) => {
     const [rdoRows] = await db.query(sqlRdoCount, paramsRdo);
     const totalRdos = Number(rdoRows[0]?.total_rdos) || 0;
 
-    let filtroCondicional = " WHERE de.id_obra = ? ";
-    let paramsPresenca = [Number(obra_id)];
+    let filtroCondicional = " WHERE 1=1 ";
+    let paramsPresenca = [];
+
+    if (!isTodas) {
+      filtroCondicional += " AND de.id_obra IN (?) ";
+      paramsPresenca.push(ids);
+    }
 
     if (data_inicio && data_fim) {
       filtroCondicional += ` AND de.data_diario BETWEEN ? AND ? `;
@@ -260,18 +289,15 @@ router.get('/relatorios/presenca-detalhada', async (req, res) => {
 router.get('/relatorios/rdos-resumo', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
+    const { isTodas, ids } = parseObraParam(obra_id);
 
-    if (!obra_id) {
-      return res.json({
-        totalRegistros: 0,
-        relacaoPorDias: [],
-        porStatusRdo: [],
-        porStatusOperacional: []
-      });
+    let filtroCondicional = " WHERE 1=1 ";
+    let params = [];
+
+    if (!isTodas) {
+      filtroCondicional += " AND id_obra IN (?) ";
+      params.push(ids);
     }
-
-    let filtroCondicional = " WHERE id_obra = ? ";
-    let params = [Number(obra_id)];
 
     if (data_inicio && data_fim) {
       filtroCondicional += ` AND data_diario BETWEEN ? AND ? `;
@@ -384,10 +410,12 @@ router.get('/relatorios/faturamento-direto', async (req, res) => {
     const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
     const isMaster = cargoUpper === 'MASTER' || cargoUpper === 'RH';
 
-    if (obra_id) {
-      sql += ` AND fd.obra_id = ?`;
-      params.push(Number(obra_id));
-    } else if (!isMaster && usuario_id) {
+    const { isTodas, ids } = parseObraParam(obra_id);
+
+    if (!isTodas) {
+      sql += ` AND fd.obra_id IN (?)`;
+      params.push(ids);
+    } else if (!isMaster && usuario_id && !isNaN(Number(usuario_id))) {
       sql += ` AND (
         fd.obra_id IN (SELECT id_obra FROM engenharia_obras WHERE id_usuario = ?)
         OR fd.id_gestor = ?
@@ -440,10 +468,11 @@ router.get('/relatorios/compras-por-material', async (req, res) => {
     `;
 
     const params = [];
+    const { isTodas, ids } = parseObraParam(obra_id);
 
-    if (obra_id) {
-      sql += ` AND fd.obra_id = ?`;
-      params.push(Number(obra_id));
+    if (!isTodas) {
+      sql += ` AND fd.obra_id IN (?)`;
+      params.push(ids);
     }
     if (data_inicio) {
       sql += ` AND fd.data_solicitacao >= ?`;
@@ -453,7 +482,7 @@ router.get('/relatorios/compras-por-material', async (req, res) => {
       sql += ` AND fd.data_solicitacao <= ?`;
       params.push(data_fim);
     }
-    if (fornecedor_id) {
+    if (fornecedor_id && !isNaN(Number(fornecedor_id))) {
       sql += ` AND fd.fornecedor_id = ?`;
       params.push(Number(fornecedor_id));
     }
@@ -492,10 +521,11 @@ router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
     `;
 
     const params = [];
+    const { isTodas, ids } = parseObraParam(obra_id);
 
-    if (obra_id) {
-      sql += ` AND fd.obra_id = ?`;
-      params.push(Number(obra_id));
+    if (!isTodas) {
+      sql += ` AND fd.obra_id IN (?)`;
+      params.push(ids);
     }
     if (data_inicio) {
       sql += ` AND fd.data_solicitacao >= ?`;
@@ -505,7 +535,7 @@ router.get('/relatorios/compras-por-fornecedor', async (req, res) => {
       sql += ` AND fd.data_solicitacao <= ?`;
       params.push(data_fim);
     }
-    if (material_id) {
+    if (material_id && !isNaN(Number(material_id))) {
       sql += ` AND fi.material_id = ?`;
       params.push(Number(material_id));
     }
@@ -527,7 +557,8 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
     const { 
       data_inicio, 
       data_fim, 
-      id_obra, 
+      id_obra,
+      obra_id, 
       status_veiculo, 
       id_gestor,
       id,
@@ -566,10 +597,10 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
     const params = [];
     const cargoUsuario = (cargo || '').toUpperCase();
 
-    if (cargoUsuario === 'GESTOR') {
+    if (cargoUsuario === 'GESTOR' && !isNaN(Number(id))) {
       query += ` AND v.id_gestor = ?`;
       params.push(parseInt(id, 10));
-    } else if (['MASTER', 'RH'].includes(cargoUsuario) && id_gestor) {
+    } else if (['MASTER', 'RH'].includes(cargoUsuario) && id_gestor && !isNaN(Number(id_gestor))) {
       query += ` AND v.id_gestor = ?`;
       params.push(parseInt(id_gestor, 10));
     }
@@ -579,9 +610,12 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
       params.push(data_inicio, data_fim);
     }
 
-    if (id_obra) {
-      query += ` AND v.id_obra = ?`;
-      params.push(parseInt(id_obra, 10));
+    const targetObra = id_obra || obra_id;
+    const { isTodas, ids } = parseObraParam(targetObra);
+
+    if (!isTodas) {
+      query += ` AND v.id_obra IN (?)`;
+      params.push(ids);
     }
 
     if (status_veiculo) {
@@ -593,7 +627,6 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
 
     const [detalhes] = await db.query(query, params);
 
-    // Mapeamento correto dos totais agrupados por status
     const resumoStatus = {
       'EM USO': 0,
       'DISPONÍVEL': 0,
@@ -623,10 +656,8 @@ router.get('/relatorios/veiculos-utilizados', async (req, res) => {
 router.get('/relatorios/planejado-vs-executado', async (req, res) => {
   try {
     const { obra_id, data_inicio, data_fim } = req.query;
+    const { isTodas, ids } = parseObraParam(obra_id);
 
-    if (!obra_id) return res.json([]);
-
-    // 1. Busca os itens planejados para a obra no período
     let sqlPlan = `
       SELECT 
         pa.id AS id_planejamento,
@@ -636,9 +667,14 @@ router.get('/relatorios/planejado-vs-executado', async (req, res) => {
         pa.unidade_medida,
         SUM(pa.quantidade_planejada) AS quantidade_planejada
       FROM planejamento_atividades pa
-      WHERE pa.id_obra = ?
+      WHERE 1=1
     `;
-    const paramsPlan = [Number(obra_id)];
+    const paramsPlan = [];
+
+    if (!isTodas) {
+      sqlPlan += ` AND pa.id_obra IN (?) `;
+      paramsPlan.push(ids);
+    }
 
     if (data_inicio && data_fim) {
       sqlPlan += ` AND (pa.data_inicio <= ? AND pa.data_fim >= ?) `;
@@ -647,7 +683,6 @@ router.get('/relatorios/planejado-vs-executado', async (req, res) => {
 
     sqlPlan += ` GROUP BY pa.id_atividade, TRIM(pa.atividade), pa.unidade_medida, pa.frente_trabalho, pa.id `;
 
-    // 2. Busca o que foi executado na tabela diario_atividades no período
     let sqlExec = `
       SELECT 
         da.id_atividade,
@@ -655,9 +690,14 @@ router.get('/relatorios/planejado-vs-executado', async (req, res) => {
         SUM(da.quantidade) AS quantidade_executada
       FROM diario_atividades da
       INNER JOIN diario_obra do ON da.id_diario = do.id
-      WHERE do.id_obra = ?
+      WHERE 1=1
     `;
-    const paramsExec = [Number(obra_id)];
+    const paramsExec = [];
+
+    if (!isTodas) {
+      sqlExec += ` AND do.id_obra IN (?) `;
+      paramsExec.push(ids);
+    }
 
     if (data_inicio && data_fim) {
       sqlExec += ` AND do.data_diario BETWEEN ? AND ? `;
@@ -669,7 +709,6 @@ router.get('/relatorios/planejado-vs-executado', async (req, res) => {
     const [dadosPlan] = await db.query(sqlPlan, paramsPlan);
     const [dadosExec] = await db.query(sqlExec, paramsExec);
 
-    // Declaração correta das variáveis locais
     const mapaExecPorId = {};
     const mapaExecPorNome = {};
 
@@ -682,12 +721,10 @@ router.get('/relatorios/planejado-vs-executado', async (req, res) => {
       }
     });
 
-    // 3. Consolidação final
     const resultado = dadosPlan.map(p => {
       const planQtd = Number(p.quantidade_planejada) || 0;
       const nomeUpper = (p.atividade || '').trim().toUpperCase();
 
-      // Procura execução primeiro pelo ID da atividade, senão pelo Nome da atividade
       let execQtd = 0;
       if (p.id_atividade && mapaExecPorId[p.id_atividade] !== undefined) {
         execQtd = mapaExecPorId[p.id_atividade];
@@ -718,4 +755,106 @@ router.get('/relatorios/planejado-vs-executado', async (req, res) => {
     return res.status(500).json({ error: "Erro interno ao consultar planejamento." });
   }
 });
+
+// 9. GET: Listar todos os encarregados ativos/cadastrados para o filtro
+router.get('/relatorios/encarregados-lista', async (req, res) => {
+  try {
+    const sql = `
+      SELECT id, nome, matricula, cargo 
+      FROM funcionarios 
+      WHERE encarregado = 1
+      ORDER BY nome ASC
+    `;
+    const [encarregados] = await db.execute(sql);
+    return res.json(encarregados);
+  } catch (error) {
+    console.error("Erro ao listar encarregados:", error);
+    return res.status(500).json({ error: "Erro ao carregar encarregados." });
+  }
+});
+
+// 10. GET: Métricas e histórico de produção do Encarregado
+router.get('/relatorios/dashboard-encarregado', async (req, res) => {
+  const { id_encarregado, obra_id, data_inicio, data_fim } = req.query;
+
+  try {
+    let params = [];
+    let filtroWhere = " WHERE 1=1 ";
+
+    if (id_encarregado && id_encarregado !== 'TODOS' && !isNaN(Number(id_encarregado))) {
+      filtroWhere += ` AND (de.id_funcionario = ? OR de.nome LIKE (SELECT CONCAT('%', nome, '%') FROM funcionarios WHERE id = ?)) `;
+      params.push(parseInt(id_encarregado, 10), parseInt(id_encarregado, 10));
+    }
+
+    const { isTodas, ids } = parseObraParam(obra_id);
+    if (!isTodas) {
+      filtroWhere += ` AND de.id_obra IN (?) `;
+      params.push(ids);
+    }
+
+    if (data_inicio) {
+      filtroWhere += ` AND de.data_diario >= ? `;
+      params.push(data_inicio);
+    }
+    if (data_fim) {
+      filtroWhere += ` AND de.data_diario <= ? `;
+      params.push(data_fim);
+    }
+
+    const sqlObrasAtuadas = `
+      SELECT 
+        o.id AS id_obra,
+        o.nome_obra,
+        o.codigo_obra,
+        COUNT(DISTINCT de.data_diario) AS dias_trabalhados,
+        MIN(de.data_diario) AS primeira_atuação,
+        MAX(de.data_diario) AS ultima_atuação
+      FROM diario_efetivo de
+      INNER JOIN obras o ON de.id_obra = o.id
+      ${filtroWhere}
+      GROUP BY o.id, o.nome_obra, o.codigo_obra
+      ORDER BY dias_trabalhados DESC
+    `;
+
+    const sqlProducao = `
+      SELECT 
+        da.tipo_servico AS atividade,
+        SUM(da.quantidade) AS quantidade_total,
+        COUNT(DISTINCT de.data_diario) AS dias_produzindo
+      FROM diario_efetivo de
+      INNER JOIN controle_diarios_equipe cde 
+        ON cde.data_diario = de.data_diario 
+       AND cde.id_obra = de.id_obra 
+       AND UPPER(TRIM(cde.equipe)) = UPPER(TRIM(de.equipe))
+      INNER JOIN diario_atividades da ON da.id_diario = cde.id
+      ${filtroWhere}
+      GROUP BY da.tipo_servico
+      ORDER BY quantidade_total DESC
+    `;
+
+    const sqlResumo = `
+      SELECT 
+        COUNT(DISTINCT de.id_obra) AS total_obras,
+        COUNT(DISTINCT de.data_diario) AS total_dias_campo,
+        SUM(CASE WHEN de.status_presenca IN ('PRESENTE', 'ALOCADO') THEN 1 ELSE 0 END) AS total_presencas
+      FROM diario_efetivo de
+      ${filtroWhere}
+    `;
+
+    const [obrasAtuadas] = await db.query(sqlObrasAtuadas, params);
+    const [producao] = await db.query(sqlProducao, params);
+    const [resumo] = await db.query(sqlResumo, params);
+
+    return res.json({
+      resumo: resumo[0] || { total_obras: 0, total_dias_campo: 0, total_presencas: 0 },
+      obrasAtuadas,
+      producao
+    });
+
+  } catch (error) {
+    console.error("Erro no dashboard de encarregados:", error);
+    return res.status(500).json({ error: "Erro interno ao carregar relatório do encarregado." });
+  }
+});
+
 export default router;

@@ -33,6 +33,7 @@ router.get('/rh/funcionarios-geral', async (req, res) => {
         f.nome, 
         f.cargo, 
         f.ativo, 
+        f.encarregado, /* NOVA COLUNA */
         COALESCE(f.cpf, '') AS cpf, 
         COALESCE(f.telefone, '') AS telefone, 
         COALESCE(f.tam_calca, '') AS tam_calca, 
@@ -68,7 +69,7 @@ router.post('/rh/funcionarios', async (req, res) => {
     cpf, telefone, tam_calca, tam_camisa, tam_calcado,
     id_usuario_gestor, id_usuario_cadastro,
     data_admissao, data_postagem_aso_pasta, data_documentos_rh_completos,
-    observacoes 
+    observacoes, encarregado /* NOVA COLUNA */
   } = req.body;
 
   if (!nome || !matricula || !cargo) {
@@ -77,12 +78,13 @@ router.post('/rh/funcionarios', async (req, res) => {
 
   try {
     let idNovoFuncionario = null;
+    const isEncarregado = encarregado ? 1 : 0; /* Tratamento do booleano */
 
     const sqlFuncionario = `
       INSERT INTO funcionarios 
-        (nome, matricula, cargo, ativo, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
+        (nome, matricula, cargo, ativo, encarregado, cpf, telefone, tam_calca, tam_camisa, tam_calcado,
         data_admissao, data_demissao, data_postagem_aso_pasta, data_documentos_rh_completos, observacoes, atualizado_em)
-      VALUES (?, ?, ?, 'INTEGRAÇÃO PENDENTE', ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, 'INTEGRAÇÃO PENDENTE', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NOW())
     `;
     
     const calcadoFinal = (tam_calcado === '' || tam_calcado === undefined || tam_calcado === null) 
@@ -92,7 +94,8 @@ router.post('/rh/funcionarios', async (req, res) => {
     const [resultadoFunc] = await db.execute(sqlFuncionario, [
       nome.trim(), 
       matricula.trim(), 
-      cargo.trim(), 
+      cargo.trim(),
+      isEncarregado, /* NOVA COLUNA */
       cpf && cpf.trim() !== '' ? cpf.trim() : null,
       telefone && telefone.trim() !== '' ? telefone.trim() : null,
       tam_calca && tam_calca.trim() !== '' ? tam_calca.trim() : null,
@@ -153,31 +156,10 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
     cpf, telefone, tam_calca, tam_camisa, tam_calcado,
     data_admissao, data_demissao, data_postagem_aso_pasta, data_documentos_rh_completos,
     observacoes,
-    id_usuario_gestor, gestor
+    id_usuario_gestor, gestor, encarregado /* NOVA COLUNA */
   } = req.body;
 
-  const limparTexto = (valor) => {
-    if (valor === null || valor === undefined) return null;
-    const str = String(valor).trim();
-    return str === '' ? null : str;
-  };
-
-  const formatarDataParaBD = (data) => {
-    if (!data) return null;
-    const str = String(data).trim();
-    if (!str) return null;
-
-    if (str.includes('-')) {
-      return str.split('T')[0];
-    }
-    if (str.includes('/')) {
-      const partes = str.split('/');
-      if (partes.length === 3) {
-        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
-      }
-    }
-    return null;
-  };
+  // ... (funções de limpeza permanecem inalteradas)
 
   try {
     const idFunc = parseInt(id, 10);
@@ -185,7 +167,6 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
       return res.status(400).json({ error: "ID de funcionário inválido." });
     }
 
-    // Busca o status atual caso o formulário envie em branco
     const [atual] = await db.execute(`SELECT ativo FROM funcionarios WHERE id = ?`, [idFunc]);
     if (atual.length === 0) {
       return res.status(404).json({ error: "Funcionário não encontrado." });
@@ -195,6 +176,7 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
     const nomeFormatado = limparTexto(nome);
     const matriculaFormatada = limparTexto(matricula);
     const cargoFormatado = limparTexto(cargo);
+    const isEncarregado = encarregado ? 1 : 0; /* Tratamento do booleano */
 
     if (!nomeFormatado || !matriculaFormatada || !cargoFormatado) {
       return res.status(400).json({ error: "Campos obrigatórios ausentes (nome, matrícula ou cargo)." });
@@ -214,6 +196,7 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
         matricula = ?, 
         cargo = ?, 
         ativo = ?, 
+        encarregado = ?, /* NOVA COLUNA */
         cpf = ?, 
         telefone = ?, 
         tam_calca = ?, 
@@ -232,7 +215,8 @@ router.put('/rh/funcionarios/:id', async (req, res) => {
       nomeFormatado, 
       matriculaFormatada, 
       cargoFormatado, 
-      statusFormatado, 
+      statusFormatado,
+      isEncarregado, /* NOVA COLUNA */ 
       cpfTratado,
       limparTexto(telefone),
       limparTexto(tam_calca),

@@ -269,26 +269,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     }
   };
 
-  // Funcionário já usado em OUTRA equipe da obra ou em OUTRA obra (retorna o motivo ou null)
   const conflitoFuncionarioExterno = (idFunc) => {
- /*   const id = String(idFunc);
-    const eqAtiva = eqUp(equipeSelecionadaFiltro);
-
-    const outraEquipeLocal = efetivoAgendado.find(
-      f => idFuncDe(f) === id && eqUp(f.equipe) !== eqAtiva && !f.liberado
-    );
-    if (outraEquipeLocal) return `já está na equipe ${eqUp(outraEquipeLocal.equipe)} desta obra`;
-
-    const outraEquipeServidor = agendaDaObra.find(
-      r => String(r.id_funcionario) === id && eqUp(r.equipe) !== eqAtiva && !regLiberado(r)
-    );
-    if (outraEquipeServidor) return `já está na equipe ${eqUp(outraEquipeServidor.equipe)} desta obra`;
-
-    const outraObra = agendaGlobalDia.find(
-      r => String(r.id_funcionario) === id && Number(r.id_obra) !== Number(idObraSelecionada) && !regLiberado(r)
-    );
-    if (outraObra) return `já está alocado em "${nomeObraDe(outraObra)}" [${eqUp(outraObra.equipe)}]`;
-*/
     return null;
   };
 
@@ -1078,6 +1059,56 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     return funcionariosDaEquipe.some(f => Number(f.id_veiculo) === Number(veiculo.id));
   });
 
+  const irParaDiaSeguinte = () => {
+    if (!dataDiario) return;
+    const [ano, mes, dia] = dataDiario.split('-');
+    // Adiciona +1 dia, evitando problemas de fuso horário
+    const data = new Date(ano, mes - 1, dia);
+    data.setDate(data.getDate() + 1);
+    const nextDay = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
+    setDataDiario(nextDay);
+  };
+
+  const handleMudarStatusOperacional = (novoStatus) => {
+    setStatusDiario(novoStatus);
+    
+    let novoEfetivo = [...efetivoAgendado];
+    let novaListaVeiculos = [...listaVeiculos];
+    let atualizouEfetivo = false;
+    let atualizouVeiculos = false;
+
+    // Condição II.b: Se "Folga/FDS", todos os funcionários mudam para Folga
+    if (novoStatus === 'Folga/FDS') {
+      novoEfetivo = novoEfetivo.map(f => ({ ...f, statusPresenca: 'Folga' }));
+      atualizouEfetivo = true;
+    }
+
+    // Condição II.a: Se for qualquer opção exceto "Apoio", zera horas e libera veículos
+    if (novoStatus !== 'Apoio') {
+      setHorarioGeralInicio('');
+      setHorarioGeralFim('');
+      
+      novoEfetivo = novoEfetivo.map(f => ({
+        ...f,
+        hora_inicio: '',
+        hora_fim: '',
+        id_veiculo: null // Retira o veículo do funcionário
+      }));
+      atualizouEfetivo = true;
+
+      novaListaVeiculos = novaListaVeiculos.map(v => ({
+        ...v,
+        status: 'DISPONÍVEL',
+        id_funcionario: null // Disponibiliza o veículo no sistema
+      }));
+      atualizouVeiculos = true;
+    }
+
+    if (atualizouEfetivo) setEfetivoAgendado(novoEfetivo);
+    if (atualizouVeiculos) setListaVeiculos(novaListaVeiculos);
+    setSalvoComSucesso(false);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px', fontFamily: 'sans-serif', fontSize: '12px' }}>
       
@@ -1089,129 +1120,334 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       )}
 
       {/* BLOCO 1: ESCOPO DE SELEÇÃO E CRIAÇÃO DE EQUIPE */}
-      <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px' }}>
-        <div style={{ padding: '8px 12px', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', borderBottom: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569' }}>
-          <span>SELEÇÃO DE DATA, OBRA ALVO E EQUIPES</span>
-        </div>
-        
-        <div style={{ padding: '12px 16px', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: idObraSelecionada ? '1px dashed #cbd5e1' : 'none' }}>
-          <div style={{ width: '180px' }}>
-            <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', marginBottom: '4px' }}>DATA DO DIÁRIO</label>
-            <input type="date" disabled={!!idObraSelecionada} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={dataDiario} onChange={e => setDataDiario(e.target.value)} />
+      <section
+        style={{
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          boxShadow: '0 4px 18px rgba(15, 23, 42, 0.045)',
+          overflow: 'visible'
+        }}
+      >
+        <div
+          style={{
+            padding: '18px 22px',
+            borderBottom: '1px solid #eef2f7',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div>
+            <div style={{ color: '#0f172a', fontSize: '15px', fontWeight: 750, letterSpacing: '-0.2px' }}>
+              Identificação do Diário de Obra
+            </div>
+            <div style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
+              Defina a obra, a data e a equipe para iniciar o lançamento do RDO.
+            </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {['Obra', 'Data', 'Equipe'].map((etapa, index) => {
+              const concluida = index === 0 ? !!idObraSelecionada : index === 1 ? !!idObraSelecionada : equipeConfirmada;
+              return (
+                <React.Fragment key={etapa}>
+                  {index > 0 && <div style={{ width: '18px', height: '1px', background: '#cbd5e1' }} />}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{
+                      width: '21px',
+                      height: '21px',
+                      borderRadius: '50%',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: concluida ? '#dcfce7' : '#f1f5f9',
+                      color: concluida ? '#15803d' : '#64748b',
+                      fontSize: '10px',
+                      fontWeight: 750
+                    }}>{concluida ? '✓' : index + 1}</span>
+                    <span style={{ color: concluida ? '#334155' : '#94a3b8', fontSize: '10px', fontWeight: 650 }}>{etapa}</span>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
 
-          <div style={{ flex: '1', minWidth: '300px', position: 'relative' }}>
-            <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', marginBottom: '4px' }}>OBRA ALVO</label>
-            <input type="text" placeholder="Selecione a obra..." disabled={!!idObraSelecionada} style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} value={termoBuscaObra} onChange={handleFiltrarObraExcel} onFocus={() => setMostrarGridExcelObra(true)} />
+        <div
+          style={{
+            padding: '22px',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(260px, 1.35fr) minmax(190px, 0.8fr) minmax(280px, 1.2fr)',
+            gap: '20px',
+            alignItems: 'start'
+          }}
+        >
+          {/* 1. OBRA ALVO */}
+          <div style={{ minWidth: 0, position: 'relative' }}>
+            <label style={{ display: 'block', color: '#334155', fontSize: '11px', fontWeight: 700, marginBottom: '8px' }}>
+              1. Obra alvo
+            </label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Pesquise pelo código ou nome da obra..."
+                disabled={!!idObraSelecionada}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: '42px',
+                  padding: '0 12px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '7px',
+                  background: idObraSelecionada ? '#f8fafc' : '#ffffff',
+                  color: '#0f172a',
+                  fontSize: '12px',
+                  outlineColor: '#2563eb',
+                  boxSizing: 'border-box'
+                }}
+                value={termoBuscaObra}
+                onChange={handleFiltrarObraExcel}
+                onFocus={() => setMostrarGridExcelObra(true)}
+              />
+              {idObraSelecionada && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIdObraSelecionada(''); setObraDadosCompletos(null); setTermoBuscaObra(''); setEfetivoAgendado([]); setAtividadesLancadas([]); setMateriaisLancados([]); setSalvoComSucesso(false); setEquipeConfirmada(false); setEquipeSelecionadaFiltro('GERAL'); setEquipesDoBanco([]); setEquipesLocais([]); setAgendaDaObra([]); setStatusDiario('Normal'); setLiberarEquipeAoSalvar(false);
+                  }}
+                  style={{
+                    height: '42px',
+                    padding: '0 13px',
+                    background: '#f1f5f9',
+                    color: '#334155',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '7px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Mudar obra
+                </button>
+              )}
+            </div>
+
+            {/* Grid Dropdown Excel Obra */}
             {mostrarGridExcelObra && (
-              <div style={{ position: 'absolute', top: '56px', left: 0, right: 0, backgroundColor: '#fff', border: '2px solid #94a3b8', borderRadius: '4px', zIndex: 110, maxHeight: '150px', overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'monospace' }}>
+              <div style={{
+                position: 'absolute',
+                top: '68px',
+                left: 0,
+                right: 0,
+                backgroundColor: '#fff',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                zIndex: 110,
+                maxHeight: '220px',
+                overflowY: 'auto',
+                boxShadow: '0 12px 28px rgba(15, 23, 42, 0.14)'
+              }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
                   <tbody>
                     {obrasFiltradasExcel.map(obra => (
-                      <tr key={obra.id} onClick={() => selecionarObra(obra)} style={{ cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#dbeafe'} onMouseLeave={e => e.currentTarget.style.backgroundColor = '#fff'}>
-                        <td style={{ padding: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold', width: '70px' }}>{obra.codigo_obra || obra.id}</td>
-                        <td style={{ padding: '6px', border: '1px solid #cbd5e1' }}>{obra.nome_obra} {obra.tipo_obra && `(${obra.tipo_obra})`}</td>
+                      <tr
+                        key={obra.id}
+                        onClick={() => selecionarObra(obra)}
+                        style={{ cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = '#fff'}
+                      >
+                        <td style={{ padding: '10px 12px', color: '#475569', fontWeight: 700, width: '75px' }}>
+                          {obra.codigo_obra || obra.id}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#0f172a' }}>
+                          {obra.nome_obra} {obra.tipo_obra && <span style={{ color: '#64748b' }}>({obra.tipo_obra})</span>}
+                        </td>
                       </tr>
                     ))}
+                    {obrasFiltradasExcel.length === 0 && (
+                      <tr><td style={{ padding: '14px', color: '#64748b', textAlign: 'center' }}>Nenhuma obra encontrada.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             )}
+            <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '6px' }}>
+              {idObraSelecionada ? 'Obra selecionada para este diário.' : 'Digite para localizar uma obra cadastrada.'}
+            </div>
           </div>
-          {idObraSelecionada && (
-            <button 
-              onClick={() => { 
-                setIdObraSelecionada(''); 
-                setObraDadosCompletos(null);
-                setTermoBuscaObra(''); 
-                setEfetivoAgendado([]); 
-                setAtividadesLancadas([]);
-                setMateriaisLancados([]); 
-                setSalvoComSucesso(false); 
-                setEquipeConfirmada(false);
-                setEquipeSelecionadaFiltro('GERAL');
-                setEquipesDoBanco([]);
-                setEquipesLocais([]);
-                setAgendaDaObra([]);
-                setStatusDiario('Normal');
-                setLiberarEquipeAoSalvar(false);
-              }} 
-              style={{ height: '32px', padding: '0 12px', backgroundColor: '#64748b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              Mudar Obra
-            </button>
-          )}
-        </div>
 
-        {idObraSelecionada && (
-          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1', maxWidth: '350px' }}>
-              <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', marginBottom: '4px', color: '#475569' }}>
-                IDENTIFICAÇÃO DA EQUIPE DE TRABALHO
-              </label>
+          {/* 2. DATA DO DIÁRIO */}
+          <div style={{ minWidth: 0 }}>
+            <label style={{ display: 'block', color: '#334155', fontSize: '11px', fontWeight: 700, marginBottom: '8px' }}>
+              2. Data do diário
+            </label>
+            <div style={{ display: 'flex', gap: '7px' }}>
+              <input
+                type="date"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: '42px',
+                  padding: '0 9px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '7px',
+                  background: '#fff',
+                  color: '#0f172a',
+                  fontSize: '12px',
+                  boxSizing: 'border-box'
+                }}
+                value={dataDiario}
+                onChange={e => setDataDiario(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={irParaDiaSeguinte}
+                title="Avançar 1 dia"
+                style={{
+                  height: '42px',
+                  padding: '0 11px',
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '7px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                +1 dia
+              </button>
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '6px' }}>
+              Data de referência da operação.
+            </div>
+          </div>
+
+          {/* 3. GRUPO / EQUIPE */}
+          <div style={{ minWidth: 0 }}>
+            <label style={{ display: 'block', color: '#334155', fontSize: '11px', fontWeight: 700, marginBottom: '8px' }}>
+              3. Identificação da equipe
+            </label>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <select
-                disabled={equipeConfirmada}
+                disabled={!idObraSelecionada || equipeConfirmada}
                 value={equipeSelecionadaFiltro}
                 onChange={e => setEquipeSelecionadaFiltro(e.target.value)}
-                style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', backgroundColor: equipeConfirmada ? '#e2e8f0' : '#fff', fontWeight: 'bold', color: '#334155' }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: '42px',
+                  padding: '0 10px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '7px',
+                  backgroundColor: (!idObraSelecionada || equipeConfirmada) ? '#f8fafc' : '#fff',
+                  fontSize: '12px',
+                  fontWeight: 650,
+                  color: '#0f172a'
+                }}
               >
-                {listaEquipesTotal.length === 0 && (
-                  <option value="GERAL">-- NENHUMA EQUIPE ENCONTRADA --</option>
-                )}
-                {listaEquipesTotal.map(eq => (
-                  <option key={eq} value={eq}>{eq}</option>
-                ))}
+                {listaEquipesTotal.length === 0 && <option value="GERAL">-- NENHUMA EQUIPE ENCONTRADA --</option>}
+                {listaEquipesTotal.map(eq => <option key={eq} value={eq}>{eq}</option>)}
               </select>
+
+              {idObraSelecionada && !equipeConfirmada && (
+                <button
+                  type="button"
+                  disabled={listaEquipesTotal.length === 0}
+                  onClick={() => setEquipeConfirmada(true)}
+                  style={{
+                    height: '42px',
+                    padding: '0 16px',
+                    background: listaEquipesTotal.length === 0 ? '#cbd5e1' : '#16a34a',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '7px',
+                    fontSize: '11px',
+                    fontWeight: 750,
+                    cursor: listaEquipesTotal.length === 0 ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxShadow: listaEquipesTotal.length === 0 ? 'none' : '0 2px 5px rgba(22, 163, 74, 0.18)'
+                  }}
+                >
+                  Confirmar
+                </button>
+              )}
+
+              {idObraSelecionada && equipeConfirmada && (
+                <button
+                  type="button"
+                  onClick={() => { setEquipeConfirmada(false); setAtividadesLancadas([{ id_atividade: '', tipoServico: '', quantidade: '' }]); setMateriaisLancados([{ id_material: '', material_nome: '', quantidade: '' }]); setSalvoComSucesso(false); }}
+                  style={{
+                    height: '42px',
+                    padding: '0 13px',
+                    background: '#f1f5f9',
+                    color: '#334155',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '7px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Mudar
+                </button>
+              )}
             </div>
 
             {/* CRIAR NOVA EQUIPE */}
-            {!equipeConfirmada && (
-              <form onSubmit={handleCriarNovaEquipe} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <label style={{ fontSize: '9px', fontWeight: 'bold', color: '#475569' }}>CRIAR EQUIPE LOCAL</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: EQUIPE ASFALTO"
-                    value={nomeNovaEquipe}
-                    onChange={e => setNomeNovaEquipe(e.target.value)}
-                    style={{ height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}
-                  />
-                </div>
+            {idObraSelecionada && !equipeConfirmada && (
+              <form onSubmit={handleCriarNovaEquipe} style={{ display: 'flex', gap: '7px', marginTop: '9px' }}>
+                <input
+                  type="text"
+                  placeholder="Nome da nova equipe (ex.: ASFALTO)"
+                  value={nomeNovaEquipe}
+                  onChange={e => setNomeNovaEquipe(e.target.value)}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    height: '36px',
+                    padding: '0 10px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '7px',
+                    fontSize: '11px',
+                    boxSizing: 'border-box'
+                  }}
+                />
                 <button
                   type="submit"
-                  style={{ height: '32px', padding: '0 12px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  style={{
+                    height: '36px',
+                    padding: '0 13px',
+                    background: '#0f172a',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '7px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    whiteSpace: 'nowrap'
+                  }}
                 >
-                  <Plus size={14} /> Criar
+                  <Plus size={14} /> Criar equipe
                 </button>
               </form>
             )}
-            
-            {!equipeConfirmada ? (
-              <button
-                type="button"
-                disabled={listaEquipesTotal.length === 0}
-                onClick={() => setEquipeConfirmada(true)}
-                style={{ height: '32px', padding: '0 16px', backgroundColor: listaEquipesTotal.length === 0 ? '#cbd5e1' : '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: listaEquipesTotal.length === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                Confirmar Equipe
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setEquipeConfirmada(false);
-                  setAtividadesLancadas([{ id_atividade: '', tipoServico: '', quantidade: '' }]);
-                  setMateriaisLancados([{ id_material: '', material_nome: '', quantidade: '' }]);
-                  setSalvoComSucesso(false);
-                }}
-                style={{ height: '32px', padding: '0 16px', backgroundColor: '#262626', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
-              >
-                Mudar Equipe
-              </button>
-            )}
+            <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '6px' }}>
+              {equipeConfirmada ? 'Equipe confirmada para o preenchimento.' : 'Selecione uma equipe existente ou cadastre uma nova.'}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
 
       {/* BLOCOS INFERIORES ATIVOS APÓS CONFIRMAÇÃO */}
       {idObraSelecionada && equipeConfirmada && (
@@ -1225,7 +1461,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               </label>
               <select
                 value={statusDiario}
-                onChange={e => setStatusDiario(e.target.value)}
+                onChange={e => handleMudarStatusOperacional(e.target.value)}
                 style={{ width: '280px', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 'bold', backgroundColor: rdoInterrompido ? '#fff5f5' : '#f0fdf4', color: rdoInterrompido ? '#991b1b' : '#166534' }}
               >
                 <option value="Normal">Obra Normal / Em Andamento</option>

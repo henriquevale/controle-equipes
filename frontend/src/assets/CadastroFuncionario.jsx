@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { UserPlus, Save, AlertCircle, RefreshCw, Users, CalendarDays, FileText } from 'lucide-react';
+import { UserPlus, Save, AlertCircle, RefreshCw, Users, CalendarDays, FileText, UserCheck } from 'lucide-react';
 
 const API_URL = 'http://localhost:3001/api';
-//const API_URL = 'https://controle-equipes.onrender.com/api'; //i
+//const API_URL = 'https://controle-equipes.onrender.com/api';
 
 export default function CadastroFuncionario({ usuarioLogado }) {
   const [formData, setFormData] = useState({
@@ -19,7 +19,8 @@ export default function CadastroFuncionario({ usuarioLogado }) {
     data_admissao: '',
     data_postagem_aso_pasta: '',
     data_documentos_rh_completos: '',
-    observacoes: '' // 📝 ADICIONADO: Estado inicial do campo observações
+    observacoes: '',
+    encarregado: false // 👔 ADICIONADO: Campo booleano para identificar encarregados
   });
 
   const [gestores, setGestores] = useState([]); 
@@ -89,7 +90,7 @@ export default function CadastroFuncionario({ usuarioLogado }) {
 
       setCarregando(true);
       setErroPainel('');
-      setStatusEnvio({ texto: 'Cadastrando funcionário no sistema...', tipo: 'processando' });
+      setStatusEnvio({ texto: 'Cadastrating funcionário no sistema...', tipo: 'processando' });
 
       const payload = {
         nome: formData.nome,
@@ -105,7 +106,8 @@ export default function CadastroFuncionario({ usuarioLogado }) {
         data_admissao: formData.data_admissao || null,
         data_postagem_aso_pasta: formData.data_postagem_aso_pasta || null,
         data_documentos_rh_completos: formData.data_documentos_rh_completos || null,
-        observacoes: formData.observacoes // 📝 ADICIONADO: Campo mapeado para o payload da API
+        observacoes: formData.observacoes,
+        encarregado: formData.encarregado // 👔 ADICIONADO: Booleano enviado no payload da API
       };
 
       await axios.post(`${API_URL}/rh/funcionarios`, payload);
@@ -125,7 +127,8 @@ export default function CadastroFuncionario({ usuarioLogado }) {
         data_admissao: '',
         data_postagem_aso_pasta: '',
         data_documentos_rh_completos: '',
-        observacoes: '' // 📝 ADICIONADO: Reset do campo após cadastro bem-sucedido
+        observacoes: '',
+        encarregado: false
       });
 
       setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 4000);
@@ -183,6 +186,29 @@ export default function CadastroFuncionario({ usuarioLogado }) {
               <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', marginBottom: '4px' }}>CARGO / FUNÇÃO *</label>
               <input type="text" name="cargo" value={formData.cargo} onChange={handleChange} placeholder="Ex: Apontador, Motorista..." style={{ width: '100%', height: '32px', padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: '4px', boxSizing: 'border-box' }} required />
             </div>
+          </div>
+
+          {/* 👔 NOVO BOX: Identificação de Encarregado/Liderança */}
+          <div style={{ backgroundColor: '#eef2ff', padding: '10px 12px', border: '1px solid #c7d2fe', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label htmlFor="encarregado" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+              <UserCheck style={{ width: '16px', height: '16px', color: '#3730a3' }} />
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#312e81', fontFamily: 'monospace' }}>
+                  DEFINIR COMO ENCARREGADO / LÍDER DE EQUIPE
+                </span>
+                <span style={{ display: 'block', fontSize: '10px', color: '#4338ca' }}>
+                  Marque esta opção caso este colaborador exerça a função de encarregado/liderança de frente de obra.
+                </span>
+              </div>
+            </label>
+            <input
+              type="checkbox"
+              id="encarregado"
+              name="encarregado"
+              checked={formData.encarregado}
+              onChange={handleChange}
+              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#4f46e5' }}
+            />
           </div>
 
           {/* Linha 2: Documentos e Contato */}
@@ -262,7 +288,7 @@ export default function CadastroFuncionario({ usuarioLogado }) {
             </div>
           </div>
 
-          {/* 📝 BOX NOVO: Observações e Anotações médicas/restrições */}
+          {/* BOX: Observações e Anotações médicas/restrições */}
           <div style={{ backgroundColor: '#f8fafc', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 'bold', fontFamily: 'monospace', color: '#475569', marginBottom: '6px' }}>
               <FileText style={{ width: '14px', height: '14px', color: '#64748b' }} />
