@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   Save, AlertCircle, Plus, Trash2, FileText, Package, HardHat, 
   CalendarDays, Car, Wrench, AlertTriangle, CheckCircle, Eye, EyeOff, 
-  LogOut, Clock, UserPlus, Users, Search, X 
+  LogOut, Clock, UserPlus, Users, Search, X, Upload 
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -68,6 +68,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const [mostrarPainelAdicionarFunc, setMostrarPainelAdicionarFunc] = useState(false);
   const [termoBuscaFuncionario, setTermoBuscaFuncionario] = useState('');
 
+  // --- ESTADOS PARA UPLOAD DE ARQUIVOS/ANEXOS ---
+  const [enviandoArquivo, setEnviandoArquivo] = useState(false);
+  const [arquivosAnexados, setArquivosAnexados] = useState([]);
+
   const ehEquipeFolguista = equipeSelecionadaFiltro === 'FOLGUISTAS';
   const rdoInterrompido = ['Choveu', 'Sem Material', 'Sem Equipamento','Apoio','Sem Atividade','Folga/FDS', 'Outros'].includes(statusDiario);
 
@@ -94,6 +98,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setStatusDiario('Normal'); 
       setLiberarEquipeAoSalvar(false);
       setObservacoesContratada('');
+      setArquivosAnexados([]);
       
       buscarEfetivoVindoDoAgendamento();
     } else {
@@ -105,6 +110,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       setEquipesLocais([]);
       setAgendaDaObra([]);
       setAgendaGlobalDia([]);
+      setArquivosAnexados([]);
     }
   }, [idObraSelecionada, dataDiario]);
 
@@ -151,7 +157,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         params: { id: user.id, cargo: user.cargo, data_diario: dataDiario }
       });
       const lista = res.data && res.data.funcionarios ? res.data.funcionarios : (Array.isArray(res.data) ? res.data : []);
-      // remove duplicados (mesmo id) e ordena de A a Z
       const mapa = new Map();
       lista.forEach(f => {
         const id = String(f.id_funcionario || f.id);
@@ -273,7 +278,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     return null;
   };
 
-  // Ao adicionar: bloqueia também se já estiver na própria equipe
   const conflitoFuncionarioAdicionar = (idFunc) => {
     const id = String(idFunc);
     const naEquipe = efetivoAgendado.find(
@@ -283,7 +287,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     return conflitoFuncionarioExterno(idFunc);
   };
 
-  // Veículo já usado em OUTRA equipe da obra ou em OUTRA obra
   const conflitoVeiculoExterno = (idVeic, idFuncAtual) => {
     const v = Number(idVeic);
     const eu = String(idFuncAtual);
@@ -307,7 +310,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     return null;
   };
 
-  // Ao atribuir: bloqueia também se outro colaborador da própria equipe já usa o veículo
   const conflitoVeiculo = (idVeic, idFuncAtual) => {
     const naEquipe = efetivoAgendado.find(
       f => Number(f.id_veiculo) === Number(idVeic) &&
@@ -318,7 +320,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     return conflitoVeiculoExterno(idVeic, idFuncAtual);
   };
 
-  // --- NOVA FUNÇÃO: CRIAR EQUIPE LOCALMENTE ---
   const handleCriarNovaEquipe = (e) => {
     e.preventDefault();
     const nomeFormatado = nomeNovaEquipe.trim().toUpperCase();
@@ -334,12 +335,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setNomeNovaEquipe('');
   };
 
-  // --- NOVA FUNÇÃO: ADICIONAR FUNCIONÁRIO COM VALIDAÇÃO ANTI-DUPLICIDADE ---
   const handleAdicionarFuncionarioEquipe = (funcObj) => {
     setErroPainel('');
     const idNovo = String(funcObj.id_funcionario || funcObj.id);
 
-    // 1. Validação Anti-Duplicidade de Funcionários
     const motivoConflito = conflitoFuncionarioAdicionar(idNovo);
 
     if (motivoConflito) {
@@ -361,17 +360,15 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       hora_fim: horarioGeralFim || horaFimPadrao,
       id_veiculo: null,
       liberado: false,
-      _novo: true // adicionado localmente, ainda não salvo
+      _novo: true
     };
 
     setEfetivoAgendado(prev => [...prev, novoIntegrante]);
     setSalvoComSucesso(false);
   };
 
-  // --- NOVA FUNÇÃO: REMOVER FUNCIONÁRIO DA EQUIPE ---
   const handleRemoverFuncionarioEquipe = (idFuncionarioRemover) => {
     setEfetivoAgendado(prev => prev.filter(f => String(f.id_funcionario || f.id) !== String(idFuncionarioRemover)));
-    // libera o veículo que estava com o colaborador removido
     setListaVeiculos(prev => prev.map(v =>
       Number(v.id_funcionario) === Number(idFuncionarioRemover)
         ? { ...v, id_funcionario: null, status: 'DISPONÍVEL' }
@@ -380,12 +377,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
-  // --- NOVA FUNÇÃO: ALTERAR E VALIDAR VEÍCULO ANTI-DUPLICIDADE ---
   const handleAtribuirVeiculoFuncionario = (idFuncionario, idVeiculoNovo) => {
     const idVeiculoTratado = idVeiculoNovo ? Number(idVeiculoNovo) : null;
 
     if (idVeiculoTratado) {
-      // 2. Validação Anti-Duplicidade de Veículos na mesma obra/data
       const motivoVeiculo = conflitoVeiculo(idVeiculoTratado, idFuncionario);
 
       if (motivoVeiculo) {
@@ -402,7 +397,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       return f;
     }));
 
-    // Atualiza espelho na lista global de veículos
     if (!idVeiculoTratado) {
       setListaVeiculos(prev => prev.map(v =>
         Number(v.id_funcionario) === Number(idFuncionario)
@@ -512,10 +506,13 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
       });
 
       if (resCompleto.data && resCompleto.data.existe) {
-        const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado, turno } = resCompleto.data;
+        const { status, observacoes, atividades_tachas, materials_apontados, efetivo_confirmado, turno, anexos } = resCompleto.data;
 
         setStatusDiario(status || 'Normal');
         setObservacoesContratada(observacoes || '');
+        if (anexos && Array.isArray(anexos)) {
+          setArquivosAnexados(anexos);
+        }
         if (turno) {
           setTurnoSelecionado(turno);
           setHorarioGeralInicio(turno === 'NOTURNO' ? '19:00' : '07:00');
@@ -560,10 +557,10 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         setMateriaisLancados([]);
         setObservacoesContratada('');
         setStatusDiario('Normal');
+        setArquivosAnexados([]);
         colaboradoresCarregados = aplicarSugestaoHorarioTurno(turnoSelecionado, colaboradoresCarregados);
       }
 
-      // Remove duplicados do servidor e preserva quem foi adicionado localmente (ainda não salvo)
       setEfetivoAgendado(prev => {
         const chavesVistas = new Set();
         const base = colaboradoresCarregados.filter(f => {
@@ -701,6 +698,50 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     setSalvoComSucesso(false);
   };
 
+  // --- NOVO MÉTODO DE UPLOAD DE ARQUIVOS ---
+  const handleUploadArquivo = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files || files.length === 0) return;
+
+    // Validação individual de tamanho de arquivo (máximo 10MB)
+    for (const f of files) {
+      if (f.size > 10 * 1024 * 1024) {
+        alert(`O arquivo "${f.name}" excede o tamanho limite de 10MB.`);
+        return;
+      }
+    }
+
+    const formData = new FormData();
+    files.forEach(f => formData.append('arquivos', f));
+    formData.append('id_obra', idObraSelecionada);
+    formData.append('data_diario', dataDiario);
+    formData.append('equipe', equipeSelecionadaFiltro);
+
+    try {
+      setEnviandoArquivo(true);
+      const res = await axios.post(`${API_URL}/gestor/upload-diario`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      const novosAnexos = res.data?.arquivos || (res.data?.caminho ? [{ nome: files[0].name, caminho: res.data.caminho }] : []);
+      setArquivosAnexados(prev => [...prev, ...novosAnexos]);
+      setStatusEnvio({ texto: "✓ Arquivo(s) anexado(s) com sucesso!", tipo: "sucesso" });
+      setTimeout(() => setStatusEnvio({ texto: '', tipo: '' }), 3000);
+    } catch (err) {
+      console.error("Erro no upload de arquivo:", err);
+      const msg = err.response?.data?.mensagem || "Erro ao fazer upload do arquivo para o servidor.";
+      alert(`⚠️ ${msg}`);
+    } finally {
+      setEnviandoArquivo(false);
+      e.target.value = null; // reseta o input file
+    }
+  };
+
+  const handleRemoverAnexo = (indexRemover) => {
+    setArquivosAnexados(prev => prev.filter((_, i) => i !== indexRemover));
+    setSalvoComSucesso(false);
+  };
+
   const salvarDiarioCompleto = async () => {
     if (!idObraSelecionada) {
       setErroPainel("Por favor, selecione uma obra antes de salvar.");
@@ -723,7 +764,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         return;
       }
 
-      // Validação Estrita Anti-Duplicidade de Funcionários antes da submissão
       const idsVistos = new Set();
       const nomesDuplicados = [];
 
@@ -745,7 +785,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         return;
       }
 
-      // Validação anti-duplicidade: funcionários/veículos em outras equipes, outras obras ou repetidos
       const veiculosVistos = new Map();
       const problemas = [];
       efetivoFiltradoPorEquipe.forEach(f => {
@@ -844,7 +883,8 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         efetivo_confirmado: efetivoMapeado,
         atividades_tachas: atividadesFiltradas, 
         materials_apontados: materiaisFiltradas, 
-        observacoes: observacoesContratada
+        observacoes: observacoesContratada,
+        anexos: arquivosAnexados
       };
       
       await axios.post(`${API_URL}/gestor/salvar-diario-completo`, payload);
@@ -863,7 +903,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         : `✓ RDO Completo salvo com sucesso com o status: ${statusDiario}`;
 
       setStatusEnvio({ texto: msgSucesso, tipo: "sucesso" });
-      // o que foi salvo deixa de ser "local" e as agendas são atualizadas
       setEfetivoAgendado(prev => prev.map(f => ({ ...f, _novo: false })));
       carregarAgendaDaObra();
       carregarAgendaGlobalDoDia();
@@ -1012,6 +1051,17 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         doc.setFont("helvetica", "normal"); doc.setFontSize(9);
         const obsCortada = doc.splitTextToSize(observacoesContratada, 185);
         doc.text(obsCortada, 12, currentY + 5);
+        currentY += (obsCortada.length * 4) + 6;
+      }
+
+      if (arquivosAnexados.length > 0) {
+        if (currentY > 240) { doc.addPage(); currentY = 15; }
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+        doc.text(`${sectionCounter}. Anexos e Documentos Vinculados`, 10, currentY);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+        arquivosAnexados.forEach((anx, i) => {
+          doc.text(`- ${anx.nome || anx.caminho}`, 12, currentY + 5 + (i * 4));
+        });
       }
 
       doc.save(`RDO_Completo_Producao_Materiais_${codObraText}_${dataDiario}.pdf`);
@@ -1027,7 +1077,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const totalFaltas = funcionariosDaEquipe.filter(f => f.statusPresenca === 'Faltou').length;
   const totalLiberados = funcionariosDaEquipe.filter(f => f.liberado).length;
 
-  // Filtragem de funcionários disponíveis no sistema para adicionar na equipe
   const funcionariosDisponiveisParaAdicionar = todosFuncionariosCadastrados.filter(func => {
     const idFunc = String(func.id_funcionario || func.id);
     const jaNaEquipe = !!conflitoFuncionarioAdicionar(idFunc);
@@ -1062,7 +1111,6 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
   const irParaDiaSeguinte = () => {
     if (!dataDiario) return;
     const [ano, mes, dia] = dataDiario.split('-');
-    // Adiciona +1 dia, evitando problemas de fuso horário
     const data = new Date(ano, mes - 1, dia);
     data.setDate(data.getDate() + 1);
     const nextDay = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
@@ -1077,13 +1125,11 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
     let atualizouEfetivo = false;
     let atualizouVeiculos = false;
 
-    // Condição II.b: Se "Folga/FDS", todos os funcionários mudam para Folga
     if (novoStatus === 'Folga/FDS') {
       novoEfetivo = novoEfetivo.map(f => ({ ...f, statusPresenca: 'Folga' }));
       atualizouEfetivo = true;
     }
 
-    // Condição II.a: Se for qualquer opção exceto "Apoio", zera horas e libera veículos
     if (novoStatus !== 'Apoio') {
       setHorarioGeralInicio('');
       setHorarioGeralFim('');
@@ -1092,14 +1138,14 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
         ...f,
         hora_inicio: '',
         hora_fim: '',
-        id_veiculo: null // Retira o veículo do funcionário
+        id_veiculo: null
       }));
       atualizouEfetivo = true;
 
       novaListaVeiculos = novaListaVeiculos.map(v => ({
         ...v,
         status: 'DISPONÍVEL',
-        id_funcionario: null // Disponibiliza o veículo no sistema
+        id_funcionario: null
       }));
       atualizouVeiculos = true;
     }
@@ -1215,7 +1261,7 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                 <button
                   type="button"
                   onClick={() => {
-                    setIdObraSelecionada(''); setObraDadosCompletos(null); setTermoBuscaObra(''); setEfetivoAgendado([]); setAtividadesLancadas([]); setMateriaisLancados([]); setSalvoComSucesso(false); setEquipeConfirmada(false); setEquipeSelecionadaFiltro('GERAL'); setEquipesDoBanco([]); setEquipesLocais([]); setAgendaDaObra([]); setStatusDiario('Normal'); setLiberarEquipeAoSalvar(false);
+                    setIdObraSelecionada(''); setObraDadosCompletos(null); setTermoBuscaObra(''); setEfetivoAgendado([]); setAtividadesLancadas([]); setMateriaisLancados([]); setSalvoComSucesso(false); setEquipeConfirmada(false); setEquipeSelecionadaFiltro('GERAL'); setEquipesDoBanco([]); setEquipesLocais([]); setAgendaDaObra([]); setStatusDiario('Normal'); setLiberarEquipeAoSalvar(false); setArquivosAnexados([]);
                   }}
                   style={{
                     height: '42px',
@@ -1711,14 +1757,12 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
                       const horaFimCard = func.hora_fim || horarioGeralFim;
                       const idFuncionarioAtual = func.id_funcionario || func.id;
 
-                      // Veículos disponíveis ordenados para seleção sem duplicidade
                       const veiculosDisponiveisOuAtual = [...listaVeiculos].sort((a, b) => (a.placa || '').localeCompare(b.placa || '')).filter(v => {
                         const idOcupante = v.id_funcionario || v.id_condutor;
                         const ehDoMesmo = Number(v.id) === Number(func.id_veiculo) || String(idOcupante) === String(idFuncionarioAtual);
                         const outroUsoNoEfetivo = efetivoAgendado.some(f => 
                           String(f.id_funcionario || f.id) !== String(idFuncionarioAtual) && Number(f.id_veiculo) === Number(v.id)
                         );
-                        // mantém o veículo atual e só lista os que não estão em uso por outro colaborador/equipe/obra
                         return Number(v.id) === Number(func.id_veiculo) || !conflitoVeiculo(v.id, idFuncionarioAtual);
                       });
 
@@ -1882,6 +1926,52 @@ export default function DiarioObraTecnico({ usuarioLogado }) {
               )}
             </div>
           )}
+
+          {/* UPLOAD DE ARQUIVOS / ANEXOS DO DIÁRIO */}
+          <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', color: '#1e293b', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} color="#2563eb" />
+              ANEXAR ARQUIVOS / FOTOS DA OBRA (HOSTINGER)
+            </label>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <input 
+                type="file" 
+                multiple
+                accept="image/*,.pdf,.doc,.docx"
+                onChange={handleUploadArquivo}
+                disabled={enviandoArquivo}
+                style={{ fontSize: '11px', padding: '4px 0' }}
+              />
+              {enviandoArquivo && (
+                <span style={{ color: '#2563eb', fontWeight: 'bold', fontSize: '11px' }}>
+                  Enviando arquivo(s) para o servidor...
+                </span>
+              )}
+            </div>
+
+            {/* LISTA DE ANEXOS ADICIONADOS */}
+            {arquivosAnexados.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>
+                <span style={{ fontWeight: 'bold', fontSize: '10px', color: '#475569' }}>Arquivos Anexados ({arquivosAnexados.length}):</span>
+                {arquivosAnexados.map((anx, idx) => (
+                  <div key={`anx-${idx}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '3px', padding: '4px 8px' }}>
+                    <a href={anx.caminho} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontWeight: 'bold', fontSize: '11px', textDecoration: 'none' }}>
+                      📎 {anx.nome || anx.caminho.split('/').pop()}
+                    </a>
+                    <button 
+                      type="button" 
+                      onClick={() => handleRemoverAnexo(idx)}
+                      style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                      title="Remover anexo"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* OBSERVAÇÕES */}
           <div style={{ backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '12px' }}>

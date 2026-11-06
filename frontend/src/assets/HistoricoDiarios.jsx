@@ -988,8 +988,16 @@ export default function HistoricoDiarios({ id, cargo }) {
     );
   };
 
-  const renderModalRdo = () => {
+const renderModalRdo = () => {
     const d = diarioSelecionado;
+
+    // Converte a string de fotos vindas do backend em um array de URLs
+    const fotos = d.fotos_anexadas
+      ? (Array.isArray(d.fotos_anexadas) 
+          ? d.fotos_anexadas 
+          : d.fotos_anexadas.split(','))
+      : (d.arquivos || []);
+
     return (
       <div style={{ ...S.overlay, zIndex: 200 }}>
         <div style={{ backgroundColor: C.branco, borderRadius: 8, width: '100%', maxWidth: 620, maxHeight: '90vh', overflowY: 'auto', border: `1px solid ${C.textoMudo}` }}>
@@ -1022,6 +1030,49 @@ export default function HistoricoDiarios({ id, cargo }) {
             <div style={{ border: `1px solid ${C.bordaForte}`, borderRadius: 6, padding: 10, backgroundColor: '#fffbe3' }}>
               <div style={{ fontWeight: 700, color: '#b45309', marginBottom: 4 }}>Resumo dos serviços</div>
               <div style={{ whiteSpace: 'pre-line' }}>{d.servicos_resumo || 'Sem registros.'}</div>
+            </div>
+
+            {/* SEÇÃO DE FOTOS E ANEXOS DO RDO COM LINK PARA EXPANDIR */}
+            <div style={{ border: `1px solid ${C.borda}`, borderRadius: 6, padding: 10 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                📷 Fotos e Anexos ({fotos.length})
+              </div>
+
+              {fotos.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
+                  {fotos.map((urlFoto, idx) => {
+                    const urlCompleta = urlFoto.startsWith('http') 
+                      ? urlFoto 
+                      : `http://localhost:3001${urlFoto.startsWith('/') ? '' : '/'}${urlFoto}`;
+
+                    return (
+                      <div key={idx} style={{ border: `1px solid ${C.borda}`, borderRadius: 6, overflow: 'hidden', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+                        <a href={urlCompleta} target="_blank" rel="noopener noreferrer" title="Clique para abrir imagem original em alta resolução">
+                          <img 
+                            src={urlCompleta} 
+                            alt={`Anexo ${idx + 1}`} 
+                            style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} 
+                          />
+                        </a>
+                        <div style={{ padding: '6px 4px', textAlign: 'center', backgroundColor: '#fff' }}>
+                          <a 
+                            href={urlCompleta} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                          >
+                            <ArrowUpRight style={{ width: 12 }} /> Ver Completa
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ color: C.textoMudo, fontStyle: 'italic', fontSize: 11 }}>
+                  Nenhum arquivo ou imagem anexado a este diário.
+                </div>
+              )}
             </div>
 
             <div style={{ border: `1px solid ${C.borda}`, borderRadius: 6, padding: 10 }}>

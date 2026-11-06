@@ -1,7 +1,15 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
 const router = express.Router();
 
-// Caminho para a estrutura real do banco
+// No ES Modules, __dirname não existe nativamente. Deve-se criar desta forma:
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 import db from '../../db.js';
 
 // ========================================================
@@ -372,7 +380,10 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
     materials_apontados, 
     observacoes,
     status,
-    liberar_equipe 
+    liberar_equipe,
+    arquivos, // <- Aceita lista de arquivos enviada pelo frontend
+    fotos,    // <- Alias comum caso o frontend envie como fotos
+    anexos    // <- Alias comum caso o frontend envie como anexos
   } = req.body;
 
   if (!data_diario || !id_obra || !id_gestor || !equipe) {
@@ -462,7 +473,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         if (!f.id_funcionario) continue;
         const fid = parseInt(f.id_funcionario);
         
-        // CORREÇÃO 1: Padrão do status passa a ser 'ALOCADO' caso venha nulo/vazio do front
         let statusTratado = f.status_presenca ? String(f.status_presenca).trim().toUpperCase() : 'ALOCADO';
         if (statusTratado === 'FERIAS') statusTratado = 'FÉRIAS';
         if (statusTratado === 'INTEGRACAO') statusTratado = 'INTEGRAÇÃO';
@@ -472,13 +482,11 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
         const horaFim = f.hora_fim || '00:00';
         const statusVeiculoFrontend = f.status_veiculo || 'DISPONÍVEL';
 
-        // CORREÇÃO 2: Se o status for ALOCADO, FALTOU, FOLGA ou FÉRIAS, horas trabalhadas são 0
         let horasFinais = 0.00;
         if (!['ALOCADO', 'FALTOU', 'FOLGA', 'FÉRIAS', 'FERIAS'].includes(statusTratado)) {
           horasFinais = f.horas_trabalhadas ?? calcularHoras(horaInicio, horaFim);
         }
 
-        // Grava no histórico confirmado de presença com cálculo de horas
         await connection.execute(sqlConfirmado, [
           diarioId, 
           fid, 
@@ -489,7 +497,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           obraIdValida
         ]);
         
-        // Grava na diario_efetivo atualizando com status confirmado
         await connection.execute(sqlDiarioEfetivo, [
           f.nome || 'Não Informado',
           data_diario,
@@ -509,7 +516,6 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           dataHoraLiberacao
         ]);
 
-        // Grava na tabela diarios_veiculos
         if (idVeiculoPreservado && !veiculosInseridos.has(idVeiculoPreservado)) {
           await connection.execute(sqlDiarioVeiculos, [
             data_diario,
@@ -574,6 +580,44 @@ router.post('/gestor/salvar-diario-completo', async (req, res) => {
           String(materialNome).trim(), 
           parseFloat(m.quantidade) || 0.00
         ]);
+      }
+    }
+
+    // ========================================================
+    // 5-B. GRAVA OS ANEXOS / FOTOS NO BANCO DE DADOS
+    // ========================================================
+    const listaArquivos = arquivos || fotos || anexos || [];
+    
+    // Apaga anexos anteriores desse RDO se estiver reescrevendo
+    await connection.execute(
+      'DELETE FROM diario_anexos WHERE id_obra = ? AND data_diario = ? AND UPPER(TRIM(equipe)) = ?',
+      [obraIdValida, data_diario, equipeMaiuscula]
+    );
+
+    if (Array.isArray(listaArquivos) && listaArquivos.length > 0) {
+      const sqlAnexo = `
+        INSERT INTO diario_anexos 
+        (id_diario, id_obra, data_diario, equipe, nome_arquivo, caminho_arquivo) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+
+      for (const item of listaArquivos) {
+        // Trata os formatos possíveis enviados pelo React (string direta de URL ou objeto {nome, caminho})
+        const caminho = typeof item === 'string' ? item : (item.caminho || item.url || item.path || '');
+        const nome = typeof item === 'string' 
+          ? item.split('/').pop() 
+          : (item.nome || item.name || caminho.split('/').pop() || 'anexo');
+
+        if (caminho) {
+          await connection.execute(sqlAnexo, [
+            diarioId,
+            obraIdValida,
+            data_diario,
+            equipeMaiuscula,
+            nome,
+            caminho
+          ]);
+        }
       }
     }
 
@@ -887,6 +931,7 @@ router.post('/gestor/remanezar-funcionario-vincular', async (req, res) => {
 // 1. HISTÓRICO DE DIÁRIOS E RDOs (COM MÉDIA COMPARATIVA)
 // ========================================================
 // --- ROTA DE HISTÓRICO DE DIÁRIOS (ATIVIDADES) ---
+// --- ROTA DE HISTÓRICO DE DIÁRIOS (ATIVIDADES) COM SUPORTE A FOTOS / ANEXOS ---
 router.get('/gestor/historico-diarios', async (req, res) => {
   try {
     const { 
@@ -901,7 +946,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
     const cargoUpper = cargo ? String(cargo).toUpperCase() : '';
     const isMaster = ['MASTER', 'ADMIN', 'RH'].includes(cargoUpper);
 
-    // SQL Principal da Tabela de Diários
+    // SQL Principal da Tabela de Diários (Com subconsulta de fotos anexadas)
     let sql = `
       SELECT
         r.data_diario,
@@ -930,7 +975,14 @@ router.get('/gestor/historico-diarios', async (req, res) => {
           SELECT GROUP_CONCAT(CONCAT(dma.material_nome, ':', dma.quantidade) SEPARATOR '\n')
           FROM diario_materiais_apontados dma
           WHERE dma.id_diario = do.id
-        ) AS materiais_resumo
+        ) AS materiais_resumo,
+        (
+          SELECT GROUP_CONCAT(dma_anexo.caminho_arquivo SEPARATOR ',')
+          FROM diario_anexos dma_anexo
+          WHERE dma_anexo.id_obra = r.id_obra 
+            AND dma_anexo.data_diario = r.data_diario 
+            AND UPPER(TRIM(dma_anexo.equipe)) = UPPER(TRIM(r.equipe))
+        ) AS fotos_anexadas
       FROM diario_efetivo r
       INNER JOIN obras o ON r.id_obra = o.id
       LEFT JOIN diario_obra do 
@@ -1015,7 +1067,7 @@ router.get('/gestor/historico-diarios', async (req, res) => {
 
     const [resultados] = await db.execute(sql, params);
 
-    // --- CÁLCULO DA MÉDIA DE CADA ATIVIDADE NAS OUTRAS OBRAS (COMPATÍVEL COM ONLY_FULL_GROUP_BY) ---
+    // --- CÁLCULO DA MÉDIA DE CADA ATIVIDADE NAS OUTRAS OBRAS ---
     let sqlMediaAtividades = `
       SELECT 
         sub_da.atividade AS atividade,
@@ -2228,6 +2280,52 @@ router.delete('/gestor/diarios/:id', async (req, res) => {
     res.status(500).json({ error: "Erro interno no servidor ao excluir o RDO." });
   } finally {
     connection.release();
+  }
+});
+
+// Cria a pasta uploads caso não exista
+const uploadDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Configuração do Multer para salvar os arquivos
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const nomeUnico = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+    cb(null, nomeUnico);
+  }
+});
+
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // limite de 10MB por arquivo
+});
+
+// Rota de Upload de Arquivos
+router.post('/gestor/upload-diario', upload.array('arquivos'), (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ mensagem: 'Nenhum arquivo enviado.' });
+    }
+
+    const arquivosSalvos = req.files.map(file => ({
+      nome: file.originalname,
+      caminho: `/uploads/${file.filename}`
+    }));
+
+    return res.status(200).json({
+      sucesso: true,
+      mensagem: 'Upload realizado com sucesso!',
+      arquivos: arquivosSalvos
+    });
+  } catch (error) {
+    console.error('Erro no upload:', error);
+    return res.status(500).json({ mensagem: 'Erro interno ao salvar arquivo.' });
   }
 });
 export default router;

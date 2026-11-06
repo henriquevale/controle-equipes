@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
-import * as XLSX from 'xlsx'; // NOVO: Importação do SheetJS
+import * as XLSX from 'xlsx';
 import {
   Users,
   CheckCircle,
@@ -19,7 +19,6 @@ import {
   Umbrella,
   Briefcase,
 } from 'lucide-react';
-
 
 const API_URL = 'http://localhost:3001/api'; // Ajuste conforme seu ambiente
 
@@ -113,7 +112,7 @@ const intervaloDoMes = (tipo) => {
   };
 };
 
-/** NOVO: Retorna o símbolo para a exportação do Excel idêntico ao da grelha */
+/** Retorna o símbolo para a exportação do Excel idêntico ao da grelha */
 const obterSimboloDia = (eventos) => {
   if (!eventos || eventos.length === 0) return '-';
   if (eventos.length > 1) return `+${eventos.length}`;
@@ -338,7 +337,7 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
       setCarregando(true);
       try {
         const res = await axios.get(`${API_URL}/rh/historico-presenca-detalhado`, {
-          params: { ...filtros, id_funcionario: idFuncionario },
+          params: { ...filtros, id_funcionario: Number(idFuncionario) },
         });
         setHistorico(res.data || []);
       } catch (err) {
@@ -417,6 +416,13 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
                 ? `${item.hora_inicio.slice(0, 5)} - ${item.hora_fim ? item.hora_fim.slice(0, 5) : 'Em aberto'}`
                 : 'Jornada Integral';
 
+              // Trata a lista de fotos retornada do backend
+              const fotos = item.fotos_anexadas
+                ? (Array.isArray(item.fotos_anexadas) 
+                    ? item.fotos_anexadas 
+                    : item.fotos_anexadas.split(','))
+                : [];
+
               return (
                 <tr key={item.id || idx} style={{ borderBottom: `1px solid ${COR.slate[200]}`, backgroundColor: idx % 2 === 0 ? '#fff' : COR.slate[50] }}>
                   <td style={{ ...celulaDetalhe, fontWeight: 'bold', color: COR.slate[700] }}>{dataFormatada}</td>
@@ -445,7 +451,45 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
                     </Badge>
                   </td>
 
-                  <td style={{ ...celulaDetalhe, color: COR.slate[500] }}>{item.observacao || 'Lançamento regular.'}</td>
+                  {/* COLUNA OBSERVAÇÃO COM TEXTO DO DIÁRIO + ANEXOS/FOTOS */}
+                  <td style={{ ...celulaDetalhe, color: COR.slate[700], minWidth: 180 }}>
+                    <div>{item.observacao || 'Lançamento regular.'}</div>
+                    
+                    {fotos.length > 0 && (
+                      <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {fotos.map((urlFoto, fIdx) => {
+                          const urlCompleta = urlFoto.startsWith('http')
+                            ? urlFoto
+                            : `http://localhost:3001${urlFoto.startsWith('/') ? '' : '/'}${urlFoto}`;
+
+                          return (
+                            <a
+                              key={fIdx}
+                              href={urlCompleta}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                fontSize: 10,
+                                fontWeight: 'bold',
+                                color: '#2563eb',
+                                backgroundColor: '#eff6ff',
+                                border: '1px solid #bfdbfe',
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                textDecoration: 'none'
+                              }}
+                              title="Clique para abrir imagem original em alta resolução"
+                            >
+                              📷 Foto {fIdx + 1}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -508,19 +552,22 @@ export default function HistoricoPresenca({ id, cargo }) {
     carregarObras();
   }, [id, cargo]);
 
+  // CORREÇÃO AQUI: Chama apenas a rota consolidada da matriz geral
   const buscarDadosMatriz = useCallback(async () => {
-    if (!dataInicio || !dataFim) return;
+    if (!id || !dataInicio || !dataFim) return;
 
-    const params = { id, cargo, id_obra: idObra || undefined, data_inicio: dataInicio, data_fim: dataFim };
+    const params = { 
+      id: Number(id), 
+      cargo, 
+      id_obra: (idObra && idObra !== '' && idObra !== 'TODAS') ? Number(idObra) : undefined, 
+      data_inicio: dataInicio, 
+      data_fim: dataFim 
+    };
 
     setCarregando(true);
     try {
-      const [resConsolidado, resDetalhes] = await Promise.all([
-        axios.get(`${API_URL}/rh/historico-presenca`, { params }),
-        axios.get(`${API_URL}/rh/historico-presenca-detalhado`, { params }),
-      ]);
+      const resConsolidado = await axios.get(`${API_URL}/rh/historico-presenca`, { params });
       setDadosPresenca(resConsolidado.data || []);
-      setDetalhesBrutos(resDetalhes.data || []);
     } catch (erro) {
       console.error('Erro ao carregar matriz mensal:', erro);
     } finally {
@@ -648,7 +695,7 @@ export default function HistoricoPresenca({ id, cargo }) {
     ajustarDatasPorMes('MES_ATUAL');
   };
 
-  // NOVO: Função que gera o arquivo Excel com o layout idêntico à Grelha Visual
+  // Função que gera o arquivo Excel com o layout idêntico à Grelha Visual
   const exportarParaExcel = () => {
     if (dadosFiltrados.length === 0) return;
 
@@ -721,7 +768,7 @@ export default function HistoricoPresenca({ id, cargo }) {
         </div>
 
         <button
-          onClick={exportarParaExcel} // NOVO: Chama a nova função do Excel
+          onClick={exportarParaExcel}
           disabled={semDados}
           style={{
             height: 34,
@@ -872,7 +919,6 @@ export default function HistoricoPresenca({ id, cargo }) {
           >
             <table
               style={{
-                // Layout fixo: as larguras abaixo são respeitadas e batem com o "left" das colunas sticky
                 tableLayout: 'fixed',
                 width: larguraTabela,
                 borderCollapse: 'separate',
@@ -1007,7 +1053,6 @@ export default function HistoricoPresenca({ id, cargo }) {
                       {expandido && (
                         <tr>
                           <td colSpan={listaDiasMes.length + 5} style={{ padding: 0, backgroundColor: '#f0f9ff', borderBottom: '2px solid #0284c7' }}>
-                            {/* Fica preso à esquerda com a largura da área visível, sem rolar junto */}
                             <div
                               style={{
                                 position: 'sticky',

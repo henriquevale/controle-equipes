@@ -8,6 +8,12 @@ import masterRoutes from './src/routes/masterRoutes.js'; // 💡 Ajuste este cam
 import dashboardRoutes from './src/routes/dashboardRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 import frotasRoutes from './src/routes/frotasRoutes.js'; // 💡 Ajuste este caminho se o seu arquivo
 import financeiroRoutes from './src/routes/financeiroRoutes.js'; // 💡 Ajuste este caminho se o seu arquivoim
+
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 //  estiver em outra pasta
 // !
 dotenv.config();
@@ -26,6 +32,8 @@ app.use('/api', gestorRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', frotasRoutes);
 app.use('/api', financeiroRoutes);
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // 🟢 ADICIONE ESTAS LINHAS AQUI PARA SUMIR O CANNOT GET:
 app.get('/', (req, res) => {
   res.json({ 

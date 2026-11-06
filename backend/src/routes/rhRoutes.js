@@ -583,164 +583,133 @@ router.get('/obras', async (req, res) => {
 router.get('/rh/historico-presenca', async (req, res) => {
   const { id, cargo, id_obra, data_inicio, data_fim } = req.query;
 
-  if (!id || !cargo) {
-    return res.status(400).json({ error: "ID e Cargo do usuário são obrigatórios." });
+  if (!id) {
+    return res.status(400).json({ error: "O ID do usuário é obrigatório." });
   }
 
   try {
-    let filtroCondicional = "";
-    let params = [];
-
-    if (cargo !== 'MASTER' && cargo !== 'RH') {
-      filtroCondicional += ` AND (
-        de.id_gestor = ? OR 
-        de.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?)
-      ) `;
-      params.push(parseInt(id), parseInt(id));
-    }
-
-    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
-      filtroCondicional += ` AND de.id_obra = ? `;
-      params.push(parseInt(id_obra));
-    }
-    if (data_inicio && data_inicio !== '') {
-      filtroCondicional += ` AND de.data_diario >= ? `;
-      params.push(data_inicio);
-    }
-    if (data_fim && data_fim !== '') {
-      filtroCondicional += ` AND de.data_diario <= ? `;
-      params.push(data_fim);
-    }
-
-    // O alias final foi alterado para total_horas e foi adicionada a subtração de 1h
-    const sql = `
+    let sql = `
       SELECT 
-        resumo_diario.id_funcionario,
-        resumo_diario.nome_funcionario,
-        resumo_diario.matricula,
-        resumo_diario.cargo,
-        SUM(CASE WHEN resumo_diario.status_final = 'ALOCADO' THEN 1 ELSE 0 END) AS total_alocado, 
-        SUM(CASE WHEN resumo_diario.status_final = 'PRESENTE' THEN 1 ELSE 0 END) AS total_presente,
-        SUM(CASE WHEN resumo_diario.status_final = 'FALTOU' THEN 1 ELSE 0 END) AS total_faltou,
-        SUM(CASE WHEN resumo_diario.status_final = 'INTEGRAÇÃO' THEN 1 ELSE 0 END) AS total_integracao,
-        SUM(CASE WHEN resumo_diario.status_final = 'FÉRIAS' THEN 1 ELSE 0 END) AS total_ferias,
-        SUM(CASE WHEN resumo_diario.status_final = 'FOLGA' THEN 1 ELSE 0 END) AS total_folga,
-        SUM(CASE WHEN resumo_diario.status_final NOT IN ('PRESENTE', 'FALTOU', 'INTEGRAÇÃO', 'FÉRIAS', 'FOLGA', 'ALOCADO') THEN 1 ELSE 0 END) AS total_outro,
-        SUM(resumo_diario.horas_dia) AS total_horas
-      FROM (
-        SELECT 
-          de.id_funcionario,
-          de.nome AS nome_funcionario,
-          de.matricula,
-          de.cargo,
-          de.data_diario,
-          MAX(de.status_presenca) AS status_final,
-          MAX(
-            CASE 
-              WHEN de.status_presenca IN ('FALTOU', 'FOLGA', 'FÉRIAS', 'FERIAS', 'ALOCADO') THEN 0
-              ELSE GREATEST(0, ROUND((TIME_TO_SEC(TIMEDIFF(de.hora_fim, de.hora_inicio)) / 3600) - 1, 2))
-            END
-          ) AS horas_dia
-        FROM diario_efetivo de
-        WHERE 1=1 ${filtroCondicional}
-        GROUP BY de.id_funcionario, de.nome, de.matricula, de.cargo, de.data_diario
-      ) AS resumo_diario
-      GROUP BY 
-        resumo_diario.id_funcionario, 
-        resumo_diario.nome_funcionario, 
-        resumo_diario.matricula, 
-        resumo_diario.cargo
-      ORDER BY nome_funcionario ASC
+        f.id AS id_funcionario,
+        f.matricula,
+        f.nome AS nome_funcionario,
+        f.cargo,
+        SUM(CASE WHEN de.status_presenca = 'ALOCADO' THEN 1 ELSE 0 END) AS total_alocado,
+        SUM(CASE WHEN de.status_presenca IN ('PRESENTE', 'NORMAL') THEN 1 ELSE 0 END) AS total_presente,
+        SUM(CASE WHEN de.status_presenca = 'FALTOU' THEN 1 ELSE 0 END) AS total_faltou,
+        SUM(CASE WHEN de.status_presenca = 'FOLGA' THEN 1 ELSE 0 END) AS total_folga,
+        SUM(CASE WHEN de.status_presenca IN ('FÉRIAS', 'FERIAS') THEN 1 ELSE 0 END) AS total_ferias,
+        SUM(CASE WHEN de.status_presenca = 'INTEGRAÇÃO' THEN 1 ELSE 0 END) AS total_integracao,
+        SUM(CASE WHEN de.status_presenca NOT IN ('ALOCADO', 'PRESENTE', 'NORMAL', 'FALTOU', 'FOLGA', 'FÉRIAS', 'FERIAS', 'INTEGRAÇÃO') THEN 1 ELSE 0 END) AS total_outros,
+        SUM(COALESCE(dc.horas_trabalhadas, 0)) AS total_horas
+      FROM funcionarios f
+      INNER JOIN diario_efetivo de ON de.id_funcionario = f.id
+      LEFT JOIN diario_efetivo_confirmado dc ON dc.id_diario = de.id AND dc.id_funcionario = f.id
+      WHERE de.data_diario BETWEEN ? AND ?
     `;
 
-    const [resultados] = await db.execute(sql, params);
-    res.status(200).json(resultados);
+    const params = [data_inicio, data_fim];
+
+    if (id_obra) {
+      sql += ` AND de.id_obra = ? `;
+      params.push(Number(id_obra));
+    }
+
+    sql += ` GROUP BY f.id, f.matricula, f.nome, f.cargo ORDER BY f.nome ASC `;
+
+    const [linhas] = await db.execute(sql, params);
+    res.json(linhas);
   } catch (err) {
-    console.error("Erro ao buscar histórico consolidado:", err);
-    res.status(500).json({ error: "Erro interno ao buscar histórico de presença." });
+    console.error("Erro na matriz de presença:", err);
+    res.status(500).json({ error: "Erro interno no servidor." });
   }
 });
 
 // ========================================================
 // 2. GET: RASTREABILIDADE DETALHADA E TIMELINE DE JORNADA
 // ========================================================
+// ========================================================
+// ROTA: RASTREABILIDADE DETALHADA E TIMELINE DE JORNADA
+// ========================================================
 router.get('/rh/historico-presenca-detalhado', async (req, res) => {
-  const { id, cargo, id_obra, data_inicio, data_fim, id_funcionario } = req.query;
+  const { id_funcionario, data_inicio, data_fim, id_obra } = req.query;
 
-  if (!id || !cargo) {
-    return res.status(400).json({ error: "ID e Cargo do usuário são obrigatórios." });
+  // Validação estrita do ID do funcionário para evitar consultas inconsistentes
+  if (!id_funcionario || id_funcionario === 'undefined' || id_funcionario === 'null') {
+    return res.status(400).json({ error: "ID do funcionário é obrigatório e deve ser um número válido." });
+  }
+
+  const funcId = parseInt(id_funcionario, 10);
+  if (isNaN(funcId)) {
+    return res.status(400).json({ error: "ID do funcionário informado é inválido." });
   }
 
   try {
-    let filtroCondicional = "";
-    let params = [];
-
-    if (cargo !== 'MASTER' && cargo !== 'RH') {
-      filtroCondicional += ` AND (
-        de.id_gestor = ? OR 
-        de.id_obra IN (SELECT id_obra FROM gestor_obras WHERE id_usuario = ?)
-      ) `;
-      params.push(parseInt(id), parseInt(id));
-    }
-
-    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
-      filtroCondicional += ` AND de.id_obra = ? `;
-      params.push(parseInt(id_obra));
-    }
-    if (data_inicio && data_inicio !== '') {
-      filtroCondicional += ` AND de.data_diario >= ? `;
-      params.push(data_inicio);
-    }
-    if (data_fim && data_fim !== '') {
-      filtroCondicional += ` AND de.data_diario <= ? `;
-      params.push(data_fim);
-    }
-    if (id_funcionario) {
-      filtroCondicional += ` AND de.id_funcionario = ? `;
-      params.push(parseInt(id_funcionario));
-    }
-
-    // Adicionado cálculo de horas com subtração de 1 hora de almoço
-    const sql = `
+    let sql = `
       SELECT 
         de.id,
-        de.data_diario,
-        de.id_obra,
         de.id_funcionario,
-        de.nome AS nome_funcionario,
-        de.matricula,
-        de.cargo,
-        de.turno,
-        de.status_presenca,
-        de.observacao,
+        de.id_obra,
+        de.data_diario,
         de.equipe,
         de.hora_inicio,
         de.hora_fim,
-        de.liberado,
-        de.data_hora_liberacao,
-        CASE 
-          WHEN de.status_presenca IN ('FALTOU', 'FOLGA', 'FÉRIAS', 'FERIAS', 'ALOCADO') THEN 0
-          ELSE GREATEST(0, ROUND((TIME_TO_SEC(TIMEDIFF(de.hora_fim, de.hora_inicio)) / 3600) - 1, 2))
-        END AS horas_trabalhadas,
+        de.status_presenca,
+        COALESCE(cde.status_operacional, do.status, 'Normal') AS status_operacional,
+        -- Prioriza a observação geral lançada no RDO (diario_obra) e depois a individual (diario_efetivo)
+        COALESCE(do.observacoes, de.observacao, 'Lançamento regular.') AS observacao,
         o.nome_obra,
         o.codigo_obra,
-        cde.status_operacional,
-        cde.status_rdo
+        -- Subconsulta para buscar imagens e anexos do RDO (diario_anexos) vinculados à mesma obra, data e equipe
+        (
+          SELECT GROUP_CONCAT(da.caminho_arquivo SEPARATOR ',')
+          FROM diario_anexos da
+          WHERE da.id_obra = de.id_obra 
+            AND DATE(da.data_diario) = DATE(de.data_diario)
+            AND UPPER(TRIM(da.equipe)) = UPPER(TRIM(de.equipe))
+        ) AS fotos_anexadas
       FROM diario_efetivo de
-      LEFT JOIN obras o ON o.id = de.id_obra
+      LEFT JOIN obras o 
+             ON o.id = de.id_obra
+      LEFT JOIN diario_obra do 
+             ON do.id_obra = de.id_obra 
+            AND DATE(do.data_diario) = DATE(de.data_diario) 
+            AND UPPER(TRIM(do.equipe)) = UPPER(TRIM(de.equipe))
       LEFT JOIN controle_diarios_equipe cde 
-             ON cde.data_diario = de.data_diario 
-            AND cde.id_obra = de.id_obra 
+             ON cde.id_obra = de.id_obra 
+            AND DATE(cde.data_diario) = DATE(de.data_diario) 
             AND UPPER(TRIM(cde.equipe)) = UPPER(TRIM(de.equipe))
-      WHERE 1=1 ${filtroCondicional}
-      ORDER BY de.data_diario DESC, de.hora_inicio ASC
+      WHERE de.id_funcionario = ?
     `;
 
-    const [resultados] = await db.execute(sql, params);
-    res.status(200).json(resultados);
+    const params = [funcId];
+
+    // Trata os filtros opcionais de intervalo de data
+    if (data_inicio && data_fim && data_inicio !== '' && data_fim !== '') {
+      sql += ` AND DATE(de.data_diario) BETWEEN ? AND ? `;
+      params.push(data_inicio, data_fim);
+    }
+
+    // Trata o filtro opcional de obra específica
+    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
+      const obraId = parseInt(id_obra, 10);
+      if (!isNaN(obraId)) {
+        sql += ` AND de.id_obra = ? `;
+        params.push(obraId);
+      }
+    }
+
+    sql += ` ORDER BY de.data_diario DESC, de.hora_inicio ASC `;
+
+    const [linhas] = await db.execute(sql, params);
+    
+    // Define cabeçalho no-cache para garantir dados sempre atualizados
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.json(linhas);
+
   } catch (err) {
-    console.error("Erro ao buscar detalhamento da linha do tempo:", err);
-    res.status(500).json({ error: "Erro interno ao buscar detalhamento da presença." });
+    console.error("Erro ao buscar histórico detalhado do funcionário:", err);
+    return res.status(500).json({ error: "Erro interno no servidor ao carregar histórico detalhado." });
   }
 });
 
