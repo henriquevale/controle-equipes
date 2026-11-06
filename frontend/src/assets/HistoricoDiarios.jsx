@@ -17,6 +17,8 @@ ChartJS.register(
 );
 
 const API_URL = 'http://localhost:3001/api';
+//const API_URL = 'https://api-controle-impacto.duckdns.org/api';
+
 const LINHAS_POR_PAGINA = 20;
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 

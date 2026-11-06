@@ -713,4 +713,53 @@ router.get('/rh/historico-presenca-detalhado', async (req, res) => {
   }
 });
 
+// ========================================================
+// ROTA: DETALHADO GERAL PARA PREENCHIMENTO DA MATRIZ MENSAL
+// ========================================================
+router.get('/rh/historico-presenca-detalhado-geral', async (req, res) => {
+  const { data_inicio, data_fim, id_obra } = req.query;
+
+  try {
+    let sql = `
+      SELECT 
+        de.id,
+        de.id_funcionario,
+        de.id_obra,
+        de.data_diario,
+        de.equipe,
+        de.status_presenca,
+        COALESCE(cde.status_operacional, do.status, 'Normal') AS status_operacional
+      FROM diario_efetivo de
+      LEFT JOIN diario_obra do 
+             ON do.id_obra = de.id_obra 
+            AND DATE(do.data_diario) = DATE(de.data_diario) 
+            AND UPPER(TRIM(do.equipe)) = UPPER(TRIM(de.equipe))
+      LEFT JOIN controle_diarios_equipe cde 
+             ON cde.id_obra = de.id_obra 
+            AND DATE(cde.data_diario) = DATE(de.data_diario) 
+            AND UPPER(TRIM(cde.equipe)) = UPPER(TRIM(de.equipe))
+      WHERE DATE(de.data_diario) BETWEEN ? AND ?
+    `;
+
+    const params = [data_inicio, data_fim];
+
+    if (id_obra && id_obra !== '' && id_obra !== 'TODAS') {
+      const obraId = parseInt(id_obra, 10);
+      if (!isNaN(obraId)) {
+        sql += ` AND de.id_obra = ? `;
+        params.push(obraId);
+      }
+    }
+
+    const [linhas] = await db.execute(sql, params);
+    
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.json(linhas);
+
+  } catch (err) {
+    console.error("Erro ao carregar matriz geral detalhada:", err);
+    return res.status(500).json({ error: "Erro interno no servidor ao carregar dados da matriz." });
+  }
+});
+
 export default router;

@@ -20,16 +20,18 @@ import {
   Briefcase,
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3001/api'; // Ajuste conforme seu ambiente
+const API_URL = 'http://localhost:3001/api';
+// Extrai a origem base da API (remove o sufixo /api se existir) para montar a URL das fotos
+const BASE_UPLOADS_URL = API_URL.replace(/\/api\/?$/, '');
 
-// Larguras das colunas fixas da matriz (usadas no "left" do position: sticky)
+// Larguras das colunas fixas da matriz
 const COL_EXPANDIR = 35;
 const COL_MATRICULA = 90;
 const COL_NOME = 220;
-const COL_NOME_LEFT = COL_EXPANDIR + COL_MATRICULA; // 125
+const COL_NOME_LEFT = COL_EXPANDIR + COL_MATRICULA;
 const COL_DIA = 34;
 const COL_TOTAL = 60;
-const COL_HORAS = 70; // Largura da coluna de Horas
+const COL_HORAS = 70;
 
 const COR = {
   slate: {
@@ -46,7 +48,6 @@ const COR = {
   },
 };
 
-// Paleta de cada status (fundo / texto)
 const PALETA = {
   presente: { bg: '#dcfce7', fg: '#15803d' },
   alocado: { bg: '#e0e7ff', fg: '#4338ca' },
@@ -65,11 +66,9 @@ const PALETA = {
    FUNÇÕES AUXILIARES
    ========================================================================== */
 
-/** Converte uma data vinda do servidor para "YYYY-MM-DD" (UTC). */
 const isoDoServidor = (valor) =>
   valor ? new Date(valor).toISOString().slice(0, 10) : '';
 
-/** Converte uma Date local para "YYYY-MM-DD" sem deslocar por fuso. */
 const isoLocal = (date) => {
   const a = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -77,13 +76,11 @@ const isoLocal = (date) => {
   return `${a}-${m}-${d}`;
 };
 
-/** "YYYY-MM-DD" -> "DD/MM/AAAA" */
 const formatarDataISO = (iso) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString('pt-BR');
 
 const maiusculo = (v) => (v || '').toUpperCase();
 
-/** Classifica a condição operacional de um lançamento. */
 const classificarOperacional = (item) => {
   const op = maiusculo(item.status_operacional);
   if (op.includes('CHUVA') || op.includes('CHOVEU')) return 'chuva';
@@ -92,7 +89,6 @@ const classificarOperacional = (item) => {
   return 'neutro';
 };
 
-/** Retorna o intervalo [início, fim] de um mês como "YYYY-MM-DD". */
 const intervaloDoMes = (tipo) => {
   const hoje = new Date();
   let ano = hoje.getFullYear();
@@ -112,7 +108,6 @@ const intervaloDoMes = (tipo) => {
   };
 };
 
-/** Retorna o símbolo para a exportação do Excel idêntico ao da grelha */
 const obterSimboloDia = (eventos) => {
   if (!eventos || eventos.length === 0) return '-';
   if (eventos.length > 1) return `+${eventos.length}`;
@@ -198,7 +193,6 @@ const s = {
    COMPONENTES PEQUENOS
    ========================================================================== */
 
-/** Etiqueta colorida genérica. */
 function Badge({ paleta, children, ...rest }) {
   return (
     <span style={s.badge(paleta)} {...rest}>
@@ -207,7 +201,6 @@ function Badge({ paleta, children, ...rest }) {
   );
 }
 
-/** Card de indicador do dashboard. */
 function CardIndicador({ rotulo, valor, icone: Icone, corIcone, bgIcone, corRotulo, corValor }) {
   return (
     <div style={{ ...s.cartao, boxShadow: 'none', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -224,7 +217,6 @@ function CardIndicador({ rotulo, valor, icone: Icone, corIcone, bgIcone, corRotu
   );
 }
 
-/** Célula da matriz (um colaborador em um dia). */
 function CelulaMatriz({ eventos }) {
   if (!eventos || eventos.length === 0) {
     return <span title="Sem registro" style={{ color: COR.slate[300], fontSize: 11 }}>—</span>;
@@ -274,7 +266,6 @@ function CelulaMatriz({ eventos }) {
   }
 }
 
-/** Legenda explicando os símbolos da matriz. */
 function LegendaMatriz() {
   const itens = [
     { paleta: PALETA.presente, simbolo: 'P', texto: 'Trabalho Normal' },
@@ -375,7 +366,6 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
 
   return (
     <div style={{ padding: 14, backgroundColor: COR.slate[50], borderRadius: 6, border: `1px solid ${COR.slate[300]}`, margin: '8px 0' }}>
-      {/* Título */}
       <div style={{ fontSize: 11, fontWeight: 'bold', color: COR.slate[800], marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Clock size={14} color="#0284c7" />
@@ -388,7 +378,6 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
         )}
       </div>
 
-      {/* Tabela */}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, backgroundColor: '#fff', borderRadius: 4, overflow: 'hidden' }}>
           <thead>
@@ -416,7 +405,6 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
                 ? `${item.hora_inicio.slice(0, 5)} - ${item.hora_fim ? item.hora_fim.slice(0, 5) : 'Em aberto'}`
                 : 'Jornada Integral';
 
-              // Trata a lista de fotos retornada do backend
               const fotos = item.fotos_anexadas
                 ? (Array.isArray(item.fotos_anexadas) 
                     ? item.fotos_anexadas 
@@ -451,7 +439,6 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
                     </Badge>
                   </td>
 
-                  {/* COLUNA OBSERVAÇÃO COM TEXTO DO DIÁRIO + ANEXOS/FOTOS */}
                   <td style={{ ...celulaDetalhe, color: COR.slate[700], minWidth: 180 }}>
                     <div>{item.observacao || 'Lançamento regular.'}</div>
                     
@@ -460,7 +447,7 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
                         {fotos.map((urlFoto, fIdx) => {
                           const urlCompleta = urlFoto.startsWith('http')
                             ? urlFoto
-                            : `http://localhost:3001${urlFoto.startsWith('/') ? '' : '/'}${urlFoto}`;
+                            : `${BASE_UPLOADS_URL}${urlFoto.startsWith('/') ? '' : '/'}${urlFoto}`;
 
                           return (
                             <a
@@ -481,7 +468,7 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
                                 borderRadius: 4,
                                 textDecoration: 'none'
                               }}
-                              title="Clique para abrir imagem original em alta resolução"
+                              title="Clique para abrir imagem original"
                             >
                               📷 Foto {fIdx + 1}
                             </a>
@@ -505,24 +492,19 @@ function DetalhesRastroFuncionario({ idFuncionario, filtros, dataSelecionadaDia 
    ========================================================================== */
 
 export default function HistoricoPresenca({ id, cargo }) {
-  // Dados
   const [dadosPresenca, setDadosPresenca] = useState([]);
   const [detalhesBrutos, setDetalhesBrutos] = useState([]);
   const [obras, setObras] = useState([]);
   const [carregando, setCarregando] = useState(false);
 
-  // Expansão / seleção
   const [funcionarioExpandido, setFuncionarioExpandido] = useState(null);
   const [diaSelecionadoMatriz, setDiaSelecionadoMatriz] = useState(null);
 
-  // Filtros
   const [opcaoPeriodo, setOpcaoPeriodo] = useState('MES_ATUAL');
   const [idObra, setIdObra] = useState('');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [termoBusca, setTermoBusca] = useState('');
-
-  /* ---------- Período ---------- */
 
   const ajustarDatasPorMes = useCallback((tipo) => {
     if (tipo !== 'MES_ATUAL' && tipo !== 'MES_ANTERIOR') return;
@@ -534,8 +516,6 @@ export default function HistoricoPresenca({ id, cargo }) {
   useEffect(() => {
     ajustarDatasPorMes('MES_ATUAL');
   }, [ajustarDatasPorMes]);
-
-  /* ---------- Carregamento de dados ---------- */
 
   useEffect(() => {
     if (!id) return;
@@ -552,7 +532,6 @@ export default function HistoricoPresenca({ id, cargo }) {
     carregarObras();
   }, [id, cargo]);
 
-  // CORREÇÃO AQUI: Chama apenas a rota consolidada da matriz geral
   const buscarDadosMatriz = useCallback(async () => {
     if (!id || !dataInicio || !dataFim) return;
 
@@ -566,8 +545,12 @@ export default function HistoricoPresenca({ id, cargo }) {
 
     setCarregando(true);
     try {
-      const resConsolidado = await axios.get(`${API_URL}/rh/historico-presenca`, { params });
+      const [resConsolidado, resDetalhes] = await Promise.all([
+        axios.get(`${API_URL}/rh/historico-presenca`, { params }),
+        axios.get(`${API_URL}/rh/historico-presenca-detalhado-geral`, { params })
+      ]);
       setDadosPresenca(resConsolidado.data || []);
+      setDetalhesBrutos(resDetalhes.data || []);
     } catch (erro) {
       console.error('Erro ao carregar matriz mensal:', erro);
     } finally {
@@ -579,9 +562,6 @@ export default function HistoricoPresenca({ id, cargo }) {
     if (id && dataInicio && dataFim) buscarDadosMatriz();
   }, [buscarDadosMatriz, id, dataInicio, dataFim]);
 
-  /* ---------- Dados derivados ---------- */
-
-  // Lista de dias do intervalo (ex.: 01 a 31)
   const listaDiasMes = useMemo(() => {
     if (!dataInicio || !dataFim) return [];
     const dias = [];
@@ -594,7 +574,6 @@ export default function HistoricoPresenca({ id, cargo }) {
     return dias;
   }, [dataInicio, dataFim]);
 
-  // { [id_funcionario]: { [YYYY-MM-DD]: [eventos] } }
   const mapaDiarioFuncionario = useMemo(() => {
     const mapa = {};
     detalhesBrutos.forEach((item) => {
@@ -644,13 +623,10 @@ export default function HistoricoPresenca({ id, cargo }) {
     { rotulo: 'Férias / Afast.', valor: totais.ferias + totais.outros, icone: Calendar, bgIcone: '#f5f3ff', corIcone: '#7c3aed', corRotulo: '#5b21b6', corValor: '#4c1d95' },
   ];
 
-  // Memorizado para não disparar nova requisição no detalhamento a cada render
   const filtrosDetalhe = useMemo(
     () => ({ id, cargo, id_obra: idObra, data_inicio: dataInicio, data_fim: dataFim }),
     [id, cargo, idObra, dataInicio, dataFim]
   );
-
-  /* ---------- Rolagem horizontal (barra espelhada no topo) ---------- */
 
   const larguraTabela = COL_EXPANDIR + COL_MATRICULA + COL_NOME + listaDiasMes.length * COL_DIA + COL_TOTAL + COL_HORAS;
 
@@ -659,7 +635,6 @@ export default function HistoricoPresenca({ id, cargo }) {
   const sincronizando = useRef(false);
   const [larguraVisivel, setLarguraVisivel] = useState(0);
 
-  // Mede a largura visível da área rolável (usada pelo painel de detalhes)
   useEffect(() => {
     const el = refCorpo.current;
     if (!el) return undefined;
@@ -670,7 +645,6 @@ export default function HistoricoPresenca({ id, cargo }) {
     return () => obs.disconnect();
   }, [carregando, dadosFiltrados.length]);
 
-  // Mantém as duas barras (topo e corpo) na mesma posição
   const sincronizarRolagem = (origem, destino) => {
     if (sincronizando.current) {
       sincronizando.current = false;
@@ -680,8 +654,6 @@ export default function HistoricoPresenca({ id, cargo }) {
     sincronizando.current = true;
     destino.current.scrollLeft = origem.current.scrollLeft;
   };
-
-  /* ---------- Ações ---------- */
 
   const alternarExpansao = (idFuncionario, dia = null) => {
     setDiaSelecionadoMatriz(dia);
@@ -695,11 +667,9 @@ export default function HistoricoPresenca({ id, cargo }) {
     ajustarDatasPorMes('MES_ATUAL');
   };
 
-  // Função que gera o arquivo Excel com o layout idêntico à Grelha Visual
   const exportarParaExcel = () => {
     if (dadosFiltrados.length === 0) return;
 
-    // 1. Montar Cabeçalho
     const cabecalho = [
       'Matrícula',
       'Colaborador',
@@ -709,11 +679,9 @@ export default function HistoricoPresenca({ id, cargo }) {
       'Total Horas'
     ];
 
-    // 2. Montar Linhas (célula a célula)
     const linhas = dadosFiltrados.map((p) => {
       const mapaFunc = mapaDiarioFuncionario[p.id_funcionario] || {};
 
-      // Obtém o símbolo/letra para cada dia do mês para o funcionário atual
       const diasDoFuncionario = listaDiasMes.map(dia => {
         const dataIso = isoLocal(dia);
         const eventosDoDia = mapaFunc[dataIso];
@@ -730,18 +698,16 @@ export default function HistoricoPresenca({ id, cargo }) {
       ];
     });
 
-    // 3. Unir e gerar o ficheiro
     const wsData = [cabecalho, ...linhas];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-    // Ajuste de largura das colunas
     const colWidths = [
-      { wch: 15 }, // Matrícula
-      { wch: 35 }, // Colaborador
-      { wch: 20 }, // Cargo
-      ...listaDiasMes.map(() => ({ wch: 6 })), // Colunas de cada dia
-      { wch: 12 }, // Total Pres.
-      { wch: 12 }  // Total Horas
+      { wch: 15 },
+      { wch: 35 },
+      { wch: 20 },
+      ...listaDiasMes.map(() => ({ wch: 6 })),
+      { wch: 12 },
+      { wch: 12 }
     ];
     ws['!cols'] = colWidths;
 
@@ -750,13 +716,10 @@ export default function HistoricoPresenca({ id, cargo }) {
     XLSX.writeFile(wb, `Matriz_Presenca_${dataInicio}_a_${dataFim}.xlsx`);
   };
 
-  /* ---------- Render ---------- */
-
   const semDados = dadosFiltrados.length === 0;
 
   return (
     <div style={s.pagina}>
-      {/* ============ CABEÇALHO ============ */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 15, fontWeight: 'bold', textTransform: 'uppercase', margin: 0, color: COR.slate[900], display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -791,9 +754,7 @@ export default function HistoricoPresenca({ id, cargo }) {
         </button>
       </div>
 
-      {/* ============ FILTROS ============ */}
       <div style={{ ...s.cartao, display: 'flex', gap: 12, flexWrap: 'wrap', padding: 14 }}>
-        {/* Período */}
         <div style={{ ...s.coluna, width: 140 }}>
           <label style={s.rotulo}>Período Mensal</label>
           <select
@@ -810,7 +771,6 @@ export default function HistoricoPresenca({ id, cargo }) {
           </select>
         </div>
 
-        {/* Busca */}
         <div style={{ ...s.coluna, flex: 1, minWidth: 200 }}>
           <label style={s.rotulo}>Pesquisar Colaborador</label>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -825,7 +785,6 @@ export default function HistoricoPresenca({ id, cargo }) {
           </div>
         </div>
 
-        {/* Obra */}
         <div style={{ ...s.coluna, flex: 1, minWidth: 200 }}>
           <label style={s.rotulo}>Filtrar por Obra</label>
           <select value={idObra} onChange={(e) => setIdObra(e.target.value)} style={{ ...s.campo, width: '100%' }}>
@@ -840,7 +799,6 @@ export default function HistoricoPresenca({ id, cargo }) {
           </select>
         </div>
 
-        {/* Datas */}
         {[
           { rotulo: 'Data Início', valor: dataInicio, setar: setDataInicio },
           { rotulo: 'Data Fim', valor: dataFim, setar: setDataFim },
@@ -859,7 +817,6 @@ export default function HistoricoPresenca({ id, cargo }) {
           </div>
         ))}
 
-        {/* Limpar */}
         <div style={{ display: 'flex', alignItems: 'flex-end' }}>
           <button
             onClick={limparFiltros}
@@ -870,7 +827,6 @@ export default function HistoricoPresenca({ id, cargo }) {
         </div>
       </div>
 
-      {/* ============ INDICADORES ============ */}
       {!carregando && !semDados && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 10 }}>
           {indicadores.map((ind) => (
@@ -879,10 +835,8 @@ export default function HistoricoPresenca({ id, cargo }) {
         </div>
       )}
 
-      {/* ============ LEGENDA ============ */}
       <LegendaMatriz />
 
-      {/* ============ MATRIZ MENSAL ============ */}
       {carregando ? (
         <div style={{ ...s.cartao, boxShadow: 'none', padding: 32, textAlign: 'center' }}>
           <p style={{ color: COR.slate[500], fontSize: 12, fontStyle: 'italic', margin: 0 }}>
@@ -895,7 +849,6 @@ export default function HistoricoPresenca({ id, cargo }) {
         </p>
       ) : (
         <div style={{ ...s.cartao, overflow: 'hidden' }}>
-          {/* Barra de rolagem espelhada (sempre visível acima da tabela) */}
           <div
             ref={refTopo}
             onScroll={() => sincronizarRolagem(refTopo, refCorpo)}
@@ -938,7 +891,6 @@ export default function HistoricoPresenca({ id, cargo }) {
                 <col style={{ width: COL_HORAS }} />
               </colgroup>
 
-              {/* ---- Cabeçalho ---- */}
               <thead>
                 <tr style={{ color: COR.slate[600], fontSize: 10, textTransform: 'uppercase' }}>
                   <th style={{ ...s.th, position: 'sticky', left: 0, top: 0, zIndex: 20, borderRight: `1px solid ${COR.slate[300]}`, textAlign: 'center' }} />
@@ -973,7 +925,6 @@ export default function HistoricoPresenca({ id, cargo }) {
                 </tr>
               </thead>
 
-              {/* ---- Corpo ---- */}
               <tbody>
                 {dadosFiltrados.map((p, index) => {
                   const expandido = funcionarioExpandido === p.id_funcionario;
@@ -996,17 +947,14 @@ export default function HistoricoPresenca({ id, cargo }) {
                   return (
                     <React.Fragment key={`${p.id_funcionario}-${index}`}>
                       <tr style={{ backgroundColor: expandido ? '#f0f9ff' : index % 2 === 0 ? '#fff' : COR.slate[50], transition: 'background-color 0.15s' }}>
-                        {/* Expandir */}
                         <td onClick={aoClicarLinha} style={fixa(0, { textAlign: 'center', color: '#0284c7' })}>
                           {expandido ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                         </td>
 
-                        {/* Matrícula */}
                         <td onClick={aoClicarLinha} style={fixa(COL_EXPANDIR, { fontWeight: 'bold', color: COR.slate[500], fontFamily: 'monospace' })}>
                           {p.matricula || '-'}
                         </td>
 
-                        {/* Nome / Cargo */}
                         <td onClick={aoClicarLinha} style={fixa(COL_NOME_LEFT, { borderRight: `2px solid ${COR.slate[300]}` })}>
                           <div style={{ fontWeight: 'bold', color: COR.slate[900], whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200 }}>
                             {p.nome_funcionario}
@@ -1016,7 +964,6 @@ export default function HistoricoPresenca({ id, cargo }) {
                           </div>
                         </td>
 
-                        {/* Dias */}
                         {listaDiasMes.map((dia) => {
                           const dataIso = isoLocal(dia);
                           const fimDeSemana = dia.getDay() === 0 || dia.getDay() === 6;
@@ -1038,18 +985,15 @@ export default function HistoricoPresenca({ id, cargo }) {
                           );
                         })}
 
-                        {/* Total Presenças */}
                         <td style={{ ...s.td, textAlign: 'center', fontWeight: 'bold', color: '#16a34a', backgroundColor: '#f0fdf4' }}>
                           {p.total_presente || 0}
                         </td>
 
-                        {/* Total Horas */}
                         <td style={{ ...s.td, textAlign: 'center', fontWeight: 'bold', color: '#0284c7', backgroundColor: '#e0f2fe' }}>
                           {p.total_horas ? `${Number(p.total_horas).toFixed(1)}h` : '0h'}
                         </td>
                       </tr>
 
-                      {/* Linha expandida */}
                       {expandido && (
                         <tr>
                           <td colSpan={listaDiasMes.length + 5} style={{ padding: 0, backgroundColor: '#f0f9ff', borderBottom: '2px solid #0284c7' }}>
